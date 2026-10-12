@@ -18,7 +18,7 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
-    "lint": "eslint \"src/app.module.ts\" \"src/canonical-auth/**/*.ts\" \"src/config/config.schema.ts\" \"src/config/config.service.ts\" \"src/contacts/canonical-*.ts\" \"src/contacts/contact-hash-migration.ts\" \"src/email/**/*.ts\" \"src/identity/**/*.ts\" \"src/policies/canonical-*.ts\" \"src/redis/redis.service.ts\" \"src/security/phone-hash/**/*.ts\" \"src/security/redis-throttler.storage.ts\" \"src/types/**/*.ts\" \"src/user/canonical-*.ts\" \"src/user/profile.controller.ts\" \"test/setup.ts\"",
+    "lint": "eslint \"src/app.module.ts\" \"src/canonical-auth/**/*.ts\" \"src/config/config.schema.ts\" \"src/config/config.service.ts\" \"src/contacts/canonical-*.ts\" \"src/contacts/contact-hash-migration.ts\" \"src/email/**/*.ts\" \"src/identity/**/*.ts\" \"src/policies/canonical-*.ts\" \"src/security/phone-hash/**/*.ts\" \"src/security/redis-throttler.storage.ts\" \"src/types/**/*.ts\" \"src/user/canonical-*.ts\" \"src/user/profile.controller.ts\"",
     "lint:all": "eslint \"{src,apps,libs,test}/**/*.ts\"",
     "test:prepare": "npm run prisma:generate:runtime",
     "test": "npm run test:prepare && node ./node_modules/jest/bin/jest.js",
