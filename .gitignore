@@ -1,0 +1,27 @@
+# Repository-wide generated dependencies and build output.
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/.nyc_output/
+**/*.tsbuildinfo
+**/.cache/
+**/.tmp/
+**/logs/*.log
+
+# Local environment configuration. Keep only sanitized examples/templates.
+.env
+.env.*
+!.env.example
+!.env.template
+
+# Private local credentials and generated signing material.
+**/key.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*_private.pem
+
+# OS/editor noise.
+.DS_Store
+.idea/

@@ -1,0 +1,33 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Enforce conventional commit format
+# Format: type(scope?): subject
+# Examples:
+#   feat(auth): add OAuth2 support
+#   fix(api): resolve rate limit bug
+#   docs: update README
+
+commit_msg_file=$1
+commit_msg=$(cat "$commit_msg_file")
+
+# Conventional commit regex
+conventional_commit_regex='^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?: .{1,100}'
+
+if ! echo "$commit_msg" | grep -Eq "$conventional_commit_regex"; then
+  echo "❌ Invalid commit message format!"
+  echo ""
+  echo "Commit message must follow conventional commits:"
+  echo "  <type>(<scope>): <subject>"
+  echo ""
+  echo "Types: feat, fix, docs, style, refactor, perf, test, chore, ci, build, revert"
+  echo ""
+  echo "Examples:"
+  echo "  feat(auth): add OAuth2 support"
+  echo "  fix(api): resolve rate limit bug"  
+  echo "  docs: update README"
+  echo ""
+  exit 1
+fi
+
+echo "✅ Commit message format valid!"

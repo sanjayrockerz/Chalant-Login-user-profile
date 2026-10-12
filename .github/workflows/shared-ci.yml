@@ -1,0 +1,228 @@
+name: Shared Libraries Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'packages/**'
+      - 'libs/**'
+      - '.github/workflows/shared-ci.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'packages/**'
+      - 'libs/**'
+      - '.github/workflows/shared-ci.yml'
+  workflow_dispatch:
+    inputs:
+      run_all:
+        description: 'Run against every shared package irrespective of changes'
+        required: false
+        default: 'false'
+
+env:
+  NODE_VERSION: '20'
+
+concurrency:
+  group: shared-libs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  detect:
+    name: Detect changed libraries
+    runs-on: ubuntu-latest
+    outputs:
+      has_changes: ${{ steps.collect.outputs.has_changes }}
+      matrix: ${{ steps.collect.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Collect impacted packages
+        id: collect
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const path = require('path');
+            const fs = require('fs');
+            const roots = ['packages', 'libs'];
+            const touched = new Set();
+            const runAll = context.eventName === 'workflow_dispatch' && (context.payload.inputs?.run_all || 'false') === 'true';
+
+            async function addFromFiles(files) {
+              for (const file of files || []) {
+                if (!file) continue;
+                for (const root of roots) {
+                  if (file.startsWith(`${root}/`)) {
+                    const parts = file.split('/');
+                    if (parts.length >= 2 && parts[1]) {
+                      touched.add(`${root}/${parts[1]}`);
+                    }
+                  }
+                }
+              }
+            }
+
+            if (context.eventName === 'pull_request') {
+              const files = await github.paginate(
+                github.rest.pulls.listFiles,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.pull_request.number,
+                  per_page: 100
+                },
+                (response) => response.data.map((file) => file.filename)
+              );
+              await addFromFiles(files);
+            } else if (context.eventName === 'push') {
+              const before = context.payload.before;
+              const after = context.sha;
+              if (before) {
+                const files = await github.paginate(
+                  github.rest.repos.compareCommits,
+                  {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    base: before,
+                    head: after,
+                    per_page: 100
+                  },
+                  (response) => (response.data.files || []).map((file) => file.filename)
+                );
+                await addFromFiles(files);
+              }
+            }
+
+            if (runAll || touched.size === 0) {
+              const workspace = process.cwd();
+              for (const root of roots) {
+                const dir = path.join(workspace, root);
+                if (!fs.existsSync(dir)) continue;
+                for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+                  if (entry.isDirectory()) {
+                    touched.add(path.posix.join(root, entry.name));
+                  }
+                }
+              }
+            }
+
+            const matrix = Array.from(touched).sort();
+            core.info(`Libraries to validate: ${matrix.length ? matrix.join(', ') : 'none'}`);
+            core.setOutput('has_changes', matrix.length > 0 ? 'true' : 'false');
+            core.setOutput('matrix', JSON.stringify(matrix));
+
+  test_and_build:
+    name: Build & Test ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    needs: detect
+    if: needs.detect.outputs.has_changes == 'true'
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.matrix) }}
+      fail-fast: false
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            ${{ matrix.package }}/package-lock.json
+            ${{ matrix.package }}/pnpm-lock.yaml
+            ${{ matrix.package }}/yarn.lock
+
+      - name: Cache node_modules
+        uses: actions/cache@v3
+        with:
+          path: ${{ matrix.package }}/node_modules
+          key: ${{ runner.os }}-shared-libs-${{ hashFiles(format('{0}/package-lock.json', matrix.package), format('{0}/pnpm-lock.yaml', matrix.package), format('{0}/yarn.lock', matrix.package), format('{0}/package.json', matrix.package)) }}
+          restore-keys: |
+            ${{ runner.os }}-shared-libs-
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          corepack enable
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install
+          fi
+
+      - name: Lint
+        run: npm run lint --if-present
+
+      - name: Type-check
+        run: npm run type-check --if-present
+
+      - name: Build package
+        run: npm run build --if-present
+
+      - name: Run tests with coverage
+        run: |
+          set -euo pipefail
+          if npx vitest --version >/dev/null 2>&1; then
+            npx vitest run --coverage --coverage.reporter=lcov --coverage.reporter=text-summary
+          elif npm run --silent | grep -q "test"; then
+            npm test
+          else
+            echo 'No tests defined; skipping.'
+          fi
+
+      - name: Prepare coverage artifact
+        id: coverage
+        run: |
+          set -euo pipefail
+          if [ -f coverage/lcov.info ]; then
+            echo "has_lcov=true" >> "$GITHUB_OUTPUT"
+          elif [ -f coverage/coverage-final.json ]; then
+            npx c8 report --reporter=lcov --report-dir=coverage || true
+            if [ -f coverage/lcov.info ]; then
+              echo "has_lcov=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "has_lcov=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "has_lcov=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Upload coverage artifact
+        if: steps.coverage.outputs.has_lcov == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-coverage
+          path: coverage/lcov.info
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        if: steps.coverage.outputs.has_lcov == 'true'
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ matrix.package }}/coverage/lcov.info
+          flags: shared-libs
+          fail_ci_if_error: false
+          verbose: true
+
+      - name: Upload dist artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.package }}-dist
+          path: dist
+          if-no-files-found: ignore

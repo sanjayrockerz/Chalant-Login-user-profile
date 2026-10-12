@@ -1,0 +1,14 @@
+
+# Ignore build artifacts and node_modules
+**/dist
+**/node_modules
+*.tsbuildinfo
+
+# Local environment and private credential material.
+.env
+.env.*
+!.env.example
+key.pem
+*.key
+*.p12
+*.pfx

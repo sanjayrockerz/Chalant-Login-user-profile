@@ -1,0 +1,389 @@
+{
+  "folders": [
+    {
+      "path": "."
+    }
+  ],
+  "settings": {
+    // Editor
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit",
+      "source.organizeImports": "explicit"
+    },
+    "editor.defaultFormatter": "esbenp.prettier-vscode",
+    "editor.tabSize": 2,
+    "editor.rulers": [80, 120],
+    "editor.bracketPairColorization.enabled": true,
+    "editor.guides.bracketPairs": true,
+    "editor.inlineSuggest.enabled": true,
+    "editor.suggestSelection": "first",
+    "editor.snippetSuggestions": "top",
+    
+    // Files
+    "files.exclude": {
+      "**/.git": true,
+      "**/.DS_Store": true,
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.next": true,
+      "**/coverage": true,
+      "**/.turbo": true
+    },
+    "files.watcherExclude": {
+      "**/node_modules/**": true,
+      "**/dist/**": true,
+      "**/.next/**": true
+    },
+    "files.associations": {
+      "*.prisma": "prisma",
+      "*.yml": "yaml",
+      "*.yaml": "yaml"
+    },
+    "files.autoSave": "onFocusChange",
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    
+    // TypeScript
+    "typescript.updateImportsOnFileMove.enabled": "always",
+    "typescript.preferences.importModuleSpecifier": "relative",
+    "typescript.suggest.autoImports": true,
+    "typescript.inlayHints.parameterNames.enabled": "all",
+    "typescript.inlayHints.variableTypes.enabled": true,
+    "typescript.inlayHints.propertyDeclarationTypes.enabled": true,
+    "typescript.inlayHints.functionLikeReturnTypes.enabled": true,
+    
+    // JavaScript
+    "javascript.updateImportsOnFileMove.enabled": "always",
+    "javascript.suggest.autoImports": true,
+    
+    // Prettier
+    "prettier.singleQuote": true,
+    "prettier.trailingComma": "es5",
+    "prettier.printWidth": 100,
+    "prettier.tabWidth": 2,
+    "prettier.semi": true,
+    "prettier.arrowParens": "avoid",
+    
+    // ESLint
+    "eslint.validate": [
+      "javascript",
+      "javascriptreact",
+      "typescript",
+      "typescriptreact"
+    ],
+    "eslint.workingDirectories": [
+      "./services/personal-email-signup-backend",
+      "./services/login-page-back"
+    ],
+    
+    // Search
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/.next": true,
+      "**/coverage": true,
+      "**/.turbo": true,
+      "**/package-lock.json": true,
+      "**/pnpm-lock.yaml": true,
+      "**/yarn.lock": true
+    },
+    
+    // Git
+    "git.autofetch": true,
+    "git.confirmSync": false,
+    "git.enableSmartCommit": true,
+    "git.suggestSmartCommit": false,
+    
+    // Terminal
+    "terminal.integrated.defaultProfile.osx": "zsh",
+    "terminal.integrated.fontFamily": "MesloLGS NF",
+    "terminal.integrated.fontSize": 13,
+    "terminal.integrated.scrollback": 10000,
+    "terminal.integrated.shellIntegration.enabled": true,
+    
+    // Testing
+    "jest.autoRun": "off",
+    "jest.showCoverageOnLoad": true,
+    "jest.testExplorer.enabled": true,
+    
+    // Prisma
+    "prisma.fileWatcher": true,
+    "[prisma]": {
+      "editor.defaultFormatter": "Prisma.prisma"
+    },
+    
+    // Markdown
+    "[markdown]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.wordWrap": "on",
+      "editor.quickSuggestions": {
+        "comments": "on",
+        "strings": "on",
+        "other": "on"
+      }
+    },
+    
+    // JSON
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[jsonc]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    
+    // YAML
+    "[yaml]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.autoIndent": "advanced"
+    },
+    
+    // Spell checking
+    "cSpell.words": [
+      "signup",
+      "signin",
+      "nestjs",
+      "prisma",
+      "typeorm",
+      "bcrypt",
+      "jsonwebtoken",
+      "nodemailer",
+      "pnpm",
+      "turborepo",
+      "kubectl",
+      "kubernetes",
+      "dockerize",
+      "microservices",
+      "winston",
+      "observability",
+      "prometheus",
+      "grafana",
+      "loki",
+      "jaeger",
+      "opentelemetry",
+      "otel"
+    ],
+    
+    // Path Intellisense
+    "path-intellisense.mappings": {
+      "@": "${workspaceRoot}/src"
+    },
+    
+    // Todo Tree
+    "todo-tree.general.tags": [
+      "TODO",
+      "FIXME",
+      "NOTE",
+      "HACK",
+      "XXX",
+      "BUG"
+    ],
+    "todo-tree.highlights.defaultHighlight": {
+      "icon": "alert",
+      "type": "text",
+      "foreground": "#fff",
+      "background": "#ffbd2e",
+      "iconColour": "#ffbd2e"
+    },
+    "todo-tree.highlights.customHighlight": {
+      "TODO": {
+        "icon": "check",
+        "iconColour": "#ffbd2e"
+      },
+      "FIXME": {
+        "icon": "alert",
+        "iconColour": "#f06292"
+      },
+      "BUG": {
+        "icon": "bug",
+        "iconColour": "#f44336"
+      }
+    },
+    
+    // Code Coverage
+    "coverage-gutters.showLineCoverage": true,
+    "coverage-gutters.showRulerCoverage": true,
+    
+    // Git Lens
+    "gitlens.codeLens.enabled": true,
+    "gitlens.currentLine.enabled": true,
+    
+    // Better Comments
+    "better-comments.tags": [
+      {
+        "tag": "!",
+        "color": "#FF2D00",
+        "strikethrough": false,
+        "underline": false,
+        "backgroundColor": "transparent",
+        "bold": false,
+        "italic": false
+      },
+      {
+        "tag": "?",
+        "color": "#3498DB",
+        "strikethrough": false,
+        "underline": false,
+        "backgroundColor": "transparent",
+        "bold": false,
+        "italic": false
+      },
+      {
+        "tag": "//",
+        "color": "#474747",
+        "strikethrough": true,
+        "underline": false,
+        "backgroundColor": "transparent",
+        "bold": false,
+        "italic": false
+      },
+      {
+        "tag": "todo",
+        "color": "#FF8C00",
+        "strikethrough": false,
+        "underline": false,
+        "backgroundColor": "transparent",
+        "bold": false,
+        "italic": false
+      },
+      {
+        "tag": "*",
+        "color": "#98C379",
+        "strikethrough": false,
+        "underline": false,
+        "backgroundColor": "transparent",
+        "bold": false,
+        "italic": false
+      }
+    ],
+    
+    // Docker
+    "docker.defaultRegistryPath": "",
+    
+    // Kubernetes
+    "vs-kubernetes": {
+      "vs-kubernetes.namespace": "production"
+    }
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "Debug NestJS",
+        "runtimeExecutable": "npm",
+        "runtimeArgs": ["run", "start:debug"],
+        "cwd": "${workspaceFolder}/services/personal-email-signup-backend",
+        "console": "integratedTerminal",
+        "skipFiles": ["<node_internals>/**"],
+        "sourceMaps": true,
+        "outFiles": ["${workspaceFolder}/services/personal-email-signup-backend/dist/**/*.js"]
+      },
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "Jest Current File",
+        "program": "${workspaceFolder}/services/personal-email-signup-backend/node_modules/.bin/jest",
+        "args": [
+          "${fileBasenameNoExtension}",
+          "--config",
+          "${workspaceFolder}/services/personal-email-signup-backend/jest.config.js"
+        ],
+        "console": "integratedTerminal",
+        "internalConsoleOptions": "neverOpen",
+        "disableOptimisticBPs": true,
+        "windows": {
+          "program": "${workspaceFolder}/services/personal-email-signup-backend/node_modules/jest/bin/jest"
+        }
+      },
+      {
+        "type": "node",
+        "request": "launch",
+        "name": "Jest All",
+        "program": "${workspaceFolder}/services/personal-email-signup-backend/node_modules/.bin/jest",
+        "args": [
+          "--runInBand",
+          "--config",
+          "${workspaceFolder}/services/personal-email-signup-backend/jest.config.js"
+        ],
+        "console": "integratedTerminal",
+        "internalConsoleOptions": "neverOpen"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Start Dev Server",
+        "type": "npm",
+        "script": "start:dev",
+        "path": "services/personal-email-signup-backend/",
+        "group": {
+          "kind": "build",
+          "isDefault": true
+        },
+        "isBackground": true,
+        "problemMatcher": {
+          "pattern": {
+            "regexp": "^(.*)$",
+            "file": 1,
+            "location": 2,
+            "message": 3
+          },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "^.*Starting Nest application.*",
+            "endsPattern": "^.*Nest application successfully started.*"
+          }
+        }
+      },
+      {
+        "label": "Run Tests",
+        "type": "npm",
+        "script": "test",
+        "path": "services/personal-email-signup-backend/",
+        "group": {
+          "kind": "test",
+          "isDefault": true
+        },
+        "presentation": {
+          "reveal": "always",
+          "panel": "new"
+        }
+      },
+      {
+        "label": "Run Lint",
+        "type": "npm",
+        "script": "lint",
+        "path": "services/personal-email-signup-backend/",
+        "problemMatcher": ["$eslint-stylish"]
+      },
+      {
+        "label": "Prisma Generate",
+        "type": "shell",
+        "command": "npx prisma generate",
+        "options": {
+          "cwd": "${workspaceFolder}/services/personal-email-signup-backend"
+        }
+      },
+      {
+        "label": "Prisma Migrate Dev",
+        "type": "shell",
+        "command": "npx prisma migrate dev",
+        "options": {
+          "cwd": "${workspaceFolder}/services/personal-email-signup-backend"
+        }
+      },
+      {
+        "label": "Docker Build",
+        "type": "shell",
+        "command": "docker build -t signup-backend:local .",
+        "options": {
+          "cwd": "${workspaceFolder}/services/personal-email-signup-backend"
+        }
+      }
+    ]
+  }
+}

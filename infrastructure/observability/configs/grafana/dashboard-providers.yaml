@@ -1,0 +1,35 @@
+apiVersion: 1
+
+providers:
+  # Service-level dashboards
+  - name: 'service-dashboards'
+    orgId: 1
+    folder: 'Service Dashboards'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/service-level
+
+  # Cross-cutting concern dashboards
+  - name: 'cross-cutting-dashboards'
+    orgId: 1
+    folder: 'Cross-Cutting Concerns'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/cross-cutting
+
+  # Infrastructure dashboards
+  - name: 'infrastructure-dashboards'
+    orgId: 1
+    folder: 'Infrastructure'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 10
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards/infrastructure

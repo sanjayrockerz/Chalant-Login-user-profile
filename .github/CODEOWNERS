@@ -1,0 +1,104 @@
+# Code Owners Configuration
+# This file defines code ownership for the auth-services-monorepo
+# Teams are automatically notified when changes are made to their areas of responsibility
+# All paths are relative to the repository root
+
+# =============================================================================
+# GLOBAL OWNERSHIP - Repository administrators for critical files
+# =============================================================================
+
+# Repository configuration and governance
+/.github/ @org/devops-infra @org/security-guild
+/.github/CODEOWNERS @org/devops-infra
+/.github/workflows/ @org/devops-infra
+/.github/ISSUE_TEMPLATE/ @org/tech-docs
+/.github/PULL_REQUEST_TEMPLATE.md @org/tech-docs
+
+# Root level documentation and configuration
+/README.md @org/tech-docs @org/platform-core
+/CONTRIBUTING.md @org/tech-docs @org/platform-core
+/package.json @org/devops-infra @org/platform-core
+/package-lock.json @org/devops-infra @org/platform-core
+/.vscode/ @org/devops-infra
+/.gitignore @org/devops-infra
+
+# =============================================================================
+# SERVICE OWNERSHIP - Core service development teams
+# =============================================================================
+
+# Personal Email Signup Backend Service (NestJS)
+/services/personal-email-signup-backend/ @org/identity-platform @org/platform-core
+/services/personal-email-signup-backend/src/auth/ @org/authn-authz @org/identity-platform
+/services/personal-email-signup-backend/src/security/ @org/security-guild @org/identity-platform
+/services/personal-email-signup-backend/prisma/ @org/data-platform @org/identity-platform
+/services/personal-email-signup-backend/package.json @org/devops-infra @org/identity-platform
+
+# Login Page Backend Service (Express/NestJS)
+/services/login-page-back/ @org/session-platform @org/platform-core
+/services/login-page-back/src/auth/ @org/authn-authz
+/services/login-page-back/src/security/ @org/security-guild @org/authn-authz
+/services/login-page-back/database/ @org/data-platform @org/session-platform
+/services/login-page-back/infrastructure/ @org/devops-infra @org/session-platform
+
+# =============================================================================
+# SHARED COMPONENTS - Cross-cutting concerns requiring multi-team approval
+# =============================================================================
+
+# Shared source code and libraries
+/src/ @org/platform-core @org/identity-platform @org/session-platform
+/src/auth/ @org/authn-authz
+/src/common/ @org/platform-core
+/src/shared/ @org/platform-core
+
+# Infrastructure and deployment scripts
+/scripts/ @org/devops-infra
+/scripts/deployment/ @org/devops-infra @org/security-guild
+/scripts/security/ @org/security-guild @org/devops-infra
+/scripts/database/ @org/data-platform @org/devops-infra
+
+# Database and infrastructure
+/db/ @org/data-platform @org/devops-infra
+/logs/ @org/devops-infra
+
+# =============================================================================
+# DOCUMENTATION - Technical writing and architecture decisions
+# =============================================================================
+
+# Documentation and architecture
+/docs/ @org/tech-docs
+/docs/adr/ @org/tech-docs @org/platform-core @org/devops-infra
+/docs/api/ @org/tech-docs @org/platform-core
+/docs/security/ @org/security-guild @org/tech-docs
+/docs/deployment/ @org/devops-infra @org/tech-docs
+/docs/GOVERNANCE.md @org/platform-core @org/tech-docs
+
+# =============================================================================
+# SECURITY AND POLICIES - Security team oversight required
+# =============================================================================
+
+# Security policies and compliance
+/policies/ @org/security-guild
+/SECURITY_COMPLIANCE.md @org/security-guild
+/DATA_RETENTION_POLICY.md @org/security-guild @org/tech-docs
+
+# =============================================================================
+# EMERGENCY CONTACTS AND FALLBACKS
+# =============================================================================
+
+# For files not covered by specific patterns above, require approval from:
+# 1. The relevant domain owning team lead
+# 2. @org/devops-infra for infrastructure considerations
+# 3. @org/security-guild for security-sensitive changes
+
+# Emergency contacts (when teams are unavailable):
+# Platform Operations: platform-ops@company.com
+# Security Incident Desk: security-incident@company.com
+# Engineering Duty Manager: edm@company.com
+
+# =============================================================================
+# PATTERN PRIORITY (GitHub processes patterns in order)
+# =============================================================================
+# 1. Most specific patterns first (exact file paths)
+# 2. Directory patterns with wildcards
+# 3. Broader directory patterns
+# 4. Global patterns last

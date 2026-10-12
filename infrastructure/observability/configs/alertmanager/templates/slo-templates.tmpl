@@ -1,0 +1,206 @@
+{{ define "__slo_alert_title" }}
+{{- if eq .Status "firing" -}}
+🚨 SLO VIOLATION
+{{- else -}}
+✅ SLO RESOLVED
+{{- end -}} - {{ .GroupLabels.service | upper }}
+{{ end }}
+
+{{ define "__slo_alert_color" }}
+{{- if eq .Status "firing" -}}
+  {{- if eq (index .Alerts 0).Labels.severity "critical" -}}
+    danger
+  {{- else if eq (index .Alerts 0).Labels.severity "warning" -}}
+    warning
+  {{- else -}}
+    good
+  {{- end -}}
+{{- else -}}
+  good
+{{- end -}}
+{{ end }}
+
+{{ define "__slo_summary_text" }}
+{{- range .Alerts -}}
+*Service:* {{ .Labels.service }}
+*SLO Type:* {{ .Labels.slo_type | title }}
+*Environment:* {{ .Labels.environment }}
+*Severity:* {{ .Labels.severity | upper }}
+
+*Description:*
+{{ .Annotations.description }}
+
+{{- if .Annotations.correlation_id }}
+*Correlation ID:* `{{ .Annotations.correlation_id }}`
+{{- end }}
+{{- if .Annotations.trace_id }}
+*Trace ID:* `{{ .Annotations.trace_id }}`
+{{- end }}
+
+*Quick Actions:*
+• 📊 <{{ .Annotations.grafana_url }}|View Dashboard>
+• 📖 <{{ .Annotations.runbook_url }}|Runbook>
+{{- if .Annotations.logs_url }}
+• 📝 <{{ .Annotations.logs_url }}|View Logs>
+{{- end }}
+
+---
+{{- end }}
+{{ end }}
+
+{{ define "__slo_pagerduty_description" }}
+{{- $alert := index .Alerts 0 -}}
+SLO Violation - {{ $alert.Labels.service }}: {{ $alert.Labels.slo_type }} ({{ $alert.Labels.severity }})
+{{ end }}
+
+{{ define "__slo_recovery_text" }}
+{{- range .Alerts -}}
+✅ *Recovery Confirmed*
+
+*Service:* {{ .Labels.service }}
+*SLO Type:* {{ .Labels.slo_type | title }}
+*Environment:* {{ .Labels.environment }}
+
+{{ .Annotations.description }}
+
+The service has returned to acceptable SLO performance levels.
+
+*Dashboard:* <{{ .Annotations.grafana_url }}|View Current Status>
+
+---
+{{- end }}
+{{ end }}
+
+{{ define "__error_budget_text" }}
+{{- range .Alerts -}}
+📊 *Error Budget Alert*
+
+*Service:* {{ .Labels.service }}
+*SLO Type:* {{ .Labels.slo_type | title }}
+*Environment:* {{ .Labels.environment }}
+
+{{ .Annotations.description }}
+
+*Recommended Actions:*
+• Review recent deployments and changes
+• Investigate error patterns and trends
+• Consider implementing reliability improvements
+• Update capacity planning if needed
+
+*Links:*
+• 📊 <{{ .Annotations.grafana_url }}|View SLO Dashboard>
+• 📖 <{{ .Annotations.runbook_url }}|Error Budget Management Runbook>
+
+---
+{{- end }}
+{{ end }}
+
+{{ define "__tenant_alert_text" }}
+{{- range .Alerts -}}
+🏢 *Tenant-Specific SLO Alert*
+
+*Tenant:* {{ .Labels.tenant_id }}
+*Service:* {{ .Labels.service }}
+*SLO Type:* {{ .Labels.slo_type | title }}
+*Severity:* {{ .Labels.severity | upper }}
+
+{{ .Annotations.description }}
+
+*Business Impact:* This affects a specific tenant and may require immediate customer communication.
+
+{{- if .Annotations.correlation_id }}
+*Correlation ID:* `{{ .Annotations.correlation_id }}`
+{{- end }}
+
+*Actions:*
+• 📊 <{{ .Annotations.grafana_url }}|View Tenant Dashboard>
+• 📖 <{{ .Annotations.runbook_url }}|Tenant Incident Runbook>
+• 📞 Consider customer communication if prolonged
+
+---
+{{- end }}
+{{ end }}
+
+{{ define "slack.slo.critical.title" }}{{ template "__slo_alert_title" . }}{{ end }}
+{{ define "slack.slo.critical.text" }}{{ template "__slo_summary_text" . }}{{ end }}
+
+{{ define "slack.slo.warning.title" }}⚠️ SLO WARNING - {{ .GroupLabels.service | upper }}{{ end }}
+{{ define "slack.slo.warning.text" }}{{ template "__slo_summary_text" . }}{{ end }}
+
+{{ define "slack.slo.recovery.title" }}✅ SLO RECOVERY - {{ .GroupLabels.service | upper }}{{ end }}
+{{ define "slack.slo.recovery.text" }}{{ template "__slo_recovery_text" . }}{{ end }}
+
+{{ define "slack.error.budget.title" }}📊 ERROR BUDGET ALERT - {{ .GroupLabels.service | upper }}{{ end }}
+{{ define "slack.error.budget.text" }}{{ template "__error_budget_text" . }}{{ end }}
+
+{{ define "slack.tenant.alert.title" }}🏢 TENANT SLO ALERT - {{ .GroupLabels.service | upper }}{{ end }}
+{{ define "slack.tenant.alert.text" }}{{ template "__tenant_alert_text" . }}{{ end }}
+
+{{ define "pagerduty.slo.description" }}{{ template "__slo_pagerduty_description" . }}{{ end }}
+
+{{ define "email.slo.subject" }}
+{{- if eq .Status "firing" -}}
+[ALERT] SLO Violation - {{ .GroupLabels.service }}
+{{- else -}}
+[RESOLVED] SLO Violation - {{ .GroupLabels.service }}
+{{- end -}}
+{{ end }}
+
+{{ define "email.slo.body" }}
+<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .alert-header { background-color: #f8f9fa; padding: 20px; border-left: 5px solid #dc3545; margin-bottom: 20px; }
+        .alert-critical { border-left-color: #dc3545; }
+        .alert-warning { border-left-color: #ffc107; }
+        .alert-resolved { border-left-color: #28a745; }
+        .service-name { font-size: 24px; font-weight: bold; margin-bottom: 10px; }
+        .alert-details { background-color: #f8f9fa; padding: 15px; margin: 15px 0; border-radius: 5px; }
+        .action-links { margin-top: 20px; }
+        .action-links a { display: inline-block; padding: 10px 15px; background-color: #007bff; color: white; text-decoration: none; border-radius: 5px; margin-right: 10px; }
+        .correlation-id { font-family: monospace; background-color: #e9ecef; padding: 2px 5px; border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="alert-header alert-{{ if eq .Status "firing" }}{{ (index .Alerts 0).Labels.severity }}{{ else }}resolved{{ end }}">
+        <div class="service-name">
+            {{ if eq .Status "firing" }}🚨 SLO VIOLATION{{ else }}✅ SLO RESOLVED{{ end }} - {{ .GroupLabels.service | upper }}
+        </div>
+        <p><strong>Status:</strong> {{ .Status | title }}</p>
+        <p><strong>Time:</strong> {{ .CommonAnnotations.timestamp | date "2006-01-02 15:04:05 MST" }}</p>
+    </div>
+
+    {{ range .Alerts }}
+    <div class="alert-details">
+        <h3>{{ .Labels.service }} - {{ .Labels.slo_type | title }} SLO</h3>
+        <p><strong>Environment:</strong> {{ .Labels.environment }}</p>
+        <p><strong>Severity:</strong> {{ .Labels.severity | upper }}</p>
+        
+        <h4>Description:</h4>
+        <p>{{ .Annotations.description }}</p>
+        
+        {{ if .Annotations.correlation_id }}
+        <p><strong>Correlation ID:</strong> <span class="correlation-id">{{ .Annotations.correlation_id }}</span></p>
+        {{ end }}
+        
+        {{ if .Annotations.trace_id }}
+        <p><strong>Trace ID:</strong> <span class="correlation-id">{{ .Annotations.trace_id }}</span></p>
+        {{ end }}
+        
+        <div class="action-links">
+            <a href="{{ .Annotations.grafana_url }}">📊 View Dashboard</a>
+            <a href="{{ .Annotations.runbook_url }}">📖 View Runbook</a>
+            {{ if .Annotations.logs_url }}
+            <a href="{{ .Annotations.logs_url }}">📝 View Logs</a>
+            {{ end }}
+        </div>
+    </div>
+    {{ end }}
+
+    <hr>
+    <p><small>This alert was generated by Prometheus Alertmanager. For questions, contact the Platform Engineering team.</small></p>
+</body>
+</html>
+{{ end }}

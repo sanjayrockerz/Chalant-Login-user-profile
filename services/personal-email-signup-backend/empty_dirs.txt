@@ -1,0 +1,16 @@
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/.husky
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/infra
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/docs/production-readiness
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/docs/migration
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/.github/workflows
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/.github/ISSUE_TEMPLATE
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/db/migrations
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/database
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/types
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/redis
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/health
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/feature-flags
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/policies
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/testing
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/deployment
+/Users/harishraghave/Desktop/colleging/on-boarding:auth system/services/personal-email-signup-backend/src/device

@@ -1,0 +1,281 @@
+receivers:
+  # OpenTelemetry Protocol receivers
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # Prometheus receiver for metrics collection
+  prometheus:
+    config:
+      global:
+        scrape_interval: 30s
+        external_labels:
+          cluster: auth-services
+          source: otel-collector
+      scrape_configs:
+        # Scrape auth services metrics
+        - job_name: 'auth-signup-service'
+          static_configs:
+            - targets: ['host.docker.internal:3001']
+          metrics_path: '/metrics'
+          scrape_interval: 30s
+          params:
+            format: ['prometheus']
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: service
+              replacement: 'personal-email-signup-backend'
+            - source_labels: [__address__]
+              target_label: environment
+              replacement: 'development'
+
+        - job_name: 'auth-login-service'
+          static_configs:
+            - targets: ['host.docker.internal:8000']
+          metrics_path: '/metrics'
+          scrape_interval: 30s
+          params:
+            format: ['prometheus']
+          relabel_configs:
+            - source_labels: [__address__]
+              target_label: service
+              replacement: 'login-page-back'
+            - source_labels: [__address__]
+              target_label: environment
+              replacement: 'development'
+
+        # Self-monitoring
+        - job_name: 'otel-collector'
+          static_configs:
+            - targets: ['localhost:8888']
+          metrics_path: '/metrics'
+
+  # Log receivers
+  filelog:
+    include:
+      # Auth service log files
+      - /app/signup-service/logs/*.log
+      - /app/login-service/logs/*.log
+      - /var/log/auth-services/*.log
+    exclude:
+      # Exclude binary and temporary files
+      - /app/*/logs/*.tmp
+      - /app/*/logs/*.backup
+    operators:
+      # Parse JSON logs
+      - type: json_parser
+        id: json_parser
+        timestamp:
+          parse_from: attributes.timestamp
+          layout_type: epoch
+          layout: s
+      
+      # Extract log level
+      - type: severity_parser
+        parse_from: attributes.level
+        mapping:
+          debug: debug
+          info: info
+          warn: warn
+          error: error
+          fatal: fatal
+      
+      # Add service metadata
+      - type: add
+        field: attributes.collector
+        value: "otel-collector"
+      
+      # Extract correlation_id and tenant_id
+      - type: regex_parser
+        regex: '.*"correlation_id":"(?P<correlation_id>[^"]*)".*'
+        parse_from: body
+      - type: regex_parser
+        regex: '.*"tenant_id":"(?P<tenant_id>[^"]*)".*'
+        parse_from: body
+
+processors:
+  # Batch processing for efficiency
+  batch:
+    timeout: 1s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 1s
+
+  # Resource processor to add metadata
+  resource:
+    attributes:
+      - key: service.namespace
+        value: auth-services
+        action: insert
+      - key: deployment.environment
+        value: development
+        action: insert
+      - key: service.version
+        from_attribute: version
+        action: upsert
+
+  # Attribute processor for trace correlation
+  attributes:
+    actions:
+      # Ensure correlation_id is propagated
+      - key: correlation_id
+        action: upsert
+        from_attribute: correlation.id
+      # Ensure tenant_id is propagated
+      - key: tenant_id
+        action: upsert
+        from_attribute: tenant.id
+      # Add service metadata
+      - key: service.instance.id
+        from_attribute: service.instance.id
+        action: upsert
+
+  # Tail sampling for traces (keep only interesting traces)
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 10000
+    expected_new_traces_per_sec: 100
+    policies:
+      # Always sample error traces
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      # Sample slow traces (> 1s)
+      - name: slow_traces
+        type: latency
+        latency:
+          threshold_ms: 1000
+      # Random sampling for normal traces
+      - name: random_sampling
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 10
+
+  # Filter processor to remove PII
+  filter:
+    logs:
+      log_record:
+        # Remove logs containing potential PII patterns
+        - 'IsMatch(body, "password|token|secret|key|authorization|bearer") == true'
+        - 'IsMatch(attributes["message"], "password|token|secret|key|authorization|bearer") == true'
+    traces:
+      span:
+        # Remove spans with PII in attributes
+        - 'IsMatch(attributes["http.request.header.authorization"], ".*") == true'
+        - 'IsMatch(attributes["password"], ".*") == true'
+        - 'IsMatch(attributes["token"], ".*") == true'
+
+exporters:
+  # Export traces to Tempo
+  otlp/tempo:
+    endpoint: http://tempo:4317
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Export logs to Loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    tenant_id: "auth-services"
+    format: json
+    labels:
+      attributes:
+        service: "service.name"
+        level: "severity"
+        environment: "deployment.environment"
+        correlation_id: "correlation_id"
+        tenant_id: "tenant_id"
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 1000
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 300s
+
+  # Export metrics to Prometheus
+  prometheus:
+    endpoint: "0.0.0.0:8889"
+    namespace: "otel"
+    const_labels:
+      cluster: "auth-services"
+      environment: "development"
+
+  # Remote write to Prometheus for metrics
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    tls:
+      insecure: true
+    sending_queue:
+      enabled: true
+      num_consumers: 10
+      queue_size: 1000
+
+  # Logging exporter for debugging
+  logging:
+    loglevel: info
+    sampling_initial: 2
+    sampling_thereafter: 500
+
+extensions:
+  # Health check extension
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+  # pprof for debugging
+  pprof:
+    endpoint: 0.0.0.0:1777
+
+  # zpages for debugging
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  
+  pipelines:
+    # Traces pipeline
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, resource, attributes, batch, tail_sampling, filter]
+      exporters: [otlp/tempo, logging]
+
+    # Metrics pipeline  
+    metrics:
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource, batch]
+      exporters: [prometheusremotewrite, prometheus]
+
+    # Logs pipeline
+    logs:
+      receivers: [otlp, filelog]
+      processors: [memory_limiter, resource, batch, filter]
+      exporters: [loki, logging]
+
+  telemetry:
+    logs:
+      level: "info"
+      development: false
+      encoding: "json"
+    metrics:
+      level: "basic"
+      address: "0.0.0.0:8888"

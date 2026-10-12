@@ -1,0 +1,21 @@
+{
+  "displayName": "Push Token Tests",
+  "testMatch": [
+    "**/push-tokens/**/*.spec.ts",
+    "**/push-tokens/**/*.test.ts"
+  ],
+  "transform": {
+    "^.+\\.(t|j)s$": "ts-jest"
+  },
+  "collectCoverageFrom": [
+    "src/push-tokens/**/*.(t|j)s",
+    "!src/push-tokens/**/*.spec.ts",
+    "!src/push-tokens/**/*.test.ts"
+  ],
+  "coverageDirectory": "../coverage/push-tokens",
+  "testEnvironment": "node",
+  "setupFilesAfterEnv": ["<rootDir>/src/push-tokens/tests/setup.ts"],
+  "moduleNameMapping": {
+    "^src/(.*)$": "<rootDir>/src/$1"
+  }
+}

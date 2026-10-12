@@ -1,0 +1,439 @@
+# SLO Alerting Rules
+# Multi-window, multi-burn-rate alerts for SLO violations
+
+groups:
+  - name: slo_alerts_critical
+    interval: 30s
+    rules:
+      # ============================================================================
+      # CRITICAL ALERTS - Page Immediately (Fast Burn Rates)
+      # ============================================================================
+
+      # Signup Service - Critical Availability Alert
+      - alert: SLOAvailabilityCritical_SignupService
+        expr: |
+          (
+            slo:burn_rate_availability_5m{service="personal-email-signup-backend"} > 14.4
+            and
+            slo:burn_rate_availability_1h{service="personal-email-signup-backend"} > 6
+          )
+          and
+          (
+            sli:availability_5m{service="personal-email-signup-backend"} < 0.999
+            or
+            sli:availability_1h{service="personal-email-signup-backend"} < 0.999
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: personal-email-signup-backend
+          slo_type: availability
+          alert_type: slo_burn_rate
+          team: platform-engineering
+          paging_policy: immediate
+        annotations:
+          summary: "🚨 Critical SLO Violation: Signup Service Availability"
+          description: |
+            Signup service availability SLO is being violated at a critical burn rate.
+            - Current 5m availability: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 1h availability: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - SLO Target: 99.9%
+            - 5min burn rate: {{ printf "%.1fx" .Values.C }}
+            - 1hr burn rate: {{ printf "%.1fx" .Values.D }}
+            - Error budget will be exhausted in ~6 hours at this rate
+          correlation_id: "{{ $labels.correlation_id }}"
+          trace_id: "{{ $labels.trace_id }}"
+          runbook_url: "https://runbooks.company.com/slo-availability-critical"
+          grafana_url: "{{ $externalURL }}/d/signup-service/signup-service-dashboard?var-service=personal-email-signup-backend&from=now-1h&to=now"
+          logs_url: "{{ $externalURL }}/d/loki/logs?var-service=personal-email-signup-backend&var-level=ERROR"
+
+      # Login Service - Critical Availability Alert  
+      - alert: SLOAvailabilityCritical_LoginService
+        expr: |
+          (
+            slo:burn_rate_availability_5m{service="login-page-back"} > 14.4
+            and
+            slo:burn_rate_availability_1h{service="login-page-back"} > 6
+          )
+          and
+          (
+            sli:availability_5m{service="login-page-back"} < 0.9995
+            or
+            sli:availability_1h{service="login-page-back"} < 0.9995
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: login-page-back
+          slo_type: availability
+          alert_type: slo_burn_rate
+          team: platform-engineering
+          paging_policy: immediate
+        annotations:
+          summary: "🚨 Critical SLO Violation: Login Service Availability"
+          description: |
+            Login service availability SLO is being violated at a critical burn rate.
+            - Current 5m availability: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 1h availability: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - SLO Target: 99.95%
+            - 5min burn rate: {{ printf "%.1fx" .Values.C }}
+            - 1hr burn rate: {{ printf "%.1fx" .Values.D }}
+            - Error budget will be exhausted in ~6 hours at this rate
+          correlation_id: "{{ $labels.correlation_id }}"
+          trace_id: "{{ $labels.trace_id }}"
+          runbook_url: "https://runbooks.company.com/slo-availability-critical"
+          grafana_url: "{{ $externalURL }}/d/login-service/login-service-dashboard?var-service=login-page-back&from=now-1h&to=now"
+          logs_url: "{{ $externalURL }}/d/loki/logs?var-service=login-page-back&var-level=ERROR"
+
+      # Login Service - Critical Auth Success Alert
+      - alert: SLOAuthSuccessCritical_LoginService
+        expr: |
+          (
+            slo:burn_rate_auth_success_5m{service="login-page-back"} > 14.4
+            and
+            slo:burn_rate_auth_success_1h{service="login-page-back"} > 6
+          )
+          and
+          (
+            sli:auth_success_5m{service="login-page-back"} < 0.999
+            or
+            sli:auth_success_1h{service="login-page-back"} < 0.999
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: login-page-back
+          slo_type: auth_success
+          alert_type: slo_burn_rate
+          team: platform-engineering
+          paging_policy: immediate
+        annotations:
+          summary: "🚨 Critical SLO Violation: Login Authentication Success"
+          description: |
+            Login service authentication success SLO is being violated at a critical burn rate.
+            - Current 5m auth success: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 1h auth success: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - SLO Target: 99.9%
+            - 5min burn rate: {{ printf "%.1fx" .Values.C }}
+            - 1hr burn rate: {{ printf "%.1fx" .Values.D }}
+            - This indicates legitimate users cannot authenticate
+          correlation_id: "{{ $labels.correlation_id }}"
+          trace_id: "{{ $labels.trace_id }}"
+          runbook_url: "https://runbooks.company.com/slo-auth-success-critical"
+          grafana_url: "{{ $externalURL }}/d/auth-cross-cutting/authentication-flow?var-service=login-page-back&from=now-1h&to=now"
+          logs_url: "{{ $externalURL }}/d/loki/logs?var-service=login-page-back&var-level=ERROR|WARN"
+
+      # Critical Latency Alerts
+      - alert: SLOLatencyCritical_SignupService
+        expr: |
+          sli:latency_5m{service="personal-email-signup-backend"} > 0.5
+          and
+          sli:latency_1h{service="personal-email-signup-backend"} > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          service: personal-email-signup-backend
+          slo_type: latency
+          alert_type: slo_violation
+          team: platform-engineering
+          paging_policy: immediate
+        annotations:
+          summary: "🚨 Critical SLO Violation: Signup Service Latency"
+          description: |
+            Signup service P99 latency SLO violation detected.
+            - Current P99 latency: {{ printf "%.0fms" (mul .Values.A 1000) }}
+            - SLO Target: < 500ms
+            - Users experiencing slow registration process
+          runbook_url: "https://runbooks.company.com/slo-latency-critical"
+          grafana_url: "{{ $externalURL }}/d/signup-service/signup-service-dashboard?var-service=personal-email-signup-backend&from=now-1h&to=now"
+
+      - alert: SLOLatencyCritical_LoginService
+        expr: |
+          sli:latency_5m{service="login-page-back"} > 0.3
+          and
+          sli:latency_1h{service="login-page-back"} > 0.3
+        for: 5m
+        labels:
+          severity: critical
+          service: login-page-back
+          slo_type: latency
+          alert_type: slo_violation
+          team: platform-engineering
+          paging_policy: immediate
+        annotations:
+          summary: "🚨 Critical SLO Violation: Login Service Latency"
+          description: |
+            Login service P99 latency SLO violation detected.
+            - Current P99 latency: {{ printf "%.0fms" (mul .Values.A 1000) }}
+            - SLO Target: < 300ms
+            - Users experiencing slow authentication
+          runbook_url: "https://runbooks.company.com/slo-latency-critical"
+          grafana_url: "{{ $externalURL }}/d/login-service/login-service-dashboard?var-service=login-page-back&from=now-1h&to=now"
+
+  - name: slo_alerts_warning
+    interval: 60s
+    rules:
+      # ============================================================================
+      # WARNING ALERTS - Investigate Within Hours (Medium Burn Rates)
+      # ============================================================================
+
+      # Medium burn rate alerts for gradual degradation
+      - alert: SLOAvailabilityWarning_SignupService
+        expr: |
+          (
+            slo:burn_rate_availability_6h{service="personal-email-signup-backend"} > 3
+            and
+            slo:burn_rate_availability_3d{service="personal-email-signup-backend"} > 1
+          )
+          and
+          (
+            sli:availability_6h{service="personal-email-signup-backend"} < 0.999
+            or
+            sli:availability_3d{service="personal-email-signup-backend"} < 0.999
+          )
+        for: 15m
+        labels:
+          severity: warning
+          service: personal-email-signup-backend
+          slo_type: availability
+          alert_type: slo_burn_rate
+          team: platform-engineering
+          paging_policy: business_hours
+        annotations:
+          summary: "⚠️ SLO Warning: Signup Service Availability Degradation"
+          description: |
+            Signup service availability showing concerning burn rate trend.
+            - Current 6h availability: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 3d availability: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - SLO Target: 99.9%
+            - 6hr burn rate: {{ printf "%.1fx" .Values.C }}
+            - 3d burn rate: {{ printf "%.1fx" .Values.D }}
+            - Error budget will be exhausted in ~10 days at this rate
+          runbook_url: "https://runbooks.company.com/slo-availability-warning"
+          grafana_url: "{{ $externalURL }}/d/signup-service/signup-service-dashboard?var-service=personal-email-signup-backend&from=now-6h&to=now"
+
+      - alert: SLOAvailabilityWarning_LoginService
+        expr: |
+          (
+            slo:burn_rate_availability_6h{service="login-page-back"} > 3
+            and
+            slo:burn_rate_availability_3d{service="login-page-back"} > 1
+          )
+          and
+          (
+            sli:availability_6h{service="login-page-back"} < 0.9995
+            or
+            sli:availability_3d{service="login-page-back"} < 0.9995
+          )
+        for: 15m
+        labels:
+          severity: warning
+          service: login-page-back
+          slo_type: availability
+          alert_type: slo_burn_rate
+          team: platform-engineering
+          paging_policy: business_hours
+        annotations:
+          summary: "⚠️ SLO Warning: Login Service Availability Degradation"
+          description: |
+            Login service availability showing concerning burn rate trend.
+            - Current 6h availability: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 3d availability: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - SLO Target: 99.95%
+            - 6hr burn rate: {{ printf "%.1fx" .Values.C }}
+            - 3d burn rate: {{ printf "%.1fx" .Values.D }}
+            - Error budget will be exhausted in ~10 days at this rate
+          runbook_url: "https://runbooks.company.com/slo-availability-warning"
+          grafana_url: "{{ $externalURL }}/d/login-service/login-service-dashboard?var-service=login-page-back&from=now-6h&to=now"
+
+      - alert: SLOAuthSuccessWarning_LoginService
+        expr: |
+          (
+            slo:burn_rate_auth_success_6h{service="login-page-back"} > 3
+            and
+            slo:burn_rate_auth_success_3d{service="login-page-back"} > 1
+          )
+          and
+          (
+            sli:auth_success_6h{service="login-page-back"} < 0.999
+            or
+            sli:auth_success_3d{service="login-page-back"} < 0.999
+          )
+        for: 15m
+        labels:
+          severity: warning
+          service: login-page-back
+          slo_type: auth_success
+          alert_type: slo_burn_rate
+          team: platform-engineering
+          paging_policy: business_hours
+        annotations:
+          summary: "⚠️ SLO Warning: Login Authentication Success Degradation"
+          description: |
+            Login service authentication success showing concerning trend.
+            - Current 6h auth success: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 3d auth success: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - SLO Target: 99.9%
+            - 6hr burn rate: {{ printf "%.1fx" .Values.C }}
+            - 3d burn rate: {{ printf "%.1fx" .Values.D }}
+          runbook_url: "https://runbooks.company.com/slo-auth-success-warning"
+          grafana_url: "{{ $externalURL }}/d/auth-cross-cutting/authentication-flow?var-service=login-page-back&from=now-6h&to=now"
+
+  - name: slo_alerts_informational
+    interval: 300s
+    rules:
+      # ============================================================================
+      # INFORMATIONAL ALERTS - Error Budget Consumption Tracking
+      # ============================================================================
+
+      # Error budget exhaustion warnings
+      - alert: SLOErrorBudgetHigh_SignupService
+        expr: |
+          slo:error_budget_consumed_7d{service="personal-email-signup-backend"} > 0.5
+        for: 30m
+        labels:
+          severity: info
+          service: personal-email-signup-backend
+          slo_type: availability
+          alert_type: error_budget
+          team: platform-engineering
+          paging_policy: none
+        annotations:
+          summary: "📊 Info: Signup Service Error Budget 50% Consumed"
+          description: |
+            Signup service has consumed >50% of weekly error budget.
+            - Weekly error budget consumed: {{ printf "%.1f%%" (mul .Values.A 100) }}
+            - Consider reviewing recent changes and error patterns
+            - Time remaining in week: {{ printf "%.0f hours" (div (sub 604800 .ActiveAt) 3600) }}
+          runbook_url: "https://runbooks.company.com/slo-error-budget-management"
+          grafana_url: "{{ $externalURL }}/d/slo-dashboard/slo-overview?var-service=personal-email-signup-backend&from=now-7d&to=now"
+
+      - alert: SLOErrorBudgetHigh_LoginService
+        expr: |
+          slo:error_budget_consumed_7d{service="login-page-back"} > 0.5
+        for: 30m
+        labels:
+          severity: info
+          service: login-page-back
+          slo_type: availability
+          alert_type: error_budget
+          team: platform-engineering
+          paging_policy: none
+        annotations:
+          summary: "📊 Info: Login Service Error Budget 50% Consumed"
+          description: |
+            Login service has consumed >50% of weekly error budget.
+            - Weekly error budget consumed: {{ printf "%.1f%%" (mul .Values.A 100) }}
+            - Consider reviewing recent changes and error patterns
+            - Time remaining in week: {{ printf "%.0f hours" (div (sub 604800 .ActiveAt) 3600) }}
+          runbook_url: "https://runbooks.company.com/slo-error-budget-management"
+          grafana_url: "{{ $externalURL }}/d/slo-dashboard/slo-overview?var-service=login-page-back&from=now-7d&to=now"
+
+      # Monthly error budget warnings (75% threshold)
+      - alert: SLOErrorBudgetCritical_SignupService
+        expr: |
+          slo:error_budget_remaining_30d{service="personal-email-signup-backend"} < 0.25
+        for: 1h
+        labels:
+          severity: warning
+          service: personal-email-signup-backend
+          slo_type: availability
+          alert_type: error_budget
+          team: platform-engineering
+          paging_policy: business_hours
+        annotations:
+          summary: "⚠️ Warning: Signup Service Monthly Error Budget 75% Consumed"
+          description: |
+            Signup service has consumed 75% of monthly error budget.
+            - Monthly error budget remaining: {{ printf "%.1f%%" (mul .Values.A 100) }}
+            - Consider implementing reliability improvements
+            - Feature freeze may be required if budget exhausted
+          runbook_url: "https://runbooks.company.com/slo-error-budget-crisis"
+
+      - alert: SLOErrorBudgetCritical_LoginService
+        expr: |
+          slo:error_budget_remaining_30d{service="login-page-back"} < 0.25
+        for: 1h
+        labels:
+          severity: warning
+          service: login-page-back
+          slo_type: availability
+          alert_type: error_budget
+          team: platform-engineering
+          paging_policy: business_hours
+        annotations:
+          summary: "⚠️ Warning: Login Service Monthly Error Budget 75% Consumed"
+          description: |
+            Login service has consumed 75% of monthly error budget.
+            - Monthly error budget remaining: {{ printf "%.1f%%" (mul .Values.A 100) }}
+            - Consider implementing reliability improvements
+            - Feature freeze may be required if budget exhausted
+          runbook_url: "https://runbooks.company.com/slo-error-budget-crisis"
+
+  - name: slo_recovery_alerts
+    interval: 60s
+    rules:
+      # ============================================================================
+      # RECOVERY ALERTS - Alert Resolution Detection
+      # ============================================================================
+
+      # Recovery detection for critical alerts
+      - alert: SLORecovery_SignupService
+        expr: |
+          (
+            slo:burn_rate_availability_5m{service="personal-email-signup-backend"} < 1
+            and
+            slo:burn_rate_availability_1h{service="personal-email-signup-backend"} < 1
+          )
+          and
+          (
+            sli:availability_5m{service="personal-email-signup-backend"} > 0.999
+            and
+            sli:availability_1h{service="personal-email-signup-backend"} > 0.999
+          )
+        for: 5m
+        labels:
+          severity: info
+          service: personal-email-signup-backend
+          slo_type: availability
+          alert_type: slo_recovery
+          team: platform-engineering
+          paging_policy: none
+        annotations:
+          summary: "✅ Recovery: Signup Service Availability Restored"
+          description: |
+            Signup service availability has recovered to SLO target.
+            - Current 5m availability: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 1h availability: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - Burn rates have dropped below sustainable levels
+          runbook_url: "https://runbooks.company.com/slo-recovery-procedures"
+
+      - alert: SLORecovery_LoginService
+        expr: |
+          (
+            slo:burn_rate_availability_5m{service="login-page-back"} < 1
+            and
+            slo:burn_rate_availability_1h{service="login-page-back"} < 1
+          )
+          and
+          (
+            sli:availability_5m{service="login-page-back"} > 0.9995
+            and
+            sli:availability_1h{service="login-page-back"} > 0.9995
+          )
+        for: 5m
+        labels:
+          severity: info
+          service: login-page-back
+          slo_type: availability
+          alert_type: slo_recovery
+          team: platform-engineering
+          paging_policy: none
+        annotations:
+          summary: "✅ Recovery: Login Service Availability Restored"
+          description: |
+            Login service availability has recovered to SLO target.
+            - Current 5m availability: {{ printf "%.3f%%" (mul .Values.A 100) }}
+            - Current 1h availability: {{ printf "%.3f%%" (mul .Values.B 100) }}
+            - Burn rates have dropped below sustainable levels
+          runbook_url: "https://runbooks.company.com/slo-recovery-procedures"

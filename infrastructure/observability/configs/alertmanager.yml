@@ -1,0 +1,386 @@
+# Alertmanager Configuration
+# Routing, escalation, and integration for SLO-based alerting
+
+global:
+  # SMTP configuration for email notifications
+  smtp_smarthost: 'smtp.company.com:587'
+  smtp_from: 'alerts@company.com'
+  smtp_auth_username: 'alerts@company.com'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+  # HTTP configuration
+  http_config:
+    tls_config:
+      insecure_skip_verify: false
+
+  # Default values
+  resolve_timeout: 5m
+
+# Templates for notification content
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# ============================================================================
+# ROUTING CONFIGURATION
+# ============================================================================
+
+route:
+  # Default grouping configuration
+  group_by: ['alertname', 'service', 'environment']
+  group_wait: 30s          # Wait for additional alerts before sending first notification
+  group_interval: 5m       # Wait before sending notifications for new alerts in existing group
+  repeat_interval: 12h     # How often to resend a notification for unresolved alerts
+
+  # Default receiver for unmatched alerts
+  receiver: 'platform-engineering-slack'
+
+  # Routing tree
+  routes:
+    # ========================================================================
+    # CRITICAL ALERTS - Immediate Paging
+    # ========================================================================
+    
+    # Critical SLO violations requiring immediate attention
+    - match:
+        severity: critical
+      group_by: ['alertname', 'service']
+      group_wait: 15s
+      group_interval: 2m
+      repeat_interval: 15m
+      receiver: 'slo-critical-paging'
+      routes:
+        # Signup service critical alerts
+        - match:
+            service: personal-email-signup-backend
+          receiver: 'signup-critical-paging'
+          continue: true  # Also send to general critical receiver
+          
+        # Login service critical alerts (higher priority)
+        - match:
+            service: login-page-back
+          receiver: 'login-critical-paging'
+          continue: true
+
+    # ========================================================================
+    # WARNING ALERTS - Business Hours Investigation
+    # ========================================================================
+    
+    # Warning-level SLO degradation
+    - match:
+        severity: warning
+      group_by: ['alertname', 'service']
+      group_wait: 2m
+      group_interval: 10m
+      repeat_interval: 4h
+      receiver: 'slo-warning-investigation'
+      routes:
+        # Route specific services to appropriate teams
+        - match:
+            service: personal-email-signup-backend
+          receiver: 'signup-warning-slack'
+          
+        - match:
+            service: login-page-back
+          receiver: 'login-warning-slack'
+
+    # ========================================================================
+    # INFORMATIONAL ALERTS - Error Budget Tracking
+    # ========================================================================
+    
+    # Error budget consumption notifications
+    - match:
+        severity: info
+        alert_type: error_budget
+      group_by: ['service', 'slo_type']
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 24h
+      receiver: 'error-budget-slack'
+
+    # ========================================================================
+    # RECOVERY ALERTS - Resolution Notifications
+    # ========================================================================
+    
+    # SLO recovery notifications
+    - match:
+        alert_type: slo_recovery
+      group_by: ['service', 'slo_type']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 24h  # Only notify once per day for recoveries
+      receiver: 'recovery-slack'
+
+    # ========================================================================
+    # LEGACY ALERTS - Existing Threshold-Based Alerts
+    # ========================================================================
+    
+    # High error rate alerts (legacy)
+    - match_re:
+        alertname: '^(HighErrorRate|CriticalLatencyP99).*'
+      group_by: ['alertname', 'service']
+      group_wait: 2m
+      group_interval: 5m
+      repeat_interval: 30m
+      receiver: 'legacy-alerts-slack'
+
+    # ========================================================================
+    # TENANT-SPECIFIC ROUTING
+    # ========================================================================
+    
+    # Multi-tenant alerts with specific tenant routing
+    - match_re:
+        tenant_id: '^(enterprise-.*|premium-.*)$'
+      receiver: 'enterprise-support-paging'
+      group_by: ['alertname', 'service', 'tenant_id']
+      group_wait: 15s
+      repeat_interval: 10m
+
+# ============================================================================
+# INHIBITION RULES
+# ============================================================================
+
+inhibit_rules:
+  # Inhibit warning alerts when critical alerts are firing for same service
+  - source_match:
+      severity: critical
+    target_match:
+      severity: warning
+    equal: ['service', 'slo_type']
+
+  # Inhibit legacy alerts when SLO alerts are firing
+  - source_match_re:
+      alertname: '^SLO.*Critical.*'
+    target_match_re:
+      alertname: '^(HighErrorRate|CriticalLatencyP99).*'
+    equal: ['service']
+
+  # Inhibit informational alerts during critical incidents
+  - source_match:
+      severity: critical
+    target_match:
+      severity: info
+    equal: ['service']
+
+# ============================================================================
+# RECEIVERS CONFIGURATION
+# ============================================================================
+
+receivers:
+  # ========================================================================
+  # CRITICAL PAGING RECEIVERS
+  # ========================================================================
+  
+  # General critical SLO violations
+  - name: 'slo-critical-paging'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_SLO_CRITICAL_KEY}'
+        description: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        severity: 'critical'
+        client: 'Prometheus Alertmanager'
+        client_url: '{{ template "__alertmanagerURL" . }}'
+        details:
+          alert_count: '{{ len .Alerts }}'
+          service: '{{ with index .Alerts 0 }}{{ .Labels.service }}{{ end }}'
+          slo_type: '{{ with index .Alerts 0 }}{{ .Labels.slo_type }}{{ end }}'
+          runbook_url: '{{ with index .Alerts 0 }}{{ .Annotations.runbook_url }}{{ end }}'
+          grafana_url: '{{ with index .Alerts 0 }}{{ .Annotations.grafana_url }}{{ end }}'
+          correlation_id: '{{ with index .Alerts 0 }}{{ .Annotations.correlation_id }}{{ end }}'
+          trace_id: '{{ with index .Alerts 0 }}{{ .Annotations.trace_id }}{{ end }}'
+    
+    # Slack backup for critical alerts
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_CRITICAL}'
+        channel: '#platform-oncall'
+        title: '🚨 CRITICAL SLO VIOLATION'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *SLO Type:* {{ .Labels.slo_type }}
+          *Description:* {{ .Annotations.description }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          *Dashboard:* {{ .Annotations.grafana_url }}
+          {{ if .Annotations.correlation_id }}*Correlation ID:* `{{ .Annotations.correlation_id }}`{{ end }}
+          {{ if .Annotations.trace_id }}*Trace ID:* `{{ .Annotations.trace_id }}`{{ end }}
+          {{ end }}
+        short_fields: false
+        send_resolved: true
+
+  # Signup service specific critical alerts
+  - name: 'signup-critical-paging'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_SIGNUP_CRITICAL_KEY}'
+        description: 'Signup Service SLO Violation: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        severity: 'critical'
+        details:
+          service: 'personal-email-signup-backend'
+          slo_type: '{{ with index .Alerts 0 }}{{ .Labels.slo_type }}{{ end }}'
+          business_impact: 'User registration failures affecting new user acquisition'
+
+  # Login service specific critical alerts (highest priority)
+  - name: 'login-critical-paging'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_LOGIN_CRITICAL_KEY}'
+        description: 'Login Service SLO Violation: {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        severity: 'critical'
+        details:
+          service: 'login-page-back'
+          slo_type: '{{ with index .Alerts 0 }}{{ .Labels.slo_type }}{{ end }}'
+          business_impact: 'User authentication failures affecting existing users'
+    
+    # Additional Opsgenie integration for login service
+    opsgenie_configs:
+      - api_key: '${OPSGENIE_API_KEY}'
+        description: 'Critical Login Service SLO Violation'
+        message: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+        priority: 'P1'
+        tags: ['slo-violation', 'login-service', 'critical']
+        details:
+          service: 'login-page-back'
+          runbook: '{{ with index .Alerts 0 }}{{ .Annotations.runbook_url }}{{ end }}'
+          grafana: '{{ with index .Alerts 0 }}{{ .Annotations.grafana_url }}{{ end }}'
+
+  # ========================================================================
+  # WARNING INVESTIGATION RECEIVERS
+  # ========================================================================
+  
+  # General warning-level SLO degradation
+  - name: 'slo-warning-investigation'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_WARNING}'
+        channel: '#platform-reliability'
+        title: '⚠️ SLO Warning - Investigation Required'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *SLO Type:* {{ .Labels.slo_type }}
+          *Description:* {{ .Annotations.description }}
+          *Action Required:* Investigate within business hours
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+        send_resolved: true
+
+  # Signup service warnings
+  - name: 'signup-warning-slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_SIGNUP}'
+        channel: '#signup-team'
+        title: '⚠️ Signup Service SLO Warning'
+        text: |
+          The signup service is experiencing degraded SLO performance.
+          {{ range .Alerts }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # Login service warnings
+  - name: 'login-warning-slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_LOGIN}'
+        channel: '#auth-team'
+        title: '⚠️ Login Service SLO Warning'
+        text: |
+          The login service is experiencing degraded SLO performance.
+          {{ range .Alerts }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # ========================================================================
+  # INFORMATIONAL RECEIVERS
+  # ========================================================================
+  
+  # Error budget consumption tracking
+  - name: 'error-budget-slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_BUDGET}'
+        channel: '#platform-reliability'
+        title: '📊 Error Budget Notification'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *SLO Type:* {{ .Labels.slo_type }}
+          {{ .Annotations.description }}
+          
+          Consider reviewing recent changes and implementing reliability improvements.
+          {{ end }}
+        send_resolved: false  # Don't send resolved for budget notifications
+
+  # Recovery notifications
+  - name: 'recovery-slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_RECOVERY}'
+        channel: '#platform-reliability'
+        title: '✅ SLO Recovery Notification'
+        text: |
+          {{ range .Alerts }}
+          *Service:* {{ .Labels.service }}
+          *SLO Type:* {{ .Labels.slo_type }}
+          {{ .Annotations.summary }}
+          
+          Service has recovered to acceptable SLO performance levels.
+          {{ end }}
+        send_resolved: false
+
+  # ========================================================================
+  # LEGACY AND FALLBACK RECEIVERS
+  # ========================================================================
+  
+  # Legacy threshold-based alerts
+  - name: 'legacy-alerts-slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_LEGACY}'
+        channel: '#platform-alerts'
+        title: '📈 Legacy Alert (Consider SLO Migration)'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Labels.alertname }}
+          *Service:* {{ .Labels.service }}
+          {{ .Annotations.description }}
+          
+          Note: Consider migrating to SLO-based alerting for better reliability management.
+          {{ end }}
+
+  # Default platform engineering receiver
+  - name: 'platform-engineering-slack'
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_DEFAULT}'
+        channel: '#platform-engineering'
+        title: '🔔 Platform Alert'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Labels.alertname }}
+          {{ if .Labels.service }}*Service:* {{ .Labels.service }}{{ end }}
+          {{ .Annotations.description }}
+          {{ end }}
+
+  # ========================================================================
+  # TENANT-SPECIFIC RECEIVERS
+  # ========================================================================
+  
+  # Enterprise tenant support
+  - name: 'enterprise-support-paging'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_ENTERPRISE_KEY}'
+        description: 'Enterprise Tenant SLO Violation'
+        severity: 'critical'
+        details:
+          tenant_id: '{{ with index .Alerts 0 }}{{ .Labels.tenant_id }}{{ end }}'
+          service: '{{ with index .Alerts 0 }}{{ .Labels.service }}{{ end }}'
+          escalation_policy: 'enterprise-support'
+
+# ============================================================================
+# ESCALATION CONFIGURATION (via PagerDuty/Opsgenie policies)
+# ============================================================================
+
+# Escalation is handled by external systems:
+# 
+# PagerDuty Escalation Policy:
+# 1. Primary on-call engineer (0 min)
+# 2. Secondary on-call engineer (15 min if unacknowledged)
+# 3. Team lead (30 min if unacknowledged)
+# 4. Engineering manager (45 min if unacknowledged)
+#
+# Opsgenie Escalation Policy (Login Service):
+# 1. Auth team on-call (0 min)
+# 2. Platform team on-call (10 min)
+# 3. Senior engineers (20 min)
+# 4. Engineering leadership (30 min)

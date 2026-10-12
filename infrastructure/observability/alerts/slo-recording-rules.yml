@@ -1,0 +1,387 @@
+# SLO Recording Rules
+# Pre-calculate SLI metrics and burn rates to reduce query load during alert evaluation
+
+groups:
+  - name: slo_recording_rules
+    interval: 30s
+    rules:
+      # ============================================================================
+      # Availability SLI Recording Rules
+      # ============================================================================
+      
+      # Short-term availability SLI (5m, 30m, 2h)
+      - record: sli:availability_5m
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[5m])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[5m])
+          )
+        labels:
+          sli_type: "availability"
+          window: "5m"
+
+      - record: sli:availability_30m
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[30m])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[30m])
+          )
+        labels:
+          sli_type: "availability"
+          window: "30m"
+
+      - record: sli:availability_1h
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[1h])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[1h])
+          )
+        labels:
+          sli_type: "availability"
+          window: "1h"
+
+      - record: sli:availability_2h
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[2h])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[2h])
+          )
+        labels:
+          sli_type: "availability"
+          window: "2h"
+
+      # Long-term availability SLI (6h, 1d, 3d)
+      - record: sli:availability_6h
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[6h])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[6h])
+          )
+        labels:
+          sli_type: "availability"
+          window: "6h"
+
+      - record: sli:availability_1d
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[1d])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[1d])
+          )
+        labels:
+          sli_type: "availability"
+          window: "1d"
+
+      - record: sli:availability_3d
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code!~"5.."}[3d])
+          ) /
+          sum by (service, environment) (
+            rate(http_requests_total[3d])
+          )
+        labels:
+          sli_type: "availability"
+          window: "3d"
+
+      # ============================================================================
+      # Authentication Success SLI Recording Rules
+      # ============================================================================
+
+      # Auth-specific SLI for login service
+      - record: sli:auth_success_5m
+        expr: |
+          sum by (service, environment) (
+            rate(auth_attempts_total{status="success"}[5m])
+          ) /
+          sum by (service, environment) (
+            rate(auth_attempts_total{status!="user_error"}[5m])
+          )
+        labels:
+          sli_type: "auth_success"
+          window: "5m"
+
+      - record: sli:auth_success_1h
+        expr: |
+          sum by (service, environment) (
+            rate(auth_attempts_total{status="success"}[1h])
+          ) /
+          sum by (service, environment) (
+            rate(auth_attempts_total{status!="user_error"}[1h])
+          )
+        labels:
+          sli_type: "auth_success"
+          window: "1h"
+
+      - record: sli:auth_success_6h
+        expr: |
+          sum by (service, environment) (
+            rate(auth_attempts_total{status="success"}[6h])
+          ) /
+          sum by (service, environment) (
+            rate(auth_attempts_total{status!="user_error"}[6h])
+          )
+        labels:
+          sli_type: "auth_success"
+          window: "6h"
+
+      - record: sli:auth_success_3d
+        expr: |
+          sum by (service, environment) (
+            rate(auth_attempts_total{status="success"}[3d])
+          ) /
+          sum by (service, environment) (
+            rate(auth_attempts_total{status!="user_error"}[3d])
+          )
+        labels:
+          sli_type: "auth_success"
+          window: "3d"
+
+      # ============================================================================
+      # Latency SLI Recording Rules
+      # ============================================================================
+
+      # Latency SLI - percentage of requests under threshold
+      - record: sli:latency_5m
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, environment, le) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          )
+        labels:
+          sli_type: "latency"
+          window: "5m"
+          percentile: "p99"
+
+      - record: sli:latency_1h
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, environment, le) (
+              rate(http_request_duration_seconds_bucket[1h])
+            )
+          )
+        labels:
+          sli_type: "latency"
+          window: "1h"
+          percentile: "p99"
+
+      - record: sli:latency_6h
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, environment, le) (
+              rate(http_request_duration_seconds_bucket[6h])
+            )
+          )
+        labels:
+          sli_type: "latency"
+          window: "6h"
+          percentile: "p99"
+
+      # ============================================================================
+      # Burn Rate Calculation Rules
+      # ============================================================================
+
+      # Availability Burn Rates - Signup Service (SLO: 99.9%)
+      - record: slo:burn_rate_availability_5m
+        expr: |
+          (1 - sli:availability_5m{service="personal-email-signup-backend"}) / 0.001
+        labels:
+          service: "personal-email-signup-backend"
+          slo_type: "availability"
+          slo_target: "99.9"
+          window: "5m"
+
+      - record: slo:burn_rate_availability_1h
+        expr: |
+          (1 - sli:availability_1h{service="personal-email-signup-backend"}) / 0.001
+        labels:
+          service: "personal-email-signup-backend"
+          slo_type: "availability"
+          slo_target: "99.9"
+          window: "1h"
+
+      - record: slo:burn_rate_availability_6h
+        expr: |
+          (1 - sli:availability_6h{service="personal-email-signup-backend"}) / 0.001
+        labels:
+          service: "personal-email-signup-backend"
+          slo_type: "availability"
+          slo_target: "99.9"
+          window: "6h"
+
+      - record: slo:burn_rate_availability_3d
+        expr: |
+          (1 - sli:availability_3d{service="personal-email-signup-backend"}) / 0.001
+        labels:
+          service: "personal-email-signup-backend"
+          slo_type: "availability"
+          slo_target: "99.9"
+          window: "3d"
+
+      # Availability Burn Rates - Login Service (SLO: 99.95%)
+      - record: slo:burn_rate_availability_5m
+        expr: |
+          (1 - sli:availability_5m{service="login-page-back"}) / 0.0005
+        labels:
+          service: "login-page-back"
+          slo_type: "availability"
+          slo_target: "99.95"
+          window: "5m"
+
+      - record: slo:burn_rate_availability_1h
+        expr: |
+          (1 - sli:availability_1h{service="login-page-back"}) / 0.0005
+        labels:
+          service: "login-page-back"
+          slo_type: "availability"
+          slo_target: "99.95"
+          window: "1h"
+
+      - record: slo:burn_rate_availability_6h
+        expr: |
+          (1 - sli:availability_6h{service="login-page-back"}) / 0.0005
+        labels:
+          service: "login-page-back"
+          slo_type: "availability"
+          slo_target: "99.95"
+          window: "6h"
+
+      - record: slo:burn_rate_availability_3d
+        expr: |
+          (1 - sli:availability_3d{service="login-page-back"}) / 0.0005
+        labels:
+          service: "login-page-back"
+          slo_type: "availability"
+          slo_target: "99.95"
+          window: "3d"
+
+      # Auth Success Burn Rates - Login Service (SLO: 99.9%)
+      - record: slo:burn_rate_auth_success_5m
+        expr: |
+          (1 - sli:auth_success_5m{service="login-page-back"}) / 0.001
+        labels:
+          service: "login-page-back"
+          slo_type: "auth_success"
+          slo_target: "99.9"
+          window: "5m"
+
+      - record: slo:burn_rate_auth_success_1h
+        expr: |
+          (1 - sli:auth_success_1h{service="login-page-back"}) / 0.001
+        labels:
+          service: "login-page-back"
+          slo_type: "auth_success"
+          slo_target: "99.9"
+          window: "1h"
+
+      - record: slo:burn_rate_auth_success_6h
+        expr: |
+          (1 - sli:auth_success_6h{service="login-page-back"}) / 0.001
+        labels:
+          service: "login-page-back"
+          slo_type: "auth_success"
+          slo_target: "99.9"
+          window: "6h"
+
+      - record: slo:burn_rate_auth_success_3d
+        expr: |
+          (1 - sli:auth_success_3d{service="login-page-back"}) / 0.001
+        labels:
+          service: "login-page-back"
+          slo_type: "auth_success"
+          slo_target: "99.9"
+          window: "3d"
+
+      # ============================================================================
+      # Error Budget Tracking Rules
+      # ============================================================================
+
+      # Monthly error budget remaining (30 days)
+      - record: slo:error_budget_remaining_30d
+        expr: |
+          1 - (
+            (1 - sli:availability_1d) * 30 / 
+            (1 - on(service) group_left() label_replace(
+              vector(0.001), "service", "personal-email-signup-backend", "", ""
+            ))
+          )
+        labels:
+          service: "personal-email-signup-backend"
+          window: "30d"
+          slo_type: "availability"
+
+      - record: slo:error_budget_remaining_30d
+        expr: |
+          1 - (
+            (1 - sli:availability_1d) * 30 / 
+            (1 - on(service) group_left() label_replace(
+              vector(0.0005), "service", "login-page-back", "", ""
+            ))
+          )
+        labels:
+          service: "login-page-back"
+          window: "30d"
+          slo_type: "availability"
+
+      # Weekly error budget consumption
+      - record: slo:error_budget_consumed_7d
+        expr: |
+          (1 - sli:availability_1d) * 7 / 0.001
+        labels:
+          service: "personal-email-signup-backend"
+          window: "7d"
+          slo_type: "availability"
+
+      - record: slo:error_budget_consumed_7d
+        expr: |
+          (1 - sli:availability_1d) * 7 / 0.0005
+        labels:
+          service: "login-page-back"
+          window: "7d"
+          slo_type: "availability"
+
+      # ============================================================================
+      # Request Volume and Quality Metrics
+      # ============================================================================
+
+      # Request rate per service
+      - record: service:http_requests_rate_5m
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total[5m])
+          )
+        labels:
+          metric_type: "request_rate"
+          window: "5m"
+
+      # Error rate per service
+      - record: service:http_errors_rate_5m
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code=~"5.."}[5m])
+          )
+        labels:
+          metric_type: "error_rate"
+          window: "5m"
+
+      # Success rate per service
+      - record: service:http_success_rate_5m
+        expr: |
+          sum by (service, environment) (
+            rate(http_requests_total{status_code=~"2.."}[5m])
+          )
+        labels:
+          metric_type: "success_rate"
+          window: "5m"

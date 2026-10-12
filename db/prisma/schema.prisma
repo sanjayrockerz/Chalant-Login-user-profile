@@ -1,0 +1,110 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+/// Primary application database (shared across auth services)
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Contact matching mode for suggestions
+enum MatchType {
+  /// Both parties have each other in their address books
+  mutual
+  /// Only the uploading user has the suggested user in their contacts
+  one_sided
+}
+
+/// Core user record. Existing columns (email, auth flags, policy tracking) retained; new phone discovery metadata stored here.
+model User {
+  /// Stable account identifier generated as UUIDv4
+  id                String              @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  /// Primary login identity (already unique prior to this change)
+  email             String              @unique(map: "users_email_key") @db.VarChar(255)
+  /// Bcrypt/Argon2 password hash (existing column)
+  passwordHash      String              @map("password_hash") @db.VarChar(255)
+  /// Email verification flag maintained by signup/login services
+  isEmailVerified   Boolean             @map("is_email_verified") @default(false)
+  /// Account lock flag for abuse control
+  isAccountLocked   Boolean             @map("is_account_locked") @default(false)
+  /// Optional MFA state flags (existing columns)
+  mfaEnabled        Boolean?            @map("mfa_enabled")
+  mfaSecret         String?             @map("mfa_secret") @db.VarChar(255)
+  /// Terms acceptance tracking (added previously)
+  termsVersion      String?             @map("terms_version") @db.VarChar(64)
+  termsAcceptedAt   DateTime?           @map("terms_accepted_at") @db.Timestamptz
+  /// Record lifecycle timestamps maintained by triggers/defaults
+  createdAt         DateTime            @map("created_at") @default(now()) @db.Timestamptz
+  updatedAt         DateTime            @map("updated_at") @updatedAt @db.Timestamptz
+
+  /// Raw E.164 phone number for OTP verification and account recovery (nullable until verified)
+  phone             String?             @db.VarChar(20) @unique(map: "users_phone_key")
+  /// Timestamp recorded once the user successfully verifies an OTP
+  phoneVerifiedAt   DateTime?           @map("phone_verified_at") @db.Timestamptz
+  /// SHA-256 hash of normalized E.164 phone for privacy-preserving matching
+  hashedPhone       String?             @map("hashed_phone") @db.VarChar(64)
+
+  /// Hashed address-book uploads belonging to this user
+  hashedContacts    HashedContact[]
+  /// Suggestions delivered to this user (they see these recommendations)
+  suggestionsOwned  ContactSuggestion[] @relation("SuggestionOwner")
+  /// Suggestions where this user is being recommended to someone else
+  suggestionsTarget ContactSuggestion[] @relation("SuggestionTarget")
+
+  @@index([hashedPhone], map: "idx_users_hashed_phone")
+  @@map("users")
+}
+
+/// Hashed address-book entries uploaded by users for friend discovery
+model HashedContact {
+  /// Stable identifier for auditing and job processing
+  id          String   @id @default(uuid()) @db.Uuid
+  /// Owner user performing the upload
+  userId      String   @map("user_id") @db.Uuid
+  /// SHA-256 hash of normalized E.164 contact phone (hex encoded)
+  hashedPhone String   @map("hashed_phone") @db.VarChar(64)
+  /// Timestamp indicating when the entry was accepted
+  uploadedAt  DateTime @map("uploaded_at") @default(now()) @db.Timestamptz
+  /// Expiration timestamp used for 30-day privacy retention enforcement
+  expiresAt   DateTime @map("expires_at") @default(dbgenerated("now() + interval '30 days'")) @db.Timestamptz
+
+  /// Owning user relationship; cascading deletes remove associated hashes if the account is deleted
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, hashedPhone], map: "uniq_hashed_contacts_user_phone")
+  @@index([userId], map: "idx_hashed_contacts_user_id")
+  @@index([hashedPhone], map: "idx_hashed_contacts_hashed_phone")
+  @@map("hashed_contacts")
+}
+
+/// Friend discovery suggestions generated from hashed phone matches
+model ContactSuggestion {
+  /// Unique suggestion identifier for deduplication and analytics
+  id              String     @id @default(uuid()) @db.Uuid
+  /// User receiving the suggestion (viewer)
+  userId          String     @map("user_id") @db.Uuid
+  /// User being suggested as a potential friend
+  suggestedUserId String     @map("suggested_user_id") @db.Uuid
+  /// Matching mode to support mutual vs one-sided recommendations
+  matchType       MatchType  @map("match_type")
+  /// Normalized confidence score between 0 and 1 derived from matching heuristics
+  matchStrength   Decimal    @map("match_strength") @db.Decimal(3, 2)
+  /// Suggestion creation time
+  createdAt       DateTime   @map("created_at") @default(now()) @db.Timestamptz
+  /// Set when the viewer opens or acknowledges the suggestion
+  viewedAt        DateTime?  @map("viewed_at") @db.Timestamptz
+  /// Set when the viewer accepts/acts on the suggestion
+  acceptedAt      DateTime?  @map("accepted_at") @db.Timestamptz
+
+  /// Relation to the user receiving the suggestion
+  user            User       @relation("SuggestionOwner", fields: [userId], references: [id], onDelete: Cascade)
+  /// Relation to the user being recommended
+  suggestedUser   User       @relation("SuggestionTarget", fields: [suggestedUserId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, suggestedUserId], map: "uniq_contact_suggestions_pair")
+  @@index([userId], map: "idx_contact_suggestions_user")
+  @@index([userId, matchType], map: "idx_contact_suggestions_user_match_type")
+  @@map("contact_suggestions")
+}

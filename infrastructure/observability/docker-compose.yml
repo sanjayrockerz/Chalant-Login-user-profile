@@ -1,0 +1,211 @@
+version: '3.8'
+
+services:
+  # Grafana Loki - Log Aggregation
+  loki:
+    image: grafana/loki:2.9.2
+    container_name: auth-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./configs/loki.yaml:/etc/loki/local-config.yaml
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - observability
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3100/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana Tempo - Distributed Tracing
+  tempo:
+    image: grafana/tempo:2.3.1
+    container_name: auth-tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+    volumes:
+      - ./configs/tempo.yaml:/etc/tempo/tempo.yaml
+      - tempo-data:/tmp/tempo
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    networks:
+      - observability
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3200/ready || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # OpenTelemetry Collector - Unified Telemetry Ingestion
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.89.0
+    container_name: auth-otel-collector
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "8888:8888"   # Prometheus metrics
+      - "8889:8889"   # Prometheus metrics for collector
+    volumes:
+      - ./configs/otel-collector.yaml:/etc/otelcol-contrib/otel-collector.yaml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+    command: ["--config=/etc/otelcol-contrib/otel-collector.yaml"]
+    depends_on:
+      - tempo
+      - loki
+    networks:
+      - observability
+    restart: unless-stopped
+    environment:
+      - LOKI_ENDPOINT=http://loki:3100
+      - TEMPO_ENDPOINT=http://tempo:3200
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8888/metrics || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Promtail - Log Shipping Agent
+  promtail:
+    image: grafana/promtail:2.9.2
+    container_name: auth-promtail
+    volumes:
+      - ./configs/promtail.yaml:/etc/promtail/config.yml
+      - /var/log:/var/log:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-positions:/tmp/positions
+      # Mount service log directories
+      - ../../services/personal-email-signup-backend/logs:/app/signup-service/logs:ro
+      - ../../services/login-page-back/logs:/app/login-service/logs:ro
+    command: -config.file=/etc/promtail/config.yml
+    depends_on:
+      - loki
+    networks:
+      - observability
+    restart: unless-stopped
+
+  # Prometheus - Metrics Storage (if not already running)
+  prometheus:
+    image: prom/prometheus:v2.47.2
+    container_name: auth-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/prometheus.yaml:/etc/prometheus/prometheus.yml
+      - ./alerts:/etc/prometheus/alerts
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - observability
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:9090/-/healthy || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Grafana - Unified Observability Dashboard
+  grafana:
+    image: grafana/grafana:10.2.0
+    container_name: auth-grafana
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./configs/grafana/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml
+      - ./configs/grafana/dashboard-providers.yaml:/etc/grafana/provisioning/dashboards/providers.yaml
+      - ./dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_FEATURE_TOGGLES_ENABLE=traceqlEditor
+      - GF_INSTALL_PLUGINS=grafana-polystat-panel,grafana-piechart-panel
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+    networks:
+      - observability
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3000/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # MinIO - S3-compatible object storage for development
+  minio:
+    image: minio/minio:RELEASE.2023-11-20T22-40-07Z
+    container_name: auth-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    environment:
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password123
+      - MINIO_BROWSER_REDIRECT_URL=http://localhost:9001
+    command: server /data --console-address ":9001"
+    networks:
+      - observability
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  # MinIO Client - Setup S3 buckets
+  minio-setup:
+    image: minio/mc:RELEASE.2023-11-20T16-30-59Z
+    container_name: auth-minio-setup
+    depends_on:
+      - minio
+    networks:
+      - observability
+    environment:
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ROOT_USER=admin
+      - MINIO_ROOT_PASSWORD=password123
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 admin password123;
+      /usr/bin/mc mb myminio/loki-data || true;
+      /usr/bin/mc mb myminio/tempo-data || true;
+      /usr/bin/mc mb myminio/grafana-dashboards || true;
+      exit 0;
+      "
+
+volumes:
+  loki-data:
+    driver: local
+  tempo-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  minio-data:
+    driver: local
+  promtail-positions:
+    driver: local
+
+networks:
+  observability:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

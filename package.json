@@ -1,0 +1,18 @@
+{
+  "name": "auth-services-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Phase 0 orchestration and verification contract for the auth services monorepo",
+  "engines": {
+    "node": ">=20 <23",
+    "npm": ">=10 <12"
+  },
+  "scripts": {
+    "verify:phase0": "node scripts/verify-phase0.js",
+    "build:signup": "npm --prefix services/personal-email-signup-backend run build",
+    "typecheck:signup": "npm --prefix services/personal-email-signup-backend run typecheck",
+    "test:signup": "npm --prefix services/personal-email-signup-backend test -- --runInBand",
+    "build:phone": "npm --prefix packages/phone-normalization run build",
+    "test:phone": "npm --prefix packages/phone-normalization test -- --runInBand"
+  }
+}

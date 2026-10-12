@@ -1,0 +1,76 @@
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/@emnapi
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/string-length/node_modules 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/@tybys
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/wrap-ansi-cjs/node_modules 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/winston-transport/node_modules 2/readable-stream/lib/internal/streams
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/winston-transport/.nyc_output 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/winston-transport/dist 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/is-core-module/test 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/ts-loader/dist 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/sprintf-js/src 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/sprintf-js/test 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/sprintf-js/demo 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/sprintf-js/dist 2
+EMPTY_DIR: services/personal-email-signup-backend/node_modules/delayed-stream/lib 2
+EMPTY_DIR: services/personal-email-signup-backend/.github/workflows
+EMPTY_DIR: services/personal-email-signup-backend/src/policies
+EMPTY_DIR: services/personal-email-signup-backend/src/testing
+EMPTY_DIR: services/personal-email-signup-backend/src/deployment
+EMPTY_DIR: services/personal-email-signup-backend/src/device
+EMPTY_DIR: services/login-page-back/database/migrations
+EMPTY_DIR: services/login-page-back/database/schemas
+EMPTY_DIR: services/login-page-back/database/seeds
+EMPTY_DIR: services/login-page-back/checkpoints/2025-10-05
+EMPTY_DIR: services/login-page-back/tests/unit/events
+EMPTY_DIR: services/login-page-back/tests/security/integration
+EMPTY_DIR: services/login-page-back/tests/integration/events
+EMPTY_DIR: services/login-page-back/tests/recovery
+EMPTY_DIR: services/login-page-back/tests/src-reexports
+EMPTY_DIR: services/login-page-back/tests/load
+EMPTY_DIR: services/login-page-back/tests/src/recovery
+EMPTY_DIR: services/login-page-back/scripts
+EMPTY_DIR: services/login-page-back/keys
+EMPTY_DIR: services/login-page-back/infrastructure/network
+EMPTY_DIR: services/login-page-back/deployments/checkpoints
+EMPTY_DIR: services/login-page-back/deployments/monitoring/loki
+EMPTY_DIR: services/login-page-back/deployments/monitoring/promtail
+EMPTY_DIR: services/login-page-back/deployments/monitoring/grafana/datasources
+EMPTY_DIR: services/login-page-back/deployments/monitoring/grafana/provisioning/datasources
+EMPTY_DIR: services/login-page-back/deployments/monitoring/grafana/provisioning/dashboards
+EMPTY_DIR: services/login-page-back/deployments/monitoring/grafana/dashboards
+EMPTY_DIR: services/login-page-back/deployments/monitoring/alerts
+EMPTY_DIR: services/login-page-back/deployments/monitoring/consumer
+EMPTY_DIR: services/login-page-back/src/middleware
+EMPTY_DIR: services/login-page-back/src/database
+EMPTY_DIR: services/login-page-back/src/incident-response
+EMPTY_DIR: services/login-page-back/src/cache
+EMPTY_DIR: services/login-page-back/src/enterprise
+EMPTY_DIR: services/login-page-back/src/config
+EMPTY_DIR: services/login-page-back/src/security/encryption
+EMPTY_DIR: services/login-page-back/src/security/adaptive-rate-limiting
+EMPTY_DIR: services/login-page-back/src/security/cryptography
+EMPTY_DIR: services/login-page-back/src/security/token-revocation
+EMPTY_DIR: services/login-page-back/src/security/threat-intelligence
+EMPTY_DIR: services/login-page-back/src/security/network
+EMPTY_DIR: services/login-page-back/src/security/behavioral
+EMPTY_DIR: services/login-page-back/src/security/container
+EMPTY_DIR: services/login-page-back/src/security/webauthn
+EMPTY_DIR: services/login-page-back/src/security/confidential-computing
+EMPTY_DIR: services/login-page-back/src/security/supply-chain
+EMPTY_DIR: services/login-page-back/src/security/rate-limiting
+EMPTY_DIR: services/login-page-back/src/recovery
+EMPTY_DIR: services/login-page-back/src/optimization
+EMPTY_DIR: services/login-page-back/src/recovery-flows/password-reset
+EMPTY_DIR: services/login-page-back/src/utils
+EMPTY_DIR: services/login-page-back/src/disaster-recovery
+EMPTY_DIR: services/login-page-back/src/compliance
+EMPTY_DIR: services/login-page-back/src/policies
+EMPTY_DIR: services/login-page-back/src/security-validation
+EMPTY_DIR: services/login-page-back/src/auth-services/token-service
+EMPTY_DIR: services/login-page-back/src/auth-services/workflow
+EMPTY_DIR: services/login-page-back/src/auth-services/credential-service
+EMPTY_DIR: services/login-page-back/src/auth-services/mfa-engine
+EMPTY_DIR: services/login-page-back/src/deployment
+EMPTY_DIR: services/login-page-back/src/monitoring
+EMPTY_DIR: services/login-page-back/src/events
+EMPTY_DIR: services/login-page-back/src/routes

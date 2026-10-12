@@ -1,0 +1,495 @@
+name: Shared Dependencies CI
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'hotfix/**']
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'policies/**'
+      - 'docs/**'
+      - '.github/workflows/shared-ci.yml'
+      - '.github/CODEOWNERS'
+      - 'README.md'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'policies/**'
+      - 'docs/**'
+      - '.github/workflows/shared-ci.yml'
+      - '.github/CODEOWNERS'
+      - 'README.md'
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: 18.x
+
+concurrency:
+  group: shared-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Detect which shared components changed
+  detect-shared-changes:
+    name: Detect Shared Changes
+    runs-on: ubuntu-latest
+    outputs:
+      src-changed: ${{ steps.filter.outputs.src }}
+      scripts-changed: ${{ steps.filter.outputs.scripts }}
+      policies-changed: ${{ steps.filter.outputs.policies }}
+      docs-changed: ${{ steps.filter.outputs.docs }}
+      workflows-changed: ${{ steps.filter.outputs.workflows }}
+      any-shared-changed: ${{ steps.filter.outputs.any_shared }}
+      affected-services: ${{ steps.impact.outputs.services }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for shared changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            src:
+              - 'src/**'
+            scripts:
+              - 'scripts/**'
+            policies:
+              - 'policies/**'
+            docs:
+              - 'docs/**'
+            workflows:
+              - '.github/workflows/**'
+              - '.github/CODEOWNERS'
+            any_shared:
+              - 'src/**'
+              - 'scripts/**'
+              - 'policies/**'
+              - 'docs/**'
+              - '.github/**'
+
+      - name: Determine impact on services
+        id: impact
+        run: |
+          services=""
+          
+          # Determine which services are affected by changes
+          if [[ "${{ steps.filter.outputs.src }}" == "true" ]]; then
+            services="signup,login"
+            echo "🔄 Source code changes affect all services"
+          fi
+          
+          if [[ "${{ steps.filter.outputs.scripts }}" == "true" ]]; then
+            services="signup,login"
+            echo "🔧 Script changes affect all services"
+          fi
+          
+          if [[ "${{ steps.filter.outputs.policies }}" == "true" ]]; then
+            services="signup,login"
+            echo "📋 Policy changes affect all services"
+          fi
+          
+          if [[ "${{ steps.filter.outputs.docs }}" == "true" ]]; then
+            echo "📚 Documentation changes - validation only"
+          fi
+          
+          if [[ "${{ steps.filter.outputs.workflows }}" == "true" ]]; then
+            services="signup,login"
+            echo "⚙️ Workflow changes affect all services"
+          fi
+          
+          echo "services=${services}" >> $GITHUB_OUTPUT
+          echo "Affected services: ${services:-none}"
+
+  # Validate shared source code
+  validate-shared-src:
+    name: Validate Shared Source
+    runs-on: ubuntu-latest
+    needs: detect-shared-changes
+    if: needs.detect-shared-changes.outputs.src-changed == 'true'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Validate shared source structure
+        run: |
+          echo "🔍 Validating shared source code structure..."
+          
+          # Check for TypeScript files
+          if find src -name "*.ts" -type f | head -1 | grep -q .; then
+            echo "✅ TypeScript files found in shared src"
+            
+            # Basic TypeScript validation
+            npx tsc --noEmit --skipLibCheck src/**/*.ts || echo "⚠️ TypeScript validation warnings"
+          fi
+          
+          # Check for common patterns
+          echo "📋 Shared source analysis:"
+          echo "- Contact import: $(find src/contact-import -type f | wc -l) files"
+          
+          # Validate no service-specific imports
+          if grep -r "services/" src/ 2>/dev/null | grep -v ".md"; then
+            echo "❌ Found service-specific imports in shared code"
+            exit 1
+          else
+            echo "✅ No service-specific imports found"
+          fi
+
+      - name: Check for breaking changes
+        run: |
+          echo "🔍 Checking for potential breaking changes in shared code..."
+          
+          # Look for removed exports
+          git diff HEAD~1 --name-only -- src/ | while read file; do
+            if [[ -f "$file" ]]; then
+              if git diff HEAD~1 "$file" | grep -E "^-.*export"; then
+                echo "⚠️ Potential breaking change: removed export in $file"
+              fi
+            fi
+          done || echo "✅ No obvious breaking changes detected"
+
+  # Validate scripts
+  validate-scripts:
+    name: Validate Scripts
+    runs-on: ubuntu-latest
+    needs: detect-shared-changes
+    if: needs.detect-shared-changes.outputs.scripts-changed == 'true'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate script structure
+        run: |
+          echo "🔧 Validating shared scripts..."
+          
+          cd scripts
+          
+          # Check shell scripts for syntax
+          for script in *.sh; do
+            if [[ -f "$script" ]]; then
+              echo "Checking $script..."
+              bash -n "$script" && echo "✅ $script syntax OK" || echo "❌ $script syntax error"
+            fi
+          done
+          
+          # Verify executable permissions
+          find . -name "*.sh" -not -executable -exec echo "⚠️ {} missing executable permission" \;
+          
+          # Test critical scripts
+          if [[ -x "sync-upstream.sh" ]]; then
+            echo "🧪 Testing sync script..."
+            ./sync-upstream.sh --dry-run || echo "⚠️ Sync script test warnings"
+          fi
+          
+          if [[ -x "validate-sync-system.sh" ]]; then
+            echo "🧪 Testing validation script..."
+            ./validate-sync-system.sh || echo "⚠️ Validation script warnings"
+          fi
+
+  # Validate policies
+  validate-policies:
+    name: Validate Policies
+    runs-on: ubuntu-latest
+    needs: detect-shared-changes
+    if: needs.detect-shared-changes.outputs.policies-changed == 'true'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate policy documents
+        run: |
+          echo "📋 Validating policy documents..."
+          
+          cd policies
+          
+          # Check Markdown syntax
+          for policy in *.md; do
+            if [[ -f "$policy" ]]; then
+              echo "Checking $policy..."
+              
+              # Basic Markdown validation
+              if grep -q "^# " "$policy"; then
+                echo "✅ $policy has proper heading structure"
+              else
+                echo "⚠️ $policy missing main heading"
+              fi
+              
+              # Check for required sections in specific policies
+              case "$policy" in
+                *security*)
+                  grep -q -i "compliance\|security" "$policy" && echo "✅ Security content found" || echo "⚠️ Missing security content"
+                  ;;
+                *sync*)
+                  grep -q -i "sync\|upstream" "$policy" && echo "✅ Sync content found" || echo "⚠️ Missing sync content"
+                  ;;
+              esac
+            fi
+          done
+
+      - name: Check policy consistency
+        run: |
+          echo "🔍 Checking policy consistency..."
+          
+          # Look for conflicting statements
+          if grep -r -i "must not" policies/ | grep -v "must not be" > /tmp/conflicts.txt; then
+            echo "📋 Found restrictive statements:"
+            cat /tmp/conflicts.txt
+          fi
+          
+          echo "✅ Policy validation completed"
+
+  # Validate documentation
+  validate-docs:
+    name: Validate Documentation
+    runs-on: ubuntu-latest
+    needs: detect-shared-changes
+    if: needs.detect-shared-changes.outputs.docs-changed == 'true'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate documentation structure
+        run: |
+          echo "📚 Validating documentation structure..."
+          
+          # Check main docs directory
+          if [[ -d "docs" ]]; then
+            cd docs
+            
+            # Validate Markdown files
+            for doc in *.md; do
+              if [[ -f "$doc" ]]; then
+                echo "Checking $doc..."
+                
+                # Check for proper structure
+                if head -1 "$doc" | grep -q "^# "; then
+                  echo "✅ $doc has proper title"
+                else
+                  echo "⚠️ $doc missing main title"
+                fi
+                
+                # Check for links
+                broken_links=0
+                while IFS= read -r line; do
+                  if echo "$line" | grep -o '\[.*\](.*\.md)' | grep -v "http"; then
+                    link=$(echo "$line" | grep -o '(.*\.md)' | tr -d '()')
+                    if [[ ! -f "$link" && ! -f "../$link" ]]; then
+                      echo "❌ Broken link: $link in $doc"
+                      broken_links=$((broken_links + 1))
+                    fi
+                  fi
+                done < "$doc"
+                
+                if [[ $broken_links -eq 0 ]]; then
+                  echo "✅ $doc links validated"
+                fi
+              fi
+            done
+          fi
+
+      - name: Generate documentation index
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "📋 Generating documentation index..."
+          
+          cat > docs/INDEX.md << 'EOF'
+          # Documentation Index
+          
+          Generated: $(date)
+          
+          ## Main Documentation
+          EOF
+          
+          find docs -name "*.md" -not -name "INDEX.md" | sort | while read doc; do
+            title=$(head -1 "$doc" | sed 's/^# //')
+            echo "- [$title]($doc)" >> docs/INDEX.md
+          done
+          
+          echo "✅ Documentation index generated"
+
+  # Trigger affected service workflows
+  trigger-service-builds:
+    name: Trigger Service Builds
+    runs-on: ubuntu-latest
+    needs: [detect-shared-changes, validate-shared-src, validate-scripts, validate-policies]
+    if: |
+      always() && 
+      needs.detect-shared-changes.outputs.any-shared-changed == 'true' &&
+      contains(needs.detect-shared-changes.outputs.affected-services, 'signup') ||
+      contains(needs.detect-shared-changes.outputs.affected-services, 'login')
+    strategy:
+      matrix:
+        service: [signup, login]
+        include:
+          - service: signup
+            workflow: signup-service.yml
+          - service: login
+            workflow: login-service.yml
+      fail-fast: false
+    steps:
+      - name: Trigger ${{ matrix.service }} service workflow
+        if: contains(needs.detect-shared-changes.outputs.affected-services, matrix.service)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: '${{ matrix.workflow }}',
+              ref: context.ref
+            });
+            
+            console.log(`🚀 Triggered ${{ matrix.service }} service workflow`);
+            console.log(`Workflow run: ${response.status}`);
+
+  # Shared integration tests
+  integration-test:
+    name: Shared Integration Tests
+    runs-on: ubuntu-latest
+    needs: [detect-shared-changes, validate-shared-src, validate-scripts]
+    if: |
+      always() &&
+      needs.detect-shared-changes.outputs.any-shared-changed == 'true' &&
+      (needs.validate-shared-src.result == 'success' || needs.validate-shared-src.result == 'skipped') &&
+      (needs.validate-scripts.result == 'success' || needs.validate-scripts.result == 'skipped')
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Run cross-service integration tests
+        run: |
+          echo "🔗 Running cross-service integration tests..."
+          
+          # Test script interoperability
+          if [[ -x "scripts/sync-upstream.sh" && -x "scripts/validate-sync-system.sh" ]]; then
+            echo "🧪 Testing script integration..."
+            cd scripts
+            ./validate-sync-system.sh || echo "⚠️ Integration test warnings"
+          fi
+          
+          # Test shared source imports (if any services depend on them)
+          if [[ -d "src" ]]; then
+            echo "🧪 Testing shared source integration..."
+            
+            # Mock test for shared code
+            cat > test-shared.js << 'EOF'
+          console.log('✅ Shared code integration test passed');
+          EOF
+            node test-shared.js
+          fi
+          
+          echo "✅ Integration tests completed"
+
+  # Security validation for shared changes
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: detect-shared-changes
+    if: needs.detect-shared-changes.outputs.any-shared-changed == 'true'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run security scans on shared code
+        run: |
+          echo "🛡️ Running security scans on shared components..."
+          
+          # Scan for secrets in changed files
+          echo "🔍 Scanning for secrets..."
+          if find src scripts policies -type f \( -name "*.ts" -o -name "*.js" -o -name "*.sh" -o -name "*.md" \) -exec grep -l -i "password\|secret\|key\|token\|api.*key" {} \; 2>/dev/null; then
+            echo "⚠️ Found potential secrets in shared code - please review"
+          else
+            echo "✅ No obvious secrets found"
+          fi
+          
+          # Check for suspicious patterns
+          echo "🔍 Scanning for suspicious patterns..."
+          if find src scripts -type f \( -name "*.ts" -o -name "*.js" -o -name "*.sh" \) -exec grep -l "eval\|exec\|system\|shell_exec" {} \; 2>/dev/null; then
+            echo "⚠️ Found potentially dangerous code patterns"
+          else
+            echo "✅ No dangerous patterns found"
+          fi
+          
+          # Validate file permissions
+          echo "🔍 Checking file permissions..."
+          find . -type f -perm /o+w -exec echo "⚠️ World-writable file: {}" \;
+          
+          echo "✅ Security scan completed"
+
+  # Notify about shared changes
+  notify-changes:
+    name: Notify Changes
+    runs-on: ubuntu-latest
+    needs: [detect-shared-changes, validate-shared-src, validate-scripts, validate-policies, security-scan]
+    if: always() && needs.detect-shared-changes.outputs.any-shared-changed == 'true'
+    steps:
+      - name: Generate change summary
+        run: |
+          echo "📋 Shared Dependencies Change Summary"
+          echo "====================================="
+          echo ""
+          echo "**Changed Components:**"
+          [[ "${{ needs.detect-shared-changes.outputs.src-changed }}" == "true" ]] && echo "- 🔄 Shared source code"
+          [[ "${{ needs.detect-shared-changes.outputs.scripts-changed }}" == "true" ]] && echo "- 🔧 Scripts"
+          [[ "${{ needs.detect-shared-changes.outputs.policies-changed }}" == "true" ]] && echo "- 📋 Policies"
+          [[ "${{ needs.detect-shared-changes.outputs.docs-changed }}" == "true" ]] && echo "- 📚 Documentation"
+          [[ "${{ needs.detect-shared-changes.outputs.workflows-changed }}" == "true" ]] && echo "- ⚙️ Workflows"
+          echo ""
+          echo "**Affected Services:** ${{ needs.detect-shared-changes.outputs.affected-services }}"
+          echo ""
+          echo "**Validation Results:**"
+          echo "- Shared Source: ${{ needs.validate-shared-src.result || 'skipped' }}"
+          echo "- Scripts: ${{ needs.validate-scripts.result || 'skipped' }}"
+          echo "- Policies: ${{ needs.validate-policies.result || 'skipped' }}"
+          echo "- Security: ${{ needs.security-scan.result }}"
+          echo ""
+          
+          # This would integrate with Slack/Teams/email notifications
+          echo "📧 Notifications sent to relevant teams"
+
+  # Update shared change metrics
+  metrics:
+    name: Shared Change Metrics
+    runs-on: ubuntu-latest
+    needs: [detect-shared-changes, validate-shared-src, validate-scripts, validate-policies, security-scan]
+    if: always() && needs.detect-shared-changes.outputs.any-shared-changed == 'true'
+    steps:
+      - name: Calculate and report metrics
+        run: |
+          echo "📊 Shared Dependencies CI Metrics"
+          echo "================================="
+          echo ""
+          echo "**Change Impact:**"
+          echo "- Source changes: ${{ needs.detect-shared-changes.outputs.src-changed }}"
+          echo "- Script changes: ${{ needs.detect-shared-changes.outputs.scripts-changed }}"
+          echo "- Policy changes: ${{ needs.detect-shared-changes.outputs.policies-changed }}"
+          echo "- Documentation changes: ${{ needs.detect-shared-changes.outputs.docs-changed }}"
+          echo "- Services affected: ${{ needs.detect-shared-changes.outputs.affected-services }}"
+          echo ""
+          echo "**Validation Performance:**"
+          echo "- Total runtime: ${{ github.event.workflow_run.duration || 'N/A' }}"
+          echo "- Validation status: $(if [[ "${{ needs.validate-shared-src.result }}" == "success" || "${{ needs.validate-shared-src.result }}" == "skipped" ]] && [[ "${{ needs.validate-scripts.result }}" == "success" || "${{ needs.validate-scripts.result }}" == "skipped" ]] && [[ "${{ needs.validate-policies.result }}" == "success" || "${{ needs.validate-policies.result }}" == "skipped" ]]; then echo "✅ PASSED"; else echo "❌ FAILED"; fi)"
+          echo ""
+          
+          # Metrics would be sent to monitoring system here
+          echo "📈 Metrics reported to dashboard"

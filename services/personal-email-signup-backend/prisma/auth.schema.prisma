@@ -1,0 +1,248 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL_AUTH")
+}
+
+enum MatchType {
+  mutual
+  one_sided
+}
+
+enum PushTokenPlatform {
+  ios
+  android
+}
+
+enum PushTokenType {
+  fcm
+  apns
+}
+
+enum UserAccountStatus {
+  ACTIVE
+  SUSPENDED
+  DISABLED
+}
+
+enum OnboardingStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETE
+}
+
+enum IdentityProvider {
+  PASSWORD
+  GOOGLE
+  APPLE
+}
+
+enum LegacyIdentitySource {
+  R1
+  R2
+  R3
+}
+
+model User {
+  id                  String                @id @default(uuid()) @db.Uuid
+  username            String                @unique
+  normalizedUsername  String?               @unique
+  displayUsername     String?
+  email               String                @unique
+  /// Nullable for provider-only accounts; password accounts use PasswordCredential.
+  password            String?
+  accountStatus       UserAccountStatus     @default(ACTIVE)
+  isVerified          Boolean               @default(false)
+  onboardingStatus    OnboardingStatus     @default(NOT_STARTED) @map("onboarding_status")
+  onboardingCompletedAt DateTime?          @map("onboarding_completed_at")
+  // Policy acceptance fields
+  termsVersion        String?               @db.VarChar(64)
+  termsAcceptedAt     DateTime?
+  // Optional identity fields (store minimal PII; profile_image_url is a pointer)
+  displayName         String?               @db.VarChar(255)
+  declaredAge         Int?
+  profileImageUrl     String?
+  pronouns            String?               @db.VarChar(64)
+  usernameUpdatedAt   DateTime?
+  phone               String?               @db.VarChar(20)
+  phoneVerifiedAt     DateTime?             @map("phone_verified_at")
+  hashedPhone         String?               @map("hashed_phone") @db.VarChar(64)
+  allowContactDiscovery Boolean              @map("allow_contact_discovery") @default(false)
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  // verificationToken removed: migrated to Redis-backed OTP flow
+  // emailVerification relation removed
+  refreshTokens       RefreshToken[]
+  hashedContacts      HashedContact[]
+  suggestionsAuthored ContactSuggestion[]   @relation("SuggestionOwner")
+  suggestionsTargeted ContactSuggestion[]   @relation("SuggestionTarget")
+  blocksInitiated     Block[]               @relation("Blocker")
+  blocksReceived      Block[]               @relation("Blocked")
+  pushTokens          PushToken[]
+  identityLinks       UserIdentity[]
+  passwordCredential  PasswordCredential?
+  identitySessions    IdentitySession[]
+  legacyMappings      LegacyIdentityMapping[]
+  policyAcceptances   PolicyAcceptance[]
+
+  @@index([hashedPhone], map: "idx_users_hashed_phone")
+  @@unique([phone], map: "users_phone_key")
+}
+
+/// Provider identities are keyed by issuer and stable provider subject, never email.
+model UserIdentity {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  provider  IdentityProvider
+  issuer    String           @db.VarChar(255)
+  subject   String           @db.VarChar(255)
+  createdAt DateTime         @map("created_at") @default(now())
+  updatedAt DateTime         @map("updated_at") @updatedAt
+  lastUsedAt DateTime?       @map("last_used_at")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, subject], map: "uniq_user_identities_issuer_subject")
+  @@index([userId], map: "idx_user_identities_user")
+  @@map("user_identities")
+}
+
+/// Separate future credential storage. Existing User.password remains for legacy compatibility.
+model PasswordCredential {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @map("created_at") @default(now())
+  updatedAt    DateTime @map("updated_at") @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_credentials")
+}
+
+/// Future session ownership boundary. No issuer or session activation is added in Phase 1.
+model IdentitySession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  sessionHash String   @unique @map("session_hash") @db.VarChar(128)
+  createdAt  DateTime  @map("created_at") @default(now())
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_identity_sessions_user")
+  @@index([expiresAt], map: "idx_identity_sessions_expires")
+  @@map("identity_sessions")
+}
+
+/// Auditable source-qualified mapping for later R1/R2 migration.
+model LegacyIdentityMapping {
+  id         String               @id @default(uuid()) @db.Uuid
+  userId     String               @map("user_id") @db.Uuid
+  source     LegacyIdentitySource
+  originalId String               @map("original_id") @db.VarChar(255)
+  createdAt  DateTime             @map("created_at") @default(now())
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([source, originalId], map: "uniq_legacy_identity_source_original")
+  @@index([userId], map: "idx_legacy_identity_user")
+  @@map("legacy_identity_mappings")
+}
+
+model PolicyAcceptance {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  policyVersion String   @map("policy_version") @db.VarChar(64)
+  acceptedAt    DateTime @map("accepted_at") @default(now())
+  source        String   @default("api") @db.VarChar(32)
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, policyVersion], map: "uniq_policy_acceptance_user_version")
+  @@index([userId], map: "idx_policy_acceptance_user")
+  @@map("policy_acceptance_history")
+}
+
+model RefreshToken {
+  id        Int      @id @default(autoincrement())
+  userId    String   @db.Uuid
+  token     String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model HashedContact {
+  id          Int       @id @default(autoincrement())
+  userId      String    @map("user_id") @db.Uuid
+  hashedPhone String    @map("hashed_phone") @db.VarChar(64)
+  uploadedAt  DateTime  @map("uploaded_at") @default(now())
+  expiresAt   DateTime  @map("expires_at")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("hashed_contacts")
+  @@unique([userId, hashedPhone], map: "uniq_hashed_contacts_user_phone")
+  @@index([hashedPhone], map: "idx_hashed_contacts_hashed_phone")
+  @@index([userId], map: "idx_hashed_contacts_user_id")
+  @@index([expiresAt], map: "idx_hashed_contacts_expires_at")
+}
+
+model ContactSuggestion {
+  id              Int        @id @default(autoincrement())
+  userId          String     @map("user_id") @db.Uuid
+  suggestedUserId String     @map("suggested_user_id") @db.Uuid
+  matchType       MatchType  @map("match_type")
+  matchStrength   Decimal    @map("match_strength") @db.Decimal(4, 3)
+  createdAt       DateTime   @map("created_at") @default(now())
+  viewedAt        DateTime?  @map("viewed_at")
+  acceptedAt      DateTime?  @map("accepted_at")
+  stale           Boolean    @default(false)
+  user            User       @relation("SuggestionOwner", fields: [userId], references: [id], onDelete: Cascade)
+  suggestedUser   User       @relation("SuggestionTarget", fields: [suggestedUserId], references: [id], onDelete: Cascade)
+
+  @@map("contact_suggestions")
+  @@unique([userId, suggestedUserId], map: "uniq_contact_suggestions_pair")
+  @@index([userId], map: "idx_contact_suggestions_user")
+  @@index([userId, matchType], map: "idx_contact_suggestions_user_match_type")
+  @@index([suggestedUserId], map: "idx_contact_suggestions_suggested_user")
+}
+
+model Block {
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @map("created_at") @default(now())
+
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@id([blockerId, blockedId])
+  @@map("blocks")
+  @@index([blockerId], map: "idx_blocks_blocker")
+  @@index([blockedId], map: "idx_blocks_blocked")
+}
+
+model PushToken {
+  id              String             @id @default(uuid()) @db.Uuid
+  userId          String             @map("user_id") @db.Uuid
+  token           String             @db.VarChar(512)
+  platform        PushTokenPlatform
+  tokenType       PushTokenType      @map("token_type")
+  deviceMetadata  Json?              @map("device_metadata")
+  active          Boolean            @default(true)
+  lastValidatedAt DateTime?          @map("last_validated_at")
+  createdAt       DateTime           @map("created_at") @default(now())
+  updatedAt       DateTime           @map("updated_at") @updatedAt
+
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, token, platform], map: "uniq_push_token_user_token_platform")
+  @@map("push_tokens")
+  @@index([userId], map: "idx_push_tokens_user")
+  @@index([active, platform], map: "idx_push_tokens_active_platform")
+  @@index([lastValidatedAt], map: "idx_push_tokens_last_validated")
+}
+
+// EmailVerificationToken model removed. Tokens are now stored in Redis and
+// verified via the OTP flow. The SQL migration in prisma/migrations/
+// 20251003_remove_email_verification_token/ contains reversible SQL to
+// recreate the table and column if rollback is necessary.

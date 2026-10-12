@@ -1,0 +1,284 @@
+# Prometheus Alert Rules
+
+groups:
+  - name: signup-backend-alerts
+    interval: 30s
+    rules:
+      # High Error Rate
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{service="signup-backend", status=~"5.."}[5m])) 
+          / sum(rate(http_requests_total{service="signup-backend"}[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          service: signup-backend
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 1%)"
+          correlation_id: "{{ $labels.correlation_id }}"
+          runbook_url: "https://docs.company.com/runbooks/high-error-rate"
+
+      # High Latency (p95)
+      - alert: HighLatencyP95
+        expr: |
+          histogram_quantile(0.95, 
+            rate(http_request_duration_seconds_bucket{service="signup-backend"}[5m])
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: api
+        annotations:
+          summary: "High p95 latency detected"
+          description: "p95 latency is {{ $value | humanizeDuration }} (threshold: 200ms)"
+          runbook_url: "https://docs.company.com/runbooks/high-latency"
+
+      # Critical Latency (p99)
+      - alert: CriticalLatencyP99
+        expr: |
+          histogram_quantile(0.99, 
+            rate(http_request_duration_seconds_bucket{service="signup-backend"}[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: critical
+          service: signup-backend
+          component: api
+        annotations:
+          summary: "Critical p99 latency detected"
+          description: "p99 latency is {{ $value | humanizeDuration }} (threshold: 500ms)"
+          runbook_url: "https://docs.company.com/runbooks/high-latency"
+
+      # Pod Restarts
+      - alert: FrequentPodRestarts
+        expr: |
+          rate(kube_pod_container_status_restarts_total{
+            namespace="production", 
+            pod=~"signup-backend-.*"
+          }[1h]) > 3
+        for: 5m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: infrastructure
+        annotations:
+          summary: "Pod restarting frequently"
+          description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last hour"
+          runbook_url: "https://docs.company.com/runbooks/pod-restarts"
+
+      # Database Connection Pool Exhaustion
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          prisma_pool_connections_active{service="signup-backend"} 
+          / prisma_pool_connections_max{service="signup-backend"} > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          service: signup-backend
+          component: database
+        annotations:
+          summary: "Database connection pool near exhaustion"
+          description: "{{ $value | humanizePercentage }} of database connections in use (threshold: 90%)"
+          runbook_url: "https://docs.company.com/runbooks/db-pool-exhausted"
+
+      # Redis Connection Failures
+      - alert: RedisConnectionFailures
+        expr: |
+          sum(rate(redis_connection_errors_total{service="signup-backend"}[5m])) > 0
+        for: 2m
+        labels:
+          severity: critical
+          service: signup-backend
+          component: cache
+        annotations:
+          summary: "Redis connection failures detected"
+          description: "{{ $value }} Redis connection errors per second"
+          runbook_url: "https://docs.company.com/runbooks/redis-failures"
+
+      # OTP Send Failures
+      - alert: OTPSendFailures
+        expr: |
+          sum(rate(otp_send_failures_total{service="signup-backend"}[5m])) 
+          / sum(rate(otp_send_attempts_total{service="signup-backend"}[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: email
+        annotations:
+          summary: "High OTP send failure rate"
+          description: "{{ $value | humanizePercentage }} of OTP sends failing (threshold: 5%)"
+          runbook_url: "https://docs.company.com/runbooks/email-failures"
+
+      # High Memory Usage
+      - alert: HighMemoryUsage
+        expr: |
+          container_memory_usage_bytes{
+            namespace="production", 
+            pod=~"signup-backend-.*"
+          } 
+          / container_spec_memory_limit_bytes{
+            namespace="production", 
+            pod=~"signup-backend-.*"
+          } > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: infrastructure
+        annotations:
+          summary: "High memory usage detected"
+          description: "Pod {{ $labels.pod }} using {{ $value | humanizePercentage }} of memory (threshold: 85%)"
+          runbook_url: "https://docs.company.com/runbooks/high-memory"
+
+      # High CPU Usage
+      - alert: HighCPUUsage
+        expr: |
+          rate(container_cpu_usage_seconds_total{
+            namespace="production", 
+            pod=~"signup-backend-.*"
+          }[5m]) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage detected"
+          description: "Pod {{ $labels.pod }} using {{ $value | humanizePercentage }} of CPU (threshold: 80%)"
+          runbook_url: "https://docs.company.com/runbooks/high-cpu"
+
+      # Service Down
+      - alert: ServiceDown
+        expr: |
+          up{service="signup-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: signup-backend
+          component: infrastructure
+        annotations:
+          summary: "Service is down"
+          description: "signup-backend service is unreachable"
+          runbook_url: "https://docs.company.com/runbooks/service-down"
+
+      # Too Many Failed Login Attempts (Security)
+      - alert: SuspiciousLoginActivity
+        expr: |
+          sum(rate(otp_verification_failures_total{service="signup-backend"}[5m])) 
+          by (tenant_id, email) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: security
+        annotations:
+          summary: "Suspicious login activity detected"
+          description: "{{ $value }} failed OTP verifications per second for {{ $labels.email }}"
+          runbook_url: "https://docs.company.com/runbooks/brute-force-attack"
+
+      # Database Replication Lag
+      - alert: DatabaseReplicationLag
+        expr: |
+          aws_rds_replica_lag_seconds{db_instance_identifier="signup-backend-db-replica"} > 60
+        for: 5m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: database
+        annotations:
+          summary: "High database replication lag"
+          description: "Replication lag is {{ $value | humanizeDuration }} (threshold: 60s)"
+          runbook_url: "https://docs.company.com/runbooks/replication-lag"
+
+      # Disk Space Low
+      - alert: DiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} 
+          / node_filesystem_size_bytes{mountpoint="/"}) < 0.15
+        for: 5m
+        labels:
+          severity: critical
+          service: signup-backend
+          component: infrastructure
+        annotations:
+          summary: "Low disk space"
+          description: "Only {{ $value | humanizePercentage }} disk space remaining on {{ $labels.instance }}"
+          runbook_url: "https://docs.company.com/runbooks/disk-space"
+
+      # Certificate Expiring Soon
+      - alert: TLSCertificateExpiringSoon
+        expr: |
+          (ssl_certificate_expiry_seconds - time()) / 86400 < 7
+        for: 1h
+        labels:
+          severity: warning
+          service: signup-backend
+          component: security
+        annotations:
+          summary: "TLS certificate expiring soon"
+          description: "Certificate for {{ $labels.domain }} expires in {{ $value }} days"
+          runbook_url: "https://docs.company.com/runbooks/cert-renewal"
+
+      # Rate Limit Exceeded Frequently
+      - alert: FrequentRateLimitHits
+        expr: |
+          sum(rate(rate_limit_exceeded_total{service="signup-backend"}[5m])) > 10
+        for: 10m
+        labels:
+          severity: info
+          service: signup-backend
+          component: api
+        annotations:
+          summary: "High rate of rate limit hits"
+          description: "{{ $value }} requests per second hitting rate limits"
+          runbook_url: "https://docs.company.com/runbooks/rate-limits"
+
+      # Slow Database Queries
+      - alert: SlowDatabaseQueries
+        expr: |
+          histogram_quantile(0.95, 
+            rate(prisma_query_duration_seconds_bucket{service="signup-backend"}[5m])
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: database
+        annotations:
+          summary: "Slow database queries detected"
+          description: "p95 query duration is {{ $value | humanizeDuration }} (threshold: 1s)"
+          runbook_url: "https://docs.company.com/runbooks/slow-queries"
+
+      # Redis Memory High
+      - alert: RedisMemoryHigh
+        expr: |
+          redis_memory_used_bytes{service="signup-backend"} 
+          / redis_memory_max_bytes{service="signup-backend"} > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          service: signup-backend
+          component: cache
+        annotations:
+          summary: "Redis memory usage high"
+          description: "Redis using {{ $value | humanizePercentage }} of max memory (threshold: 85%)"
+          runbook_url: "https://docs.company.com/runbooks/redis-memory"
+
+      # Correlation ID Missing
+      - alert: MissingCorrelationIDs
+        expr: |
+          sum(rate(http_requests_total{service="signup-backend", correlation_id=""}[5m])) 
+          / sum(rate(http_requests_total{service="signup-backend"}[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: info
+          service: signup-backend
+          component: observability
+        annotations:
+          summary: "Requests missing correlation IDs"
+          description: "{{ $value | humanizePercentage }} of requests lack correlation IDs (threshold: 10%)"
+          runbook_url: "https://docs.company.com/runbooks/correlation-ids"

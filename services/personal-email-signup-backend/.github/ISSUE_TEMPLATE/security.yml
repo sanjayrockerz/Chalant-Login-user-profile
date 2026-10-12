@@ -1,0 +1,100 @@
+name: Security Vulnerability
+description: Report a security vulnerability (private by default)
+title: "[Security]: "
+labels: ["security", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ⚠️ **Security Alert**
+        
+        Please do NOT disclose security vulnerabilities publicly.
+        This issue will be treated as confidential.
+        
+        For critical vulnerabilities, contact security@yourcompany.com directly.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: How severe is this vulnerability?
+      options:
+        - Critical (remote code execution, data breach)
+        - High (authentication bypass, privilege escalation)
+        - Medium (XSS, CSRF, information disclosure)
+        - Low (minor information leak, low-impact DoS)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Affected Service
+      options:
+        - personal-email-signup-backend
+        - login-page-back
+        - infrastructure
+        - multiple services
+    validations:
+      required: true
+
+  - type: textarea
+    id: vulnerability-description
+    attributes:
+      label: Vulnerability Description
+      description: Describe the vulnerability
+      placeholder: |
+        The /api/admin endpoint is accessible without authentication...
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What is the potential impact?
+      placeholder: |
+        An attacker could:
+        - Access user data
+        - Modify system configuration
+        - Execute arbitrary code
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this vulnerability?
+      placeholder: |
+        1. Navigate to https://api.example.com/admin
+        2. Observe unrestricted access
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: proof-of-concept
+    attributes:
+      label: Proof of Concept
+      description: Provide PoC code or screenshots (if applicable)
+      render: shell
+
+  - type: textarea
+    id: suggested-fix
+    attributes:
+      label: Suggested Fix
+      description: Do you have a suggestion for how to fix this?
+      placeholder: |
+        Add authentication middleware to admin routes...
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Responsible Disclosure
+      options:
+        - label: I agree to responsible disclosure and will not publicly disclose this until resolved
+          required: true
+        - label: I have verified this vulnerability in the latest version
+          required: true

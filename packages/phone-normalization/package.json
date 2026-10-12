@@ -1,0 +1,23 @@
+{
+  "name": "@auth/phone-normalization",
+  "version": "1.0.0",
+  "description": "Utility for normalizing international phone numbers to E.164 format leveraging libphonenumber-js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.build.json --noEmit",
+    "test": "vitest run --coverage",
+    "bench": "node dist/bench.js"
+  },
+  "dependencies": {
+    "libphonenumber-js": "1.10.36"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.30",
+    "tsup": "7.2.0",
+    "typescript": "5.4.5",
+    "vitest": "1.6.0",
+    "@vitest/coverage-v8": "1.6.0"
+  }
+}

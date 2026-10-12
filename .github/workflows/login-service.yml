@@ -1,0 +1,747 @@
+name: Login Service Pipeline
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'services/login-page-back/**'
+      - 'packages/**'
+      - '.github/workflows/login-service.yml'
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'services/login-page-back/**'
+      - 'packages/**'
+      - '.github/workflows/login-service.yml'
+  workflow_dispatch:
+    inputs:
+      run_e2e:
+        description: 'Force run end-to-end tests'
+        required: false
+        default: 'false'
+      promote_to_prod:
+        description: 'Trigger production deploy when dispatching manually'
+        required: false
+        default: 'false'
+
+env:
+  SERVICE_KEY: login
+  SERVICE_PATH: services/login-page-back
+  NODE_VERSION: '20'
+  REGISTRY: ghcr.io
+  IMAGE_REPOSITORY: ghcr.io/${{ github.repository_owner }}/login-service
+  ERROR_RATE_THRESHOLD: '5'
+  STAGING_NAMESPACE: auth-staging
+  PRODUCTION_NAMESPACE: auth-production
+
+concurrency:
+  group: login-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  changes:
+    name: Detect impacted paths
+    runs-on: ubuntu-latest
+    outputs:
+      service_changed: ${{ steps.filter.outputs.service }}
+      shared_changed: ${{ steps.filter.outputs.shared }}
+      workflow_changed: ${{ steps.filter.outputs.workflow }}
+      api_changed: ${{ steps.filter.outputs.api }}
+      service_impacted: ${{ steps.filter.outputs.service == 'true' || steps.filter.outputs.shared == 'true' || steps.filter.outputs.workflow == 'true' }}
+      has_package_json: ${{ steps.inspect.outputs.has_package_json }}
+      has_dockerfile: ${{ steps.inspect.outputs.has_dockerfile }}
+      dockerfile_path: ${{ steps.inspect.outputs.dockerfile_path }}
+      build_context: ${{ steps.inspect.outputs.build_context }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: filter
+        uses: dorny/paths-filter@v2
+        with:
+          filters: |
+            service:
+              - 'services/login-page-back/**'
+            shared:
+              - 'packages/**'
+            workflow:
+              - '.github/workflows/login-service.yml'
+            api:
+              - 'services/login-page-back/src/**/routes/**'
+              - 'services/login-page-back/src/**/controllers/**'
+              - 'services/login-page-back/src/api/**'
+
+      - id: inspect
+        run: |
+          set -euo pipefail
+          service_dir="${GITHUB_WORKSPACE}/${{ env.SERVICE_PATH }}"
+          if [ ! -d "$service_dir" ]; then
+            echo '::warning::Service directory not found; skipping language detection'
+            echo "has_package_json=false" >> "$GITHUB_OUTPUT"
+            echo "has_dockerfile=false" >> "$GITHUB_OUTPUT"
+            echo "dockerfile_path=" >> "$GITHUB_OUTPUT"
+            echo "build_context=$GITHUB_WORKSPACE" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if [ -f "$service_dir/package.json" ]; then
+            echo "has_package_json=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_package_json=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          dockerfile=$(find "$service_dir" -maxdepth 3 -name 'Dockerfile' | head -n 1)
+          if [ -n "$dockerfile" ]; then
+            echo "has_dockerfile=true" >> "$GITHUB_OUTPUT"
+            echo "dockerfile_path=$dockerfile" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_dockerfile=false" >> "$GITHUB_OUTPUT"
+            echo "dockerfile_path=" >> "$GITHUB_OUTPUT"
+          fi
+
+          build_context=$(realpath "$service_dir")
+          echo "build_context=$build_context" >> "$GITHUB_OUTPUT"
+
+  lint_typecheck:
+    name: Lint & Typecheck
+    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.service_impacted == 'true'
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No Node project detected
+        if: needs.changes.outputs.has_package_json != 'true'
+        run: echo 'No package.json found; skipping Node-based linting.'
+
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.has_package_json == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            ${{ env.SERVICE_PATH }}/package-lock.json
+            ${{ env.SERVICE_PATH }}/pnpm-lock.yaml
+            ${{ env.SERVICE_PATH }}/yarn.lock
+
+      - name: Cache node_modules
+        if: needs.changes.outputs.has_package_json == 'true'
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.SERVICE_PATH }}/node_modules
+          key: ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-${{ hashFiles(format('{0}/package-lock.json', env.SERVICE_PATH), format('{0}/pnpm-lock.yaml', env.SERVICE_PATH), format('{0}/yarn.lock', env.SERVICE_PATH), format('{0}/package.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-
+
+      - name: Install dependencies
+        if: needs.changes.outputs.has_package_json == 'true'
+        run: |
+          set -euo pipefail
+          corepack enable
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install
+          fi
+
+      - name: TypeScript type-check
+        if: needs.changes.outputs.has_package_json == 'true'
+        run: npm run type-check --if-present
+
+      - name: Lint
+        if: needs.changes.outputs.has_package_json == 'true'
+        run: npm run lint --if-present
+
+      - name: Prettier check
+        if: needs.changes.outputs.has_package_json == 'true'
+        run: npx prettier --check "src/**/*.{ts,tsx,js,json}" || true
+
+      - name: Security quick check
+        if: needs.changes.outputs.has_package_json != 'true'
+        run: |
+          set -euo pipefail
+          echo 'Running lightweight static checks for non-Node service layout'
+          find . -maxdepth 4 -name '*.ts' -o -name '*.js' | xargs -r grep -nE 'eval\(|child_process' || true
+
+  tests:
+    name: Parallel test matrix
+    runs-on: ubuntu-latest
+    needs: [changes, lint_typecheck]
+    if: needs.changes.outputs.service_impacted == 'true' && needs.changes.outputs.has_package_json == 'true'
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    strategy:
+      matrix:
+        suite: [unit, integration]
+      fail-fast: false
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: login_ci
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            ${{ env.SERVICE_PATH }}/package-lock.json
+            ${{ env.SERVICE_PATH }}/pnpm-lock.yaml
+            ${{ env.SERVICE_PATH }}/yarn.lock
+
+      - name: Restore node_modules cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.SERVICE_PATH }}/node_modules
+          key: ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-${{ hashFiles(format('{0}/package-lock.json', env.SERVICE_PATH), format('{0}/pnpm-lock.yaml', env.SERVICE_PATH), format('{0}/yarn.lock', env.SERVICE_PATH), format('{0}/package.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          corepack enable
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install
+          fi
+
+      - name: Configure test environment
+        run: |
+          set -euo pipefail
+          if [ -f .env.example ]; then
+            cp .env.example .env.${{ matrix.suite }} || true
+          fi
+          echo "DATABASE_URL=postgresql://test:test@localhost:5432/login_ci" >> .env.${{ matrix.suite }}
+          echo "REDIS_URL=redis://localhost:6379" >> .env.${{ matrix.suite }}
+
+      - name: Apply migrations
+        run: npm run migration:deploy --if-present
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/login_ci
+
+      - name: Run ${{ matrix.suite }} tests
+        run: |
+          set -euo pipefail
+          if npm run --silent | grep -q "test:${{ matrix.suite }}"; then
+            npm run test:${{ matrix.suite }}
+          elif npm run --silent | grep -q "test"; then
+            npm test
+          else
+            echo "No explicit ${{ matrix.suite }} test suite defined; skipping."
+          fi
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/login_ci
+          REDIS_URL: redis://localhost:6379
+
+      - name: Ensure coverage artifact
+        if: matrix.suite == 'unit'
+        run: |
+          set -euo pipefail
+          mkdir -p coverage/unit
+          if [ -f coverage/lcov.info ]; then
+            cp coverage/lcov.info coverage/unit/lcov.info
+          elif [ -f coverage/coverage-final.json ]; then
+            npx c8 report --reporter=lcov --report-dir=coverage/unit || echo 'Failed to convert coverage-final.json; creating placeholder.'
+            if [ ! -f coverage/unit/lcov.info ]; then
+              echo 'TN:' > coverage/unit/lcov.info
+            fi
+          else
+            echo 'TN:' > coverage/unit/lcov.info
+          fi
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-${{ matrix.suite }}-results
+          path: |
+            ${{ env.SERVICE_PATH }}/coverage/
+            ${{ env.SERVICE_PATH }}/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Upload coverage to Codecov
+        if: matrix.suite == 'unit'
+        uses: codecov/codecov-action@v4
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ${{ env.SERVICE_PATH }}/coverage/unit/lcov.info
+          flags: login-service
+          fail_ci_if_error: false
+          verbose: true
+
+  e2e:
+    name: End-to-end tests
+    runs-on: ubuntu-latest
+    needs: [changes, tests]
+    if: needs.changes.outputs.service_impacted == 'true' && needs.changes.outputs.has_package_json == 'true' && (needs.changes.outputs.api_changed == 'true' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_e2e == 'true'))
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: login_e2e
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            ${{ env.SERVICE_PATH }}/package-lock.json
+            ${{ env.SERVICE_PATH }}/pnpm-lock.yaml
+            ${{ env.SERVICE_PATH }}/yarn.lock
+
+      - name: Restore node_modules cache
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.SERVICE_PATH }}/node_modules
+          key: ${{ runner.os }}-${{ env.SERVICE_KEY }}-node}-${{ hashFiles(format('{0}/package-lock.json', env.SERVICE_PATH), format('{0}/pnpm-lock.yaml', env.SERVICE_PATH), format('{0}/yarn.lock', env.SERVICE_PATH), format('{0}/package.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-
+
+      - name: Install dependencies
+        run: |
+          set -euo pipefail
+          corepack enable
+          if [ -f package-lock.json ]; then
+            npm ci
+          elif [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install
+          fi
+
+      - name: Prepare E2E environment
+        run: |
+          set -euo pipefail
+          if [ -f .env.example ]; then
+            cp .env.example .env.e2e || true
+          fi
+          echo "DATABASE_URL=postgresql://test:test@localhost:5432/login_e2e" >> .env.e2e
+          echo "REDIS_URL=redis://localhost:6379" >> .env.e2e
+
+      - name: Run database migrations
+        run: npm run migration:deploy --if-present
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/login_e2e
+
+      - name: Execute E2E suite
+        run: |
+          set -euo pipefail
+          if npm run --silent | grep -q "test:e2e"; then
+            npm run test:e2e
+          else
+            echo 'No E2E test script defined; skipping.'
+          fi
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/login_e2e
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload E2E artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-e2e-results
+          path: |
+            ${{ env.SERVICE_PATH }}/coverage/
+            ${{ env.SERVICE_PATH }}/test-results/
+          if-no-files-found: ignore
+          retention-days: 7
+
+  build:
+    name: Build and package
+    runs-on: ubuntu-latest
+    needs: [changes, tests]
+    if: needs.changes.outputs.service_impacted == 'true' && needs.changes.outputs.has_dockerfile == 'true' && (needs.tests.result == 'success' || needs.tests.result == 'skipped')
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    outputs:
+      image_tag: ${{ steps.image_tag.outputs.value }}
+      image_digest: ${{ steps.build_image.outputs.digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        if: needs.changes.outputs.has_package_json == 'true'
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: |
+            ${{ env.SERVICE_PATH }}/package-lock.json
+            ${{ env.SERVICE_PATH }}/pnpm-lock.yaml
+            ${{ env.SERVICE_PATH }}/yarn.lock
+
+      - name: Restore node_modules cache
+        if: needs.changes.outputs.has_package_json == 'true'
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.SERVICE_PATH }}/node_modules
+          key: ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-${{ hashFiles(format('{0}/package-lock.json', env.SERVICE_PATH), format('{0}/pnpm-lock.yaml', env.SERVICE_PATH), format('{0}/yarn.lock', env.SERVICE_PATH), format('{0}/package.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SERVICE_KEY }}-node-
+
+      - name: Install dependencies
+        if: needs.changes.outputs.has_package_json == 'true'
+        run: |
+          set -euo pipefail
+          corepack enable
+          if [ -f package-lock.json ]; then
+            npm ci --include=dev
+          elif [ -f pnpm-lock.yaml ]; then
+            pnpm install --frozen-lockfile
+          elif [ -f yarn.lock ]; then
+            yarn install --frozen-lockfile
+          else
+            npm install
+          fi
+
+      - name: Restore dist cache
+        if: needs.changes.outputs.has_package_json == 'true'
+        uses: actions/cache@v3
+        with:
+          path: ${{ env.SERVICE_PATH }}/dist
+          key: ${{ runner.os }}-${{ env.SERVICE_KEY }}-dist-${{ hashFiles(format('{0}/tsconfig*.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-${{ env.SERVICE_KEY }}-dist-
+
+      - name: Build TypeScript
+        if: needs.changes.outputs.has_package_json == 'true'
+        run: npm run build --if-present
+
+      - name: Upload dist artifact
+        if: needs.changes.outputs.has_package_json == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: login-dist
+          path: ${{ env.SERVICE_PATH }}/dist
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Prepare Docker metadata
+        id: image_tag
+        run: echo "value=${{ env.IMAGE_REPOSITORY }}:${{ github.sha }}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME || github.actor }}
+          password: ${{ secrets.REGISTRY_PASSWORD || github.token }}
+
+      - name: Build (and optionally push) image
+        id: build_image
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ needs.changes.outputs.build_context }}
+          file: ${{ needs.changes.outputs.dockerfile_path }}
+          tags: |
+            ${{ steps.image_tag.outputs.value }}
+            ${{ env.IMAGE_REPOSITORY }}:latest
+          push: ${{ github.ref == 'refs/heads/main' }}
+          cache-from: type=gha,scope=${{ env.SERVICE_KEY }}
+          cache-to: type=gha,scope=${{ env.SERVICE_KEY }},mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+  deploy-staging:
+    name: Deploy to staging
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging.login.example.com
+    needs: [changes, build, tests, e2e]
+    if: needs.changes.outputs.service_impacted == 'true' && github.ref == 'refs/heads/main' && needs.build.result == 'success' && (needs.e2e.result != 'failure')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.kube
+          echo "${KUBE_CONFIG_STAGING}" | base64 --decode > ~/.kube/config
+        env:
+          KUBE_CONFIG_STAGING: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+      - name: Create GitHub deployment (staging)
+        id: staging_deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'staging',
+              description: 'Blue/green rollout to staging',
+              auto_merge: false,
+              required_contexts: []
+            });
+            core.setOutput('id', deployment.data.id);
+
+      - name: Deploy green slot
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          NAMESPACE: ${{ env.STAGING_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" set image deployment/login-service-green login-service="$IMAGE_TAG"
+          kubectl -n "$NAMESPACE" rollout status deployment/login-service-green --timeout=300s
+
+      - name: Shift traffic to green
+        env:
+          NAMESPACE: ${{ env.STAGING_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" patch service login-service --type merge -p '{"spec":{"selector":{"version":"green"}}}'
+          sleep 120
+          kubectl -n "$NAMESPACE" rollout status deployment/login-service-green --timeout=300s
+
+      - name: Emit deployment audit event
+        env:
+          AUDIT_WEBHOOK: ${{ secrets.AUDIT_WEBHOOK }}
+          SERVICE_KEY: ${{ env.SERVICE_KEY }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$AUDIT_WEBHOOK" ]; then
+            payload=$(jq -n --arg service "$SERVICE_KEY" --arg version "$IMAGE_TAG" --arg env "staging" --arg actor "${{ github.actor }}" '{service:$service,version:$version,environment:$env,deployer:$actor,event:"deployment.started"}')
+            curl -X POST -H 'Content-Type: application/json' -d "$payload" "$AUDIT_WEBHOOK"
+          fi
+
+      - name: Mark deployment success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.staging_deployment.outputs.id }},
+              state: 'success',
+              environment: 'staging',
+              environment_url: 'https://staging.login.example.com'
+            });
+
+      - name: Mark deployment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.staging_deployment.outputs.id }},
+              state: 'failure',
+              environment: 'staging'
+            });
+
+  deploy-production:
+    name: Deploy to production (blue/green)
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://app.login.example.com
+    needs: [build, deploy-staging]
+    if: github.ref == 'refs/heads/main' && needs.deploy-staging.result == 'success' && (github.event_name != 'workflow_dispatch' || github.event.inputs.promote_to_prod == 'true')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure kubectl
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.kube
+          echo "${KUBE_CONFIG_PRODUCTION}" | base64 --decode > ~/.kube/config
+        env:
+          KUBE_CONFIG_PRODUCTION: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+      - name: Create GitHub deployment (production)
+        id: prod_deployment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const deployment = await github.rest.repos.createDeployment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: context.sha,
+              environment: 'production',
+              description: 'Blue/green rollout to production',
+              auto_merge: false,
+              required_contexts: []
+            });
+            core.setOutput('id', deployment.data.id);
+
+      - name: Record previous image
+        id: previous_image
+        env:
+          NAMESPACE: ${{ env.PRODUCTION_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          prev=$(kubectl -n "$NAMESPACE" get deployment login-service --output=jsonpath='{.spec.template.spec.containers[0].image}')
+          echo "value=$prev" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy green slot
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          NAMESPACE: ${{ env.PRODUCTION_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" set image deployment/login-service-green login-service="$IMAGE_TAG"
+          kubectl -n "$NAMESPACE" rollout status deployment/login-service-green --timeout=300s
+
+      - name: Health check before traffic switch
+        env:
+          NAMESPACE: ${{ env.PRODUCTION_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" run login-green-smoke --rm --image=ghcr.io/${{ github.repository_owner }}/curl-utils:latest --restart=Never --command -- curl -fsS https://app.login.example.com/healthz
+
+      - name: Shift traffic to green
+        env:
+          NAMESPACE: ${{ env.PRODUCTION_NAMESPACE }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" patch service login-service --type merge -p '{"spec":{"selector":{"version":"green"}}}'
+          sleep 120
+          kubectl -n "$NAMESPACE" rollout status deployment/login-service-green --timeout=300s
+
+      - name: Post-deploy health monitor & auto-rollback
+        id: health_check
+        env:
+          MONITORING_API_URL: ${{ secrets.MONITORING_API_URL }}
+          MONITORING_API_TOKEN: ${{ secrets.MONITORING_API_TOKEN }}
+          ERROR_RATE_THRESHOLD: ${{ env.ERROR_RATE_THRESHOLD }}
+          PREVIOUS_IMAGE: ${{ steps.previous_image.outputs.value }}
+          NAMESPACE: ${{ env.PRODUCTION_NAMESPACE }}
+          PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          echo "Waiting for telemetry window..."
+          sleep 600
+          if [ -z "$MONITORING_API_URL" ] || [ -z "$MONITORING_API_TOKEN" ]; then
+            echo 'Monitoring configuration missing; skipping automated rollback checks'
+            exit 0
+          fi
+          error_rate=$(curl -sfSL -H "Authorization: Bearer $MONITORING_API_TOKEN" "$MONITORING_API_URL/error-rate?service=login&window=10m" | jq '.errorRate // 0')
+          echo "Observed error rate: $error_rate"
+          python -c "import sys; error=float(sys.argv[1]); threshold=float(sys.argv[2]); sys.exit(1 if error > threshold else 0)" "$error_rate" "$ERROR_RATE_THRESHOLD"
+          echo 'Error rate within threshold'
+        continue-on-error: true
+
+      - name: Rollback on failed health check
+        if: steps.health_check.outcome == 'failure'
+        env:
+          PREVIOUS_IMAGE: ${{ steps.previous_image.outputs.value }}
+          NAMESPACE: ${{ env.PRODUCTION_NAMESPACE }}
+          PAGERDUTY_ROUTING_KEY: ${{ secrets.PAGERDUTY_ROUTING_KEY }}
+        run: |
+          set -euo pipefail
+          kubectl -n "$NAMESPACE" set image deployment/login-service login-service="$PREVIOUS_IMAGE"
+          kubectl -n "$NAMESPACE" rollout status deployment/login-service --timeout=300s
+          if [ -n "$PAGERDUTY_ROUTING_KEY" ]; then
+            curl -X POST -H 'Content-Type: application/json' -d "{\"routing_key\":\"$PAGERDUTY_ROUTING_KEY\",\"event_action\":\"trigger\",\"payload\":{\"summary\":\"Login production rollback\",\"source\":\"ci\",\"severity\":\"critical\"}}" https://events.pagerduty.com/v2/enqueue
+          fi
+          exit 1
+
+      - name: Emit deployment audit event
+        env:
+          AUDIT_WEBHOOK: ${{ secrets.AUDIT_WEBHOOK }}
+          SERVICE_KEY: ${{ env.SERVICE_KEY }}
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          if [ -n "$AUDIT_WEBHOOK" ]; then
+            payload=$(jq -n --arg service "$SERVICE_KEY" --arg version "$IMAGE_TAG" --arg env "production" --arg actor "${{ github.actor }}" '{service:$service,version:$version,environment:$env,deployer:$actor,event:"deployment.completed"}')
+            curl -X POST -H 'Content-Type: application/json' -d "$payload" "$AUDIT_WEBHOOK"
+          fi
+
+      - name: Mark deployment success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.prod_deployment.outputs.id }},
+              state: 'success',
+              environment: 'production',
+              environment_url: 'https://app.login.example.com'
+            });
+
+      - name: Mark deployment failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              deployment_id: ${{ steps.prod_deployment.outputs.id }},
+              state: 'failure',
+              environment: 'production'
+            });

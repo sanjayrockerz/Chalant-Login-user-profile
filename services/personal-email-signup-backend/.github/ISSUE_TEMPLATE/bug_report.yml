@@ -1,0 +1,91 @@
+name: Bug Report
+description: File a bug report to help us improve
+title: "[Bug]: "
+labels: ["bug", "triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+
+  - type: dropdown
+    id: service
+    attributes:
+      label: Service
+      description: Which service is affected?
+      options:
+        - personal-email-signup-backend
+        - login-page-back
+        - shared/common
+      default: 0
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the bug and what you expected to happen
+      placeholder: |
+        When I try to sign up with email...
+        Expected: Should receive OTP
+        Actual: Returns 500 error
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: How can we reproduce this issue?
+      placeholder: |
+        1. Navigate to /api/auth/signup
+        2. POST with email payload
+        3. Observe 500 response
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or error messages
+      description: Please paste any relevant log output or error messages
+      render: shell
+      placeholder: |
+        Error: Database connection failed
+        at PrismaClient.connect (...)
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical (service down/data loss)
+        - High (major feature broken)
+        - Medium (feature partially broken)
+        - Low (minor issue/cosmetic)
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Environment where the bug occurred
+      placeholder: |
+        - OS: macOS 14.0
+        - Node: 20.x
+        - Environment: development/staging/production
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Checklist
+      options:
+        - label: I have searched existing issues to avoid duplicates
+          required: true
+        - label: I have provided sufficient details to reproduce the issue
+          required: true

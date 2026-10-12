@@ -1,0 +1,130 @@
+server:
+  http_listen_port: 3200
+  log_level: info
+
+distributor:
+  receivers:
+    jaeger:
+      protocols:
+        thrift_http:
+          endpoint: 0.0.0.0:14268
+        grpc:
+          endpoint: 0.0.0.0:14250
+        thrift_binary:
+          endpoint: 0.0.0.0:6832
+        thrift_compact:
+          endpoint: 0.0.0.0:6831
+    zipkin:
+      endpoint: 0.0.0.0:9411
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 0.0.0.0:4317
+        http:
+          endpoint: 0.0.0.0:4318
+
+ingester:
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 1h
+
+# Storage configuration
+storage:
+  trace:
+    backend: local
+    local:
+      path: /tmp/tempo/traces
+    wal:
+      path: /tmp/tempo/wal
+    pool:
+      max_workers: 100
+      queue_depth: 10000
+
+# Metrics generator configuration (generates RED metrics from traces)
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      cluster: auth-services
+  storage:
+    path: /tmp/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+  traces_storage:
+    path: /tmp/tempo/generator/traces
+  processor:
+    service_graphs:
+      dimensions:
+        - service.name
+        - service.namespace
+        - correlation_id
+        - tenant_id
+      histogram_buckets: [0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4, 12.8]
+    span_metrics:
+      dimensions:
+        - service.name
+        - span.name
+        - span.kind
+        - status.code
+        - correlation_id
+        - tenant_id
+      histogram_buckets: [0.002, 0.004, 0.008, 0.016, 0.032, 0.064, 0.128, 0.256, 0.512, 1.024, 2.048, 4.096, 8.192, 16.384]
+
+# Query configuration
+query_frontend:
+  max_outstanding_per_tenant: 256
+  search:
+    duration_slo: 5s
+    throughput_bytes_slo: 1.073741824e+09
+  trace_by_id:
+    duration_slo: 5s
+
+# Overrides configuration
+overrides:
+  defaults:
+    # Global limits
+    ingestion:
+      rate_strategy: local
+      rate_limit_bytes: 15000000  # 15MB/s
+      burst_size_bytes: 20000000  # 20MB burst
+    
+    # Query limits
+    max_traces_per_user: 10000
+    max_search_bytes_per_trace: 5000000  # 5MB per trace
+    
+    # Block retention
+    block_retention: 168h  # 7 days
+    
+    # Metrics generator limits
+    metrics_generator:
+      ingestion_time_range_slack: 40s
+      max_active_series: 60000
+      collection_interval: 15s
+      disable_collection: false
+      
+      # Service graph metrics
+      ring:
+        kvstore:
+          store: inmemory
+      
+      # Processor configuration
+      processor:
+        service_graphs:
+          max_items: 10000
+          wait: 10s
+          workers: 10
+        span_metrics:
+          max_items: 10000
+
+# Usage report configuration
+usage_report:
+  reporting_enabled: false
+
+# Member list configuration (for clustering)
+memberlist:
+  bind_port: 7946
+  join_members:
+    - 127.0.0.1:7946

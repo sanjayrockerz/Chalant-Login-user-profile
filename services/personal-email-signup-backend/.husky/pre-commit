@@ -1,0 +1,25 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run lint and typecheck before commit
+echo "🔍 Running pre-commit checks..."
+
+# Lint staged files
+npm run lint --if-present || {
+  echo "❌ Lint failed. Please fix errors before committing."
+  exit 1
+}
+
+# Type check
+npm run typecheck --if-present || {
+  echo "❌ Type check failed. Please fix type errors before committing."
+  exit 1
+}
+
+# Run tests (optional, comment out if too slow)
+# npm test --if-present || {
+#   echo "❌ Tests failed. Please fix failing tests before committing."
+#   exit 1
+# }
+
+echo "✅ Pre-commit checks passed!"

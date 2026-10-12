@@ -1,0 +1,496 @@
+name: Signup Service CI/CD
+
+on:
+  push:
+    branches: [main, develop, 'feature/**', 'hotfix/**']
+    paths:
+      - 'services/personal-email-signup-backend/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - 'policies/**'
+      - '.github/workflows/signup-service.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'services/personal-email-signup-backend/**'
+      - 'src/**'
+      - 'scripts/**'
+      - 'docs/**'
+      - 'policies/**'
+      - '.github/workflows/signup-service.yml'
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: 'Environment to deploy to'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - staging
+          - production
+
+env:
+  SERVICE_NAME: personal-email-signup-backend
+  SERVICE_PATH: services/personal-email-signup-backend
+  NODE_VERSION: 18.x
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/signup-backend
+
+concurrency:
+  group: signup-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # Path filtering for conditional execution
+  detect-changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    outputs:
+      signup-changed: ${{ steps.filter.outputs.signup }}
+      shared-changed: ${{ steps.filter.outputs.shared }}
+      docs-changed: ${{ steps.filter.outputs.docs }}
+      workflow-changed: ${{ steps.filter.outputs.workflow }}
+      any-changed: ${{ steps.filter.outputs.signup == 'true' || steps.filter.outputs.shared == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check for changes
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            signup:
+              - 'services/personal-email-signup-backend/**'
+            shared:
+              - 'src/**'
+              - 'scripts/**'
+              - 'policies/**'
+            docs:
+              - 'docs/**'
+            workflow:
+              - '.github/workflows/signup-service.yml'
+
+  # Code quality and security checks
+  code-quality:
+    name: Code Quality & Security
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.any-changed == 'true'
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.SERVICE_PATH }}/node_modules
+            ${{ env.SERVICE_PATH }}/.npm
+          key: ${{ runner.os }}-signup-node-${{ hashFiles(format('{0}/package-lock.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-signup-node-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: TypeScript type checking
+        run: npx tsc --noEmit
+
+      - name: Lint code
+        run: npm run lint
+
+      - name: Format check
+        run: npx prettier --check "src/**/*.ts" "test/**/*.ts"
+
+      - name: Security audit
+        run: npm audit --audit-level moderate
+
+      - name: Check for secrets
+        run: npm run secrets:scan || true
+
+  # Testing matrix
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: [detect-changes, code-quality]
+    if: needs.detect-changes.outputs.any-changed == 'true'
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    strategy:
+      matrix:
+        test-type: [unit, integration, contract]
+        node-version: [18.x, 20.x]
+      fail-fast: false
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: signup_test
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
+
+      - name: Restore dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.SERVICE_PATH }}/node_modules
+            ${{ env.SERVICE_PATH }}/.npm
+          key: ${{ runner.os }}-signup-node-${{ hashFiles(format('{0}/package-lock.json', env.SERVICE_PATH)) }}
+          restore-keys: |
+            ${{ runner.os }}-signup-node-
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Setup test environment
+        run: |
+          cp .env.example .env.test
+          echo "DATABASE_URL=postgresql://test:test@localhost:5432/signup_test" >> .env.test
+          echo "REDIS_URL=redis://localhost:6379" >> .env.test
+
+      - name: Run database migrations
+        run: npm run migration:deploy
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/signup_test
+
+      - name: Run ${{ matrix.test-type }} tests
+        run: npm run test:${{ matrix.test-type }}
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/signup_test
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.test-type }}-node${{ matrix.node-version }}
+          path: |
+            ${{ env.SERVICE_PATH }}/coverage/
+            ${{ env.SERVICE_PATH }}/test-results/
+          retention-days: 7
+
+  # End-to-end testing
+  e2e-test:
+    name: E2E Tests
+    runs-on: ubuntu-latest
+    needs: [detect-changes, test]
+    if: needs.detect-changes.outputs.signup-changed == 'true' && github.event_name != 'pull_request'
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: signup_e2e
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+        ports:
+          - 5432:5432
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Setup E2E environment
+        run: |
+          cp .env.example .env.e2e
+          echo "DATABASE_URL=postgresql://test:test@localhost:5432/signup_e2e" >> .env.e2e
+          echo "REDIS_URL=redis://localhost:6379" >> .env.e2e
+
+      - name: Run database migrations
+        run: npm run migration:deploy
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/signup_e2e
+
+      - name: Run E2E tests
+        run: npm run test:e2e
+        env:
+          NODE_ENV: test
+          DATABASE_URL: postgresql://test:test@localhost:5432/signup_e2e
+          REDIS_URL: redis://localhost:6379
+
+      - name: Upload E2E results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-test-results
+          path: |
+            ${{ env.SERVICE_PATH }}/coverage/
+            ${{ env.SERVICE_PATH }}/test-results/
+          retention-days: 7
+
+  # Build and package
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [detect-changes, code-quality]
+    if: needs.detect-changes.outputs.any-changed == 'true'
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --production=false
+
+      - name: Build application
+        run: npm run build
+
+      - name: Generate Swagger docs
+        run: npm run generate:swagger || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-artifacts
+          path: |
+            ${{ env.SERVICE_PATH }}/dist/
+            ${{ env.SERVICE_PATH }}/swagger.json
+          retention-days: 7
+
+      # Docker build for deployments
+      - name: Set up Docker Buildx
+        if: github.event_name != 'pull_request'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        if: github.event_name != 'pull_request'
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        if: github.event_name != 'pull_request'
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.SERVICE_PATH }}
+          file: ${{ env.SERVICE_PATH }}/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            NODE_VERSION=${{ env.NODE_VERSION }}
+            SERVICE_NAME=${{ env.SERVICE_NAME }}
+
+  # Performance and load testing
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build]
+    if: needs.detect-changes.outputs.signup-changed == 'true' && github.ref == 'refs/heads/main'
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ env.SERVICE_PATH }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.SERVICE_PATH }}/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline
+
+      - name: Run load tests
+        run: npm run test:load || true
+
+      - name: Upload performance results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-test-results
+          path: ${{ env.SERVICE_PATH }}/performance-results/
+          retention-days: 30
+
+  # Deployment to staging
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [detect-changes, test, build]
+    if: |
+      needs.detect-changes.outputs.any-changed == 'true' && 
+      (github.ref == 'refs/heads/main' || github.event.inputs.deploy_environment == 'staging') &&
+      github.event_name != 'pull_request'
+    timeout-minutes: 10
+    environment:
+      name: staging
+      url: https://signup-staging.yourdomain.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to staging
+        run: |
+          echo "🚀 Deploying ${{ env.SERVICE_NAME }} to staging..."
+          echo "Image: ${{ needs.build.outputs.image-tag }}"
+          echo "Deployment would happen here with Kubernetes/Docker/etc."
+          echo "✅ Staging deployment completed"
+
+      - name: Run smoke tests
+        run: |
+          echo "🧪 Running smoke tests against staging..."
+          # curl -f https://signup-staging.yourdomain.com/health || exit 1
+          echo "✅ Smoke tests passed"
+
+      - name: Notify deployment
+        if: always()
+        run: |
+          echo "📢 Staging deployment status: ${{ job.status }}"
+          # Slack/Teams notification would go here
+
+  # Deployment to production
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [detect-changes, test, build, deploy-staging]
+    if: |
+      needs.detect-changes.outputs.any-changed == 'true' && 
+      github.event.inputs.deploy_environment == 'production' &&
+      needs.deploy-staging.result == 'success'
+    timeout-minutes: 15
+    environment:
+      name: production
+      url: https://signup.yourdomain.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to production
+        run: |
+          echo "🚀 Deploying ${{ env.SERVICE_NAME }} to production..."
+          echo "Image: ${{ needs.build.outputs.image-tag }}"
+          echo "Blue/green deployment would happen here..."
+          echo "✅ Production deployment completed"
+
+      - name: Run production smoke tests
+        run: |
+          echo "🧪 Running production smoke tests..."
+          # curl -f https://signup.yourdomain.com/health || exit 1
+          echo "✅ Production smoke tests passed"
+
+      - name: Notify production deployment
+        if: always()
+        run: |
+          echo "📢 Production deployment status: ${{ job.status }}"
+          # Critical alerts would go here
+
+  # CI metrics and reporting
+  metrics:
+    name: CI Metrics
+    runs-on: ubuntu-latest
+    needs: [detect-changes, code-quality, test, build]
+    if: always() && needs.detect-changes.outputs.any-changed == 'true'
+    steps:
+      - name: Calculate CI metrics
+        run: |
+          echo "📊 CI Metrics for ${{ env.SERVICE_NAME }}"
+          echo "Build Duration: ${{ github.event.workflow_run.duration || 'N/A' }}"
+          echo "Tests Status: ${{ needs.test.result }}"
+          echo "Build Status: ${{ needs.build.result }}"
+          echo "Quality Status: ${{ needs.code-quality.result }}"
+          
+          # Metrics would be sent to monitoring system here
+          echo "Metrics sent to monitoring dashboard"
+
+      - name: Update status badges
+        if: github.ref == 'refs/heads/main'
+        run: |
+          echo "🏷️ Updating status badges"
+          # Badge updates would happen here

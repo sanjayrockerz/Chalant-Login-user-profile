@@ -1,0 +1,184 @@
+openapi: 3.0.3
+info:
+  title: Personal Email Signup - Auth API (identity additions)
+  version: "2025-10-08-1"
+  description: |
+    OpenAPI fragment documenting registration identity fields, acceptance endpoint semantics,
+    username availability/set contracts and standardized error codes for the Personal Email Signup backend.
+
+paths:
+  /api/policies/accept:
+    post:
+      summary: Accept the current Terms & Privacy for a client session
+      description: |
+        Record that the unauthenticated requestor (or a user) has accepted the active policy_version.
+        The server records acceptance and returns the active_policy_version and timestamp. This endpoint
+        is used during registration flows; calling it is required when `REQUIRE_TERMS_ENFORCE_MODE` is enabled.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                policy_version:
+                  type: string
+                  description: The policy_version the client is accepting. If omitted, server will accept the current active policy.
+              required: []
+      responses:
+        '200':
+          description: Acceptance recorded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted: { type: boolean }
+                  policy_version: { type: string }
+                  accepted_at: { type: string, format: date-time }
+        '400':
+          description: Bad request (malformed body)
+        '429':
+          description: Rate limited
+
+  /api/register:
+    post:
+      summary: Register a new user (extended identity)
+      description: |
+        Creates a new user account. Identity related fields are optional, and subject to validation
+        and policy enforcement (feature-flag gated).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                username:
+                  type: string
+                  description: Optional display username. Server may normalize or refuse based on policy.
+                display_name:
+                  type: string
+                declared_age:
+                  type: integer
+                  description: "Optional declared age. Deterministic underage rejection may apply when configured."
+                profile_image_url:
+                  type: string
+                  description: "Pointer to the profile image (server stores pointer only; secrets in URL must not be relied upon)."
+                pronouns:
+                  type: string
+                  description: "Optional pronouns string (max 64 chars); treated as low-sensitivity metadata."
+              required:
+                - email
+                - password
+      responses:
+        '200':
+          description: Registration accepted (pending verification)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+        '400':
+          description: Validation failure (body or identity checks) or underage rejection
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict (username reserved or already taken)
+        '429':
+          description: Rate limited
+
+  /api/username/available:
+    get:
+      summary: Check username availability
+      parameters:
+        - in: query
+          name: q
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Query result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean }
+        '400':
+          $ref: '#/components/responses/InvalidFormat'
+        '409':
+          description: Username reserved by policy
+        '429':
+          description: Rate limited
+
+  /api/username:
+    post:
+      summary: Set or update the authenticated user's username
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+      responses:
+        '200':
+          description: Username set
+        '400':
+          $ref: '#/components/responses/InvalidFormat'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+        '403':
+          description: Change window active (user must wait before changing username again)
+        '409':
+          description: Conflict or reserved username
+        '429':
+          description: Rate limited
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: accessToken
+  responses:
+    InvalidFormat:
+      description: Invalid format for a field
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: Request lacks valid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+        reason:
+          type: string
+        correlation_id:
+          type: string
+
+tags:
+  - name: auth
+    description: Authentication and registration endpoints
+

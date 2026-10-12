@@ -1,0 +1,179 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+# Positions file to track log file reading progress
+positions:
+  filename: /tmp/positions/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: auth-services
+    external_labels:
+      cluster: auth-services
+      environment: development
+
+scrape_configs:
+  # Auth Signup Service logs
+  - job_name: signup-service
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: signup-service
+          service: personal-email-signup-backend
+          environment: development
+          __path__: /app/signup-service/logs/*.log
+
+    pipeline_stages:
+      # Parse timestamp
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            correlation_id: correlation_id
+            tenant_id: tenant_id
+            service: service
+            environment: environment
+            
+      # Set timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+          
+      # Extract and set log level
+      - labels:
+          level: level
+          correlation_id: correlation_id
+          tenant_id: tenant_id
+          service: service
+          environment: environment
+          
+      # PII redaction pipeline
+      - replace:
+          expression: '(?i)(password|token|secret|key|authorization|bearer)\s*[=:]\s*["\'']*([^"\s\n,}]+)'
+          replace: '${1}=***REDACTED***'
+          
+      # Email redaction
+      - replace:
+          expression: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+          replace: '***EMAIL_REDACTED***'
+          
+      # Phone number redaction (basic patterns)  
+      - replace:
+          expression: '\b(\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b'
+          replace: '***PHONE_REDACTED***'
+
+  # Auth Login Service logs  
+  - job_name: login-service
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: login-service
+          service: login-page-back
+          environment: development
+          __path__: /app/login-service/logs/*.log
+
+    pipeline_stages:
+      # Parse JSON logs
+      - json:
+          expressions:
+            timestamp: timestamp
+            level: level
+            message: message
+            correlation_id: correlation_id
+            tenant_id: tenant_id
+            service: service
+            environment: environment
+            
+      # Set timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+          
+      # Extract labels for Loki
+      - labels:
+          level: level
+          correlation_id: correlation_id
+          tenant_id: tenant_id
+          service: service
+          environment: environment
+          
+      # PII redaction pipeline (same as above)
+      - replace:
+          expression: '(?i)(password|token|secret|key|authorization|bearer)\s*[=:]\s*["\'']*([^"\s\n,}]+)'
+          replace: '${1}=***REDACTED***'
+      - replace:
+          expression: '\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
+          replace: '***EMAIL_REDACTED***'
+      - replace:
+          expression: '\b(\+?1[-.\s]?)?\(?([0-9]{3})\)?[-.\s]?([0-9]{3})[-.\s]?([0-9]{4})\b'
+          replace: '***PHONE_REDACTED***'
+
+  # System logs (optional)
+  - job_name: system
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: system
+          service: system
+          environment: development
+          __path__: /var/log/syslog
+
+    pipeline_stages:
+      # Basic syslog parsing
+      - regex:
+          expression: '^(?P<timestamp>\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2})\s+(?P<hostname>\S+)\s+(?P<service>\S+):\s+(?P<message>.*)$'
+          
+      # Set timestamp
+      - timestamp:
+          source: timestamp
+          format: Jan 02 15:04:05
+          
+      # Set labels
+      - labels:
+          hostname: hostname
+          service: service
+
+  # Docker container logs (if running in Docker)
+  - job_name: docker
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: docker
+          service: docker
+          environment: development
+          __path__: /var/lib/docker/containers/*/*-json.log
+
+    pipeline_stages:
+      # Parse Docker JSON logs
+      - json:
+          expressions:
+            log: log
+            stream: stream
+            timestamp: time
+            
+      # Set timestamp
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano
+          
+      # Extract container information from path
+      - regex:
+          source: filename
+          expression: '/var/lib/docker/containers/(?P<container_id>[^/]+)/.*'
+          
+      # Set labels
+      - labels:
+          stream: stream
+          container_id: container_id
+
+# Global configuration
+global:
+  # Disable file-based service discovery updates
+  file_sd_config:
+    refresh_interval: 10s

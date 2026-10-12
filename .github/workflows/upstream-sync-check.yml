@@ -1,0 +1,313 @@
+name: Upstream Sync Check
+
+on:
+  schedule:
+    - cron: '0 10 * * 1'  # Monday 10:00 UTC – weekly automation
+    - cron: '0 17 * * 5'  # Friday 17:00 UTC – digest email
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  check-upstream:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 10 * * 1')
+    runs-on: ubuntu-latest
+    env:
+      SIGNUP_UPSTREAM_URL: ${{ vars.SIGNUP_UPSTREAM_URL }}
+      LOGIN_UPSTREAM_URL: ${{ vars.LOGIN_UPSTREAM_URL }}
+      SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect upstream deltas
+        id: delta
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          signup_remote="${SIGNUP_UPSTREAM_URL:-}"
+          if [ -z "$signup_remote" ]; then
+            signup_remote="https://github.com/org/personal-email-signup-backend.git"
+          fi
+
+          login_remote="${LOGIN_UPSTREAM_URL:-}"
+          if [ -z "$login_remote" ]; then
+            login_remote="https://github.com/org/login-page-back.git"
+          fi
+
+          git remote remove signup-upstream >/dev/null 2>&1 || true
+          git remote remove login-upstream >/dev/null 2>&1 || true
+          git remote add signup-upstream "$signup_remote"
+          git remote add login-upstream "$login_remote"
+
+          notify=false
+
+          signup_error=""
+          login_error=""
+          signup_commits=0
+          login_commits=0
+          signup_compare=""
+          login_compare=""
+
+          if git fetch signup-upstream main --prune; then
+            signup_base_tag=$(git tag --list 'sync/signup-*' --sort=-creatordate | head -n1)
+            if [ -n "$signup_base_tag" ]; then
+              signup_base=$(git rev-parse "$signup_base_tag")
+            else
+              signup_base=$(git merge-base HEAD signup-upstream/main || git rev-parse HEAD)
+            fi
+            signup_remote_head=$(git rev-parse signup-upstream/main)
+            signup_commits=$(git rev-list "${signup_base}..signup-upstream/main" --count)
+            signup_compare="${signup_remote%.git}/compare/${signup_base}...main"
+            echo "signup_base=$signup_base" >> "$GITHUB_OUTPUT"
+            echo "signup_remote_head=$signup_remote_head" >> "$GITHUB_OUTPUT"
+          else
+            signup_error="fetch-failed"
+          fi
+
+          if git fetch login-upstream main --prune; then
+            login_base_tag=$(git tag --list 'sync/login-*' --sort=-creatordate | head -n1)
+            if [ -n "$login_base_tag" ]; then
+              login_base=$(git rev-parse "$login_base_tag")
+            else
+              login_base=$(git merge-base HEAD login-upstream/main || git rev-parse HEAD)
+            fi
+            login_remote_head=$(git rev-parse login-upstream/main)
+            login_commits=$(git rev-list "${login_base}..login-upstream/main" --count)
+            login_compare="${login_remote%.git}/compare/${login_base}...main"
+            echo "login_base=$login_base" >> "$GITHUB_OUTPUT"
+            echo "login_remote_head=$login_remote_head" >> "$GITHUB_OUTPUT"
+          else
+            login_error="fetch-failed"
+          fi
+
+          if [ "$signup_commits" -gt 0 ] || [ "$login_commits" -gt 0 ] || [ -n "$signup_error" ] || [ -n "$login_error" ]; then
+            notify=true
+          fi
+
+          if [ -n "$signup_error" ]; then
+            signup_status="⚠️ fetch error (${signup_error})"
+          elif [ "$signup_commits" -gt 0 ]; then
+            signup_status="${signup_commits} new commit(s) — ${signup_compare}"
+          else
+            signup_status="Up to date"
+          fi
+
+          if [ -n "$login_error" ]; then
+            login_status="⚠️ fetch error (${login_error})"
+          elif [ "$login_commits" -gt 0 ]; then
+            login_status="${login_commits} new commit(s) — ${login_compare}"
+          else
+            login_status="Up to date"
+          fi
+
+          summary="signup-backend: ${signup_status}; login-page-back: ${login_status}"
+
+          echo "signup_commits=$signup_commits" >> "$GITHUB_OUTPUT"
+          echo "signup_status=$signup_status" >> "$GITHUB_OUTPUT"
+          echo "signup_compare=$signup_compare" >> "$GITHUB_OUTPUT"
+          echo "signup_error=$signup_error" >> "$GITHUB_OUTPUT"
+          echo "login_commits=$login_commits" >> "$GITHUB_OUTPUT"
+          echo "login_status=$login_status" >> "$GITHUB_OUTPUT"
+          echo "login_compare=$login_compare" >> "$GITHUB_OUTPUT"
+          echo "login_error=$login_error" >> "$GITHUB_OUTPUT"
+          echo "notify=$notify" >> "$GITHUB_OUTPUT"
+          echo "summary_text=$summary" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Slack
+        if: steps.delta.outputs.notify == 'true' && env.SLACK_WEBHOOK_URL != ''
+        uses: slackapi/slack-github-action@v1.27.0
+        with:
+          webhook: ${{ env.SLACK_WEBHOOK_URL }}
+          payload: >
+            {
+              "text": "🔄 Upstream sync check\n• signup-backend: ${{ steps.delta.outputs.signup_status }}\n• login-page-back: ${{ steps.delta.outputs.login_status }}\nRunbook: https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/SYNC.md"
+            }
+
+  weekly-digest:
+    if: github.event_name == 'schedule' && github.event.schedule == '0 17 * * 5'
+    runs-on: ubuntu-latest
+    env:
+      SIGNUP_UPSTREAM_URL: ${{ vars.SIGNUP_UPSTREAM_URL }}
+      LOGIN_UPSTREAM_URL: ${{ vars.LOGIN_UPSTREAM_URL }}
+      DIGEST_TO: ${{ secrets.UPSTREAM_SYNC_DIGEST_TO }}
+      DIGEST_FROM: ${{ secrets.UPSTREAM_SYNC_DIGEST_FROM }}
+      SMTP_SERVER: ${{ secrets.UPSTREAM_SYNC_SMTP_SERVER }}
+      SMTP_PORT: ${{ secrets.UPSTREAM_SYNC_SMTP_PORT }}
+      SMTP_USERNAME: ${{ secrets.UPSTREAM_SYNC_SMTP_USERNAME }}
+      SMTP_PASSWORD: ${{ secrets.UPSTREAM_SYNC_SMTP_PASSWORD }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect upstream deltas
+        id: delta
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          signup_remote="${SIGNUP_UPSTREAM_URL:-}"
+          if [ -z "$signup_remote" ]; then
+            signup_remote="https://github.com/org/personal-email-signup-backend.git"
+          fi
+
+          login_remote="${LOGIN_UPSTREAM_URL:-}"
+          if [ -z "$login_remote" ]; then
+            login_remote="https://github.com/org/login-page-back.git"
+          fi
+
+          git remote remove signup-upstream >/dev/null 2>&1 || true
+          git remote remove login-upstream >/dev/null 2>&1 || true
+          git remote add signup-upstream "$signup_remote"
+          git remote add login-upstream "$login_remote"
+
+          signup_commits=0
+          login_commits=0
+          signup_error=""
+          login_error=""
+
+          if git fetch signup-upstream main --prune; then
+            signup_base_tag=$(git tag --list 'sync/signup-*' --sort=-creatordate | head -n1)
+            if [ -n "$signup_base_tag" ]; then
+              signup_base=$(git rev-parse "$signup_base_tag")
+            else
+              signup_base=$(git merge-base HEAD signup-upstream/main || git rev-parse HEAD)
+            fi
+            signup_commits=$(git rev-list "${signup_base}..signup-upstream/main" --count)
+            signup_compare="${signup_remote%.git}/compare/${signup_base}...main"
+          else
+            signup_error="fetch-failed"
+          fi
+
+          if git fetch login-upstream main --prune; then
+            login_base_tag=$(git tag --list 'sync/login-*' --sort=-creatordate | head -n1)
+            if [ -n "$login_base_tag" ]; then
+              login_base=$(git rev-parse "$login_base_tag")
+            else
+              login_base=$(git merge-base HEAD login-upstream/main || git rev-parse HEAD)
+            fi
+            login_commits=$(git rev-list "${login_base}..login-upstream/main" --count)
+            login_compare="${login_remote%.git}/compare/${login_base}...main"
+          else
+            login_error="fetch-failed"
+          fi
+
+          echo "signup_commits=$signup_commits" >> "$GITHUB_OUTPUT"
+          echo "signup_compare=$signup_compare" >> "$GITHUB_OUTPUT"
+          echo "signup_error=$signup_error" >> "$GITHUB_OUTPUT"
+          echo "login_commits=$login_commits" >> "$GITHUB_OUTPUT"
+          echo "login_compare=$login_compare" >> "$GITHUB_OUTPUT"
+          echo "login_error=$login_error" >> "$GITHUB_OUTPUT"
+
+      - name: Audit dependencies
+        id: audit
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          audit_service() {
+            local path="$1"
+            pushd "$path" >/dev/null
+            local result
+            result=$(npm audit --omit=dev --json || true)
+            local high
+            local critical
+            high=$(echo "$result" | jq '.metadata.vulnerabilities.high // 0')
+            critical=$(echo "$result" | jq '.metadata.vulnerabilities.critical // 0')
+            popd >/dev/null
+            echo "$high" "$critical"
+          }
+
+          read signup_high signup_critical < <(audit_service services/personal-email-signup-backend)
+          read login_high login_critical < <(audit_service services/login-page-back)
+
+          echo "signup_high=$signup_high" >> "$GITHUB_OUTPUT"
+          echo "signup_critical=$signup_critical" >> "$GITHUB_OUTPUT"
+          echo "login_high=$login_high" >> "$GITHUB_OUTPUT"
+          echo "login_critical=$login_critical" >> "$GITHUB_OUTPUT"
+
+      - name: Compose digest
+        id: digest
+        shell: bash
+        run: |
+          set -uo pipefail
+
+          signup_commits="${{ steps.delta.outputs.signup_commits }}"
+          login_commits="${{ steps.delta.outputs.login_commits }}"
+          signup_compare="${{ steps.delta.outputs.signup_compare }}"
+          login_compare="${{ steps.delta.outputs.login_compare }}"
+          signup_error="${{ steps.delta.outputs.signup_error }}"
+          login_error="${{ steps.delta.outputs.login_error }}"
+          signup_high="${{ steps.audit.outputs.signup_high }}"
+          signup_critical="${{ steps.audit.outputs.signup_critical }}"
+          login_high="${{ steps.audit.outputs.login_high }}"
+          login_critical="${{ steps.audit.outputs.login_critical }}"
+
+          if [ -z "$signup_commits" ]; then signup_commits=0; fi
+          if [ -z "$login_commits" ]; then login_commits=0; fi
+          if [ -z "$signup_high" ]; then signup_high=0; fi
+          if [ -z "$signup_critical" ]; then signup_critical=0; fi
+          if [ -z "$login_high" ]; then login_high=0; fi
+          if [ -z "$login_critical" ]; then login_critical=0; fi
+
+          today=$(date -u +%Y-%m-%d)
+          subject="Upstream sync digest - ${today}"
+
+          if [ -n "$signup_error" ]; then
+            signup_line="signup-backend: fetch error (${signup_error})"
+          elif [ "$signup_commits" -gt 0 ]; then
+            signup_line="signup-backend: ${signup_commits} commit(s) pending — ${signup_compare}"
+          else
+            signup_line="signup-backend: up to date"
+          fi
+
+          if [ -n "$login_error" ]; then
+            login_line="login-page-back: fetch error (${login_error})"
+          elif [ "$login_commits" -gt 0 ]; then
+            login_line="login-page-back: ${login_commits} commit(s) pending — ${login_compare}"
+          else
+            login_line="login-page-back: up to date"
+          fi
+
+          {
+            echo "body<<'EOF'"
+            printf 'Upstream sync digest for %s\n\n' "$today"
+            printf '%s\n%s\n\n' "$signup_line" "$login_line"
+            printf 'Security advisories (npm audit, omit=dev):\n'
+            printf '- signup-backend: %s high, %s critical\n' "$signup_high" "$signup_critical"
+            printf '- login-page-back: %s high, %s critical\n\n' "$login_high" "$login_critical"
+            printf 'Next steps:\n'
+            printf '- Review SYNC.md and kick off sync branches for pending commits.\n'
+            printf '- Investigate advisories above; raise security tickets if critical > 0.\n'
+            printf '- Update sync_history.md once sync completes.\n'
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+          echo "subject=$subject" >> "$GITHUB_OUTPUT"
+
+      - name: Log digest summary
+        run: |
+          echo "::group::Digest Preview"
+          echo "${{ steps.digest.outputs.subject }}"
+          echo ""
+          echo "${{ steps.digest.outputs.body }}"
+          echo "::endgroup::"
+
+      - name: Send digest email
+        if: env.DIGEST_TO != '' && env.SMTP_SERVER != '' && env.SMTP_PORT != '' && env.SMTP_USERNAME != '' && env.SMTP_PASSWORD != ''
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: ${{ env.SMTP_SERVER }}
+          server_port: ${{ env.SMTP_PORT }}
+          username: ${{ env.SMTP_USERNAME }}
+          password: ${{ env.SMTP_PASSWORD }}
+          subject: ${{ steps.digest.outputs.subject }}
+          to: ${{ env.DIGEST_TO }}
+          from: ${{ env.DIGEST_FROM }}
+          body: ${{ steps.digest.outputs.body }}

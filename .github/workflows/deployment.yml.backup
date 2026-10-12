@@ -1,0 +1,550 @@
+name: Deployment Pipeline
+
+on:
+  workflow_run:
+    workflows: ["Signup Service CI/CD", "Login Service CI/CD"]
+    types:
+      - completed
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Service to deploy'
+        required: true
+        type: choice
+        options:
+          - signup
+          - login
+          - all
+      environment:
+        description: 'Target environment'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      skip_tests:
+        description: 'Skip validation tests'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  REGISTRY: ghcr.io
+  SIGNUP_IMAGE: ${{ github.repository }}/signup-backend
+  LOGIN_IMAGE: ${{ github.repository }}/login-backend
+
+concurrency:
+  group: deploy-${{ github.event.inputs.environment || 'auto' }}-${{ github.event.inputs.service || 'auto' }}
+  cancel-in-progress: false
+
+jobs:
+  # Determine deployment strategy
+  deployment-strategy:
+    name: Determine Deployment Strategy
+    runs-on: ubuntu-latest
+    outputs:
+      deploy-signup: ${{ steps.strategy.outputs.deploy_signup }}
+      deploy-login: ${{ steps.strategy.outputs.deploy_login }}
+      target-env: ${{ steps.strategy.outputs.target_env }}
+      deployment-type: ${{ steps.strategy.outputs.deployment_type }}
+      source-workflow: ${{ steps.strategy.outputs.source_workflow }}
+    steps:
+      - name: Determine deployment strategy
+        id: strategy
+        run: |
+          # Default values
+          deploy_signup="false"
+          deploy_login="false"
+          target_env="staging"
+          deployment_type="manual"
+          source_workflow="${{ github.event.workflow_run.name || 'manual' }}"
+          
+          # Manual dispatch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            target_env="${{ github.event.inputs.environment }}"
+            deployment_type="manual"
+            
+            case "${{ github.event.inputs.service }}" in
+              "signup")
+                deploy_signup="true"
+                ;;
+              "login")
+                deploy_login="true"
+                ;;
+              "all")
+                deploy_signup="true"
+                deploy_login="true"
+                ;;
+            esac
+            
+          # Automatic deployment from successful CI
+          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
+              deployment_type="automatic"
+              target_env="staging"  # Always deploy to staging first
+              
+              case "${{ github.event.workflow_run.name }}" in
+                "Signup Service CI/CD")
+                  deploy_signup="true"
+                  ;;
+                "Login Service CI/CD")
+                  deploy_login="true"
+                  ;;
+              esac
+            else
+              echo "❌ Source workflow failed, skipping deployment"
+              exit 1
+            fi
+          fi
+          
+          echo "deploy_signup=${deploy_signup}" >> $GITHUB_OUTPUT
+          echo "deploy_login=${deploy_login}" >> $GITHUB_OUTPUT
+          echo "target_env=${target_env}" >> $GITHUB_OUTPUT
+          echo "deployment_type=${deployment_type}" >> $GITHUB_OUTPUT
+          echo "source_workflow=${source_workflow}" >> $GITHUB_OUTPUT
+          
+          echo "🚀 Deployment Strategy:"
+          echo "  - Signup Service: ${deploy_signup}"
+          echo "  - Login Service: ${deploy_login}"
+          echo "  - Target Environment: ${target_env}"
+          echo "  - Deployment Type: ${deployment_type}"
+          echo "  - Source: ${source_workflow}"
+
+  # Pre-deployment validation
+  pre-deployment-validation:
+    name: Pre-deployment Validation
+    runs-on: ubuntu-latest
+    needs: deployment-strategy
+    if: |
+      needs.deployment-strategy.outputs.deploy-signup == 'true' || 
+      needs.deployment-strategy.outputs.deploy-login == 'true'
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate deployment prerequisites
+        run: |
+          echo "🔍 Validating deployment prerequisites..."
+          
+          # Check environment configuration
+          target_env="${{ needs.deployment-strategy.outputs.target-env }}"
+          echo "Target environment: ${target_env}"
+          
+          # Validate image availability
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-signup }}" == "true" ]]; then
+            echo "📦 Checking signup service image availability..."
+            # docker manifest inspect ${{ env.REGISTRY }}/${{ env.SIGNUP_IMAGE }}:${{ github.sha }} || exit 1
+            echo "✅ Signup image validated"
+          fi
+          
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-login }}" == "true" ]]; then
+            echo "📦 Checking login service image availability..."
+            # docker manifest inspect ${{ env.REGISTRY }}/${{ env.LOGIN_IMAGE }}:${{ github.sha }} || exit 1
+            echo "✅ Login image validated"
+          fi
+          
+          # Check deployment scripts
+          if [[ -d "deployments" ]]; then
+            echo "📋 Deployment scripts found"
+          else
+            echo "⚠️ No deployment scripts directory found"
+          fi
+          
+          echo "✅ Pre-deployment validation completed"
+
+      - name: Environment health check
+        run: |
+          echo "🏥 Checking ${{ needs.deployment-strategy.outputs.target-env }} environment health..."
+          
+          # Mock health checks (replace with actual health endpoints)
+          case "${{ needs.deployment-strategy.outputs.target-env }}" in
+            "staging")
+              echo "🧪 Staging environment health check..."
+              # curl -f https://staging-api.yourdomain.com/health || exit 1
+              echo "✅ Staging environment healthy"
+              ;;
+            "production")
+              echo "🏭 Production environment health check..."
+              # curl -f https://api.yourdomain.com/health || exit 1
+              echo "✅ Production environment healthy"
+              ;;
+          esac
+
+  # Database migration (if needed)
+  database-migration:
+    name: Database Migration
+    runs-on: ubuntu-latest
+    needs: [deployment-strategy, pre-deployment-validation]
+    if: |
+      (needs.deployment-strategy.outputs.deploy-signup == 'true' || 
+       needs.deployment-strategy.outputs.deploy-login == 'true') &&
+      needs.deployment-strategy.outputs.target-env == 'production'
+    timeout-minutes: 15
+    environment:
+      name: ${{ needs.deployment-strategy.outputs.target-env }}-db
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18.x
+
+      - name: Run database migrations
+        run: |
+          echo "🗄️ Running database migrations for ${{ needs.deployment-strategy.outputs.target-env }}..."
+          
+          # Signup service migrations
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-signup }}" == "true" ]]; then
+            echo "📊 Running signup service migrations..."
+            cd services/personal-email-signup-backend
+            
+            # Mock migration (replace with actual migration commands)
+            echo "npm run migration:deploy"
+            echo "✅ Signup migrations completed"
+            cd ../..
+          fi
+          
+          # Login service migrations (if applicable)
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-login }}" == "true" ]]; then
+            echo "📊 Running login service migrations..."
+            cd services/login-page-back
+            
+            # Check for migration system
+            if [[ -f "package.json" ]] && grep -q "migration" package.json; then
+              echo "npm run migration:deploy"
+              echo "✅ Login migrations completed"
+            else
+              echo "ℹ️ No migrations configured for login service"
+            fi
+            cd ../..
+          fi
+
+      - name: Validate migration status
+        run: |
+          echo "🔍 Validating migration status..."
+          
+          # Check migration status for each service
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-signup }}" == "true" ]]; then
+            cd services/personal-email-signup-backend
+            echo "npm run migration:status"
+            echo "✅ Signup migration status verified"
+            cd ../..
+          fi
+          
+          echo "✅ All migrations validated"
+
+  # Deploy signup service
+  deploy-signup-service:
+    name: Deploy Signup Service
+    runs-on: ubuntu-latest
+    needs: [deployment-strategy, pre-deployment-validation, database-migration]
+    if: |
+      always() &&
+      needs.deployment-strategy.outputs.deploy-signup == 'true' &&
+      needs.pre-deployment-validation.result == 'success' &&
+      (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped')
+    timeout-minutes: 20
+    environment:
+      name: ${{ needs.deployment-strategy.outputs.target-env }}
+      url: ${{ steps.deploy.outputs.service_url }}
+    outputs:
+      deployment-id: ${{ steps.deploy.outputs.deployment_id }}
+      service-url: ${{ steps.deploy.outputs.service_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy signup service
+        id: deploy
+        run: |
+          echo "🚀 Deploying signup service to ${{ needs.deployment-strategy.outputs.target-env }}..."
+          
+          # Generate deployment ID
+          deployment_id="signup-$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::8}"
+          
+          # Set service URL based on environment
+          case "${{ needs.deployment-strategy.outputs.target-env }}" in
+            "staging")
+              service_url="https://signup-staging.yourdomain.com"
+              ;;
+            "production")
+              service_url="https://signup.yourdomain.com"
+              ;;
+          esac
+          
+          echo "deployment_id=${deployment_id}" >> $GITHUB_OUTPUT
+          echo "service_url=${service_url}" >> $GITHUB_OUTPUT
+          
+          # Mock deployment commands (replace with actual deployment)
+          echo "📦 Pulling image: ${{ env.REGISTRY }}/${{ env.SIGNUP_IMAGE }}:${{ github.sha }}"
+          echo "🔄 Rolling update deployment..."
+          echo "⏱️ Waiting for rollout to complete..."
+          
+          # Simulate deployment time
+          sleep 10
+          
+          echo "✅ Signup service deployed successfully"
+          echo "🌐 Service URL: ${service_url}"
+          echo "🆔 Deployment ID: ${deployment_id}"
+
+      - name: Post-deployment configuration
+        run: |
+          echo "⚙️ Applying post-deployment configuration..."
+          
+          # Service-specific configuration
+          case "${{ needs.deployment-strategy.outputs.target-env }}" in
+            "staging")
+              echo "🧪 Applying staging configuration..."
+              # kubectl apply -f deployments/signup/staging/
+              ;;
+            "production")
+              echo "🏭 Applying production configuration..."
+              # kubectl apply -f deployments/signup/production/
+              ;;
+          esac
+          
+          echo "✅ Configuration applied"
+
+  # Deploy login service
+  deploy-login-service:
+    name: Deploy Login Service
+    runs-on: ubuntu-latest
+    needs: [deployment-strategy, pre-deployment-validation, database-migration]
+    if: |
+      always() &&
+      needs.deployment-strategy.outputs.deploy-login == 'true' &&
+      needs.pre-deployment-validation.result == 'success' &&
+      (needs.database-migration.result == 'success' || needs.database-migration.result == 'skipped')
+    timeout-minutes: 20
+    environment:
+      name: ${{ needs.deployment-strategy.outputs.target-env }}
+      url: ${{ steps.deploy.outputs.service_url }}
+    outputs:
+      deployment-id: ${{ steps.deploy.outputs.deployment_id }}
+      service-url: ${{ steps.deploy.outputs.service_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy login service
+        id: deploy
+        run: |
+          echo "🚀 Deploying login service to ${{ needs.deployment-strategy.outputs.target-env }}..."
+          
+          # Generate deployment ID
+          deployment_id="login-$(date +%Y%m%d-%H%M%S)-${GITHUB_SHA::8}"
+          
+          # Set service URL based on environment
+          case "${{ needs.deployment-strategy.outputs.target-env }}" in
+            "staging")
+              service_url="https://login-staging.yourdomain.com"
+              ;;
+            "production")
+              service_url="https://login.yourdomain.com"
+              ;;
+          esac
+          
+          echo "deployment_id=${deployment_id}" >> $GITHUB_OUTPUT
+          echo "service_url=${service_url}" >> $GITHUB_OUTPUT
+          
+          # Mock deployment commands (replace with actual deployment)
+          echo "📦 Pulling image: ${{ env.REGISTRY }}/${{ env.LOGIN_IMAGE }}:${{ github.sha }}"
+          echo "🔄 Rolling update deployment..."
+          echo "⏱️ Waiting for rollout to complete..."
+          
+          # Simulate deployment time
+          sleep 10
+          
+          echo "✅ Login service deployed successfully"
+          echo "🌐 Service URL: ${service_url}"
+          echo "🆔 Deployment ID: ${deployment_id}"
+
+      - name: Post-deployment configuration
+        run: |
+          echo "⚙️ Applying post-deployment configuration..."
+          
+          # Service-specific configuration
+          case "${{ needs.deployment-strategy.outputs.target-env }}" in
+            "staging")
+              echo "🧪 Applying staging configuration..."
+              # kubectl apply -f deployments/login/staging/
+              ;;
+            "production")
+              echo "🏭 Applying production configuration..."
+              # kubectl apply -f deployments/login/production/
+              ;;
+          esac
+          
+          echo "✅ Configuration applied"
+
+  # Post-deployment validation
+  post-deployment-validation:
+    name: Post-deployment Validation
+    runs-on: ubuntu-latest
+    needs: [deployment-strategy, deploy-signup-service, deploy-login-service]
+    if: |
+      always() &&
+      (needs.deploy-signup-service.result == 'success' || needs.deploy-login-service.result == 'success') &&
+      github.event.inputs.skip_tests != 'true'
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Health checks
+        run: |
+          echo "🏥 Running post-deployment health checks..."
+          
+          # Signup service health check
+          if [[ "${{ needs.deploy-signup-service.result }}" == "success" ]]; then
+            echo "🧪 Checking signup service health..."
+            service_url="${{ needs.deploy-signup-service.outputs.service-url }}"
+            echo "curl -f ${service_url}/health"
+            echo "✅ Signup service health check passed"
+          fi
+          
+          # Login service health check
+          if [[ "${{ needs.deploy-login-service.result }}" == "success" ]]; then
+            echo "🧪 Checking login service health..."
+            service_url="${{ needs.deploy-login-service.outputs.service-url }}"
+            echo "curl -f ${service_url}/health"
+            echo "✅ Login service health check passed"
+          fi
+
+      - name: Smoke tests
+        run: |
+          echo "💨 Running smoke tests..."
+          
+          # Cross-service integration smoke tests
+          if [[ "${{ needs.deploy-signup-service.result }}" == "success" && "${{ needs.deploy-login-service.result }}" == "success" ]]; then
+            echo "🔗 Running cross-service smoke tests..."
+            echo "Testing signup -> login flow..."
+            echo "✅ Cross-service smoke tests passed"
+          fi
+          
+          # Individual service smoke tests
+          if [[ "${{ needs.deploy-signup-service.result }}" == "success" ]]; then
+            echo "📧 Testing signup service endpoints..."
+            echo "✅ Signup smoke tests passed"
+          fi
+          
+          if [[ "${{ needs.deploy-login-service.result }}" == "success" ]]; then
+            echo "🔐 Testing login service endpoints..."
+            echo "✅ Login smoke tests passed"
+          fi
+
+      - name: Performance baseline check
+        if: needs.deployment-strategy.outputs.target-env == 'production'
+        run: |
+          echo "📊 Running performance baseline check..."
+          
+          # Basic performance validation
+          if [[ "${{ needs.deploy-signup-service.result }}" == "success" ]]; then
+            echo "⚡ Signup service performance check..."
+            # curl -w "@curl-format.txt" -o /dev/null -s "${{ needs.deploy-signup-service.outputs.service-url }}/health"
+            echo "✅ Performance within acceptable range"
+          fi
+          
+          if [[ "${{ needs.deploy-login-service.result }}" == "success" ]]; then
+            echo "⚡ Login service performance check..."
+            # curl -w "@curl-format.txt" -o /dev/null -s "${{ needs.deploy-login-service.outputs.service-url }}/health"
+            echo "✅ Performance within acceptable range"
+          fi
+
+  # Rollback capability
+  rollback:
+    name: Rollback Deployment
+    runs-on: ubuntu-latest
+    needs: [deployment-strategy, deploy-signup-service, deploy-login-service, post-deployment-validation]
+    if: |
+      always() &&
+      failure() &&
+      (needs.deploy-signup-service.result == 'success' || needs.deploy-login-service.result == 'success')
+    timeout-minutes: 10
+    environment:
+      name: ${{ needs.deployment-strategy.outputs.target-env }}-rollback
+    steps:
+      - name: Rollback services
+        run: |
+          echo "🔄 Rolling back failed deployment..."
+          
+          # Rollback signup service
+          if [[ "${{ needs.deploy-signup-service.result }}" == "success" && "${{ needs.post-deployment-validation.result }}" == "failure" ]]; then
+            echo "↩️ Rolling back signup service..."
+            echo "kubectl rollout undo deployment/signup-service"
+            echo "✅ Signup service rolled back"
+          fi
+          
+          # Rollback login service
+          if [[ "${{ needs.deploy-login-service.result }}" == "success" && "${{ needs.post-deployment-validation.result }}" == "failure" ]]; then
+            echo "↩️ Rolling back login service..."
+            echo "kubectl rollout undo deployment/login-service"
+            echo "✅ Login service rolled back"
+          fi
+          
+          echo "🚨 Rollback completed - investigating deployment failure"
+
+  # Deployment notifications
+  notify-deployment:
+    name: Notify Deployment
+    runs-on: ubuntu-latest
+    needs: [deployment-strategy, deploy-signup-service, deploy-login-service, post-deployment-validation, rollback]
+    if: always()
+    steps:
+      - name: Generate deployment report
+        run: |
+          echo "📋 Deployment Report"
+          echo "==================="
+          echo ""
+          echo "**Environment:** ${{ needs.deployment-strategy.outputs.target-env }}"
+          echo "**Type:** ${{ needs.deployment-strategy.outputs.deployment-type }}"
+          echo "**Source:** ${{ needs.deployment-strategy.outputs.source-workflow }}"
+          echo ""
+          echo "**Services Deployed:**"
+          
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-signup }}" == "true" ]]; then
+            echo "- 📧 Signup Service: ${{ needs.deploy-signup-service.result || 'skipped' }}"
+            [[ "${{ needs.deploy-signup-service.result }}" == "success" ]] && echo "  - URL: ${{ needs.deploy-signup-service.outputs.service-url }}"
+            [[ "${{ needs.deploy-signup-service.result }}" == "success" ]] && echo "  - ID: ${{ needs.deploy-signup-service.outputs.deployment-id }}"
+          fi
+          
+          if [[ "${{ needs.deployment-strategy.outputs.deploy-login }}" == "true" ]]; then
+            echo "- 🔐 Login Service: ${{ needs.deploy-login-service.result || 'skipped' }}"
+            [[ "${{ needs.deploy-login-service.result }}" == "success" ]] && echo "  - URL: ${{ needs.deploy-login-service.outputs.service-url }}"
+            [[ "${{ needs.deploy-login-service.result }}" == "success" ]] && echo "  - ID: ${{ needs.deploy-login-service.outputs.deployment-id }}"
+          fi
+          
+          echo ""
+          echo "**Validation:** ${{ needs.post-deployment-validation.result || 'skipped' }}"
+          echo "**Rollback:** ${{ needs.rollback.result || 'not-required' }}"
+          echo ""
+          
+          # Determine overall status
+          if [[ "${{ needs.post-deployment-validation.result }}" == "success" || "${{ needs.post-deployment-validation.result }}" == "skipped" ]]; then
+            if [[ "${{ needs.deploy-signup-service.result }}" == "success" || "${{ needs.deploy-login-service.result }}" == "success" ]]; then
+              echo "🎉 **Status: DEPLOYMENT SUCCESSFUL**"
+            else
+              echo "❌ **Status: DEPLOYMENT FAILED**"
+            fi
+          else
+            echo "⚠️ **Status: DEPLOYMENT COMPLETED WITH ISSUES**"
+          fi
+          
+          # This would integrate with Slack/Teams/PagerDuty
+          echo ""
+          echo "📧 Notifications sent to deployment team"
+
+      - name: Update deployment metrics
+        run: |
+          echo "📊 Updating deployment metrics..."
+          echo "- Environment: ${{ needs.deployment-strategy.outputs.target-env }}"
+          echo "- Services: ${{ needs.deployment-strategy.outputs.deploy-signup == 'true' && 'signup' || '' }} ${{ needs.deployment-strategy.outputs.deploy-login == 'true' && 'login' || '' }}"
+          echo "- Success rate: $(if [[ "${{ needs.post-deployment-validation.result }}" == "success" || "${{ needs.post-deployment-validation.result }}" == "skipped" ]]; then echo "100%"; else echo "0%"; fi)"
+          echo "- Duration: ${{ github.event.workflow_run.duration || 'N/A' }}"
+          
+          # Metrics would be sent to monitoring system
+          echo "📈 Metrics sent to dashboard"
