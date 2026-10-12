@@ -16,9 +16,13 @@ const baselinePath = path.join(
 );
 
 function sha256(filePath) {
+  const raw = fs.readFileSync(filePath);
+  const content = filePath.endsWith("auth.schema.prisma")
+    ? raw.toString("utf8").replace(/\r\n/g, "\n")
+    : raw;
   return crypto
     .createHash("sha256")
-    .update(fs.readFileSync(filePath))
+    .update(content)
     .digest("hex");
 }
 

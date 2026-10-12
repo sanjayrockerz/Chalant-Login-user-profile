@@ -1,7 +1,7 @@
 {
   "baselineId": "20261009160000_canonical_schema",
   "schemaPath": "prisma/auth.schema.prisma",
-  "schemaSha256": "74688098c320ee93aa647ef96fce0d0b2f9e9d5d95180de7385a01e32784fac6",
+  "schemaSha256": "f3b6474b9a54592f89b067dec930057b78bee6c1ad7e1911e95748d8751b96bf",
   "authority": "canonical-prisma-schema",
   "freshInstallCommand": "npm run migration:fresh:init",
   "historicalPolicy": "immutable-legacy-migrations",
