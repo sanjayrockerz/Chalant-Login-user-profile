@@ -16,10 +16,7 @@ const baselinePath = path.join(
 );
 
 function sha256(filePath) {
-  const raw = fs.readFileSync(filePath);
-  const content = filePath.endsWith("auth.schema.prisma")
-    ? raw.toString("utf8").replace(/\r\n/g, "\n")
-    : raw;
+  const content = fs.readFileSync(filePath, "utf8").replace(/\r\n/g, "\n");
   return crypto
     .createHash("sha256")
     .update(content)

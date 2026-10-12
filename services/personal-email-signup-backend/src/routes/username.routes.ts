@@ -37,12 +37,10 @@ export function usernameRouter({
         metricsService.requestLatencySeconds.observe(
           (Date.now() - start) / 1000,
         );
-      res
-        .status(400)
-        .json({
-          error: "invalid_format",
-          message: "Username contains invalid characters or length",
-        });
+      res.status(400).json({
+        error: "invalid_format",
+        message: "Username contains invalid characters or length",
+      });
       return;
     }
 
@@ -148,12 +146,10 @@ export function usernameRouter({
         metricsService.requestLatencySeconds.observe(
           (Date.now() - start) / 1000,
         );
-      res
-        .status(403)
-        .json({
-          error: "change_window",
-          message: "Username change window has not elapsed",
-        });
+      res.status(403).json({
+        error: "change_window",
+        message: "Username change window has not elapsed",
+      });
     }
 
     // Persist: update user with normalized/display username

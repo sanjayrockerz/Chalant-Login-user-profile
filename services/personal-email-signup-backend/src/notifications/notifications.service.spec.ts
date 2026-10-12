@@ -43,14 +43,12 @@ describe("NotificationsService", () => {
       findActiveTokensForUser: jest.fn(),
       getActiveTokenById: jest.fn(),
       recordSuccess: jest.fn().mockResolvedValue(undefined),
-      recordFailure: jest
-        .fn()
-        .mockResolvedValue({
-          deactivated: false,
-          failureCount: 1,
-          nextRetryMs: null,
-          errorCode: "ERR",
-        }),
+      recordFailure: jest.fn().mockResolvedValue({
+        deactivated: false,
+        failureCount: 1,
+        nextRetryMs: null,
+        errorCode: "ERR",
+      }),
     } as unknown as jest.Mocked<PushTokenService>;
 
     fcmTransport = {

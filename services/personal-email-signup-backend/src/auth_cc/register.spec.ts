@@ -39,14 +39,12 @@ describe("AuthService.register (identity validation)", () => {
     };
 
     userService = {
-      createUser: jest
-        .fn()
-        .mockImplementation((data) =>
-          Promise.resolve({
-            id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-            ...data,
-          }),
-        ),
+      createUser: jest.fn().mockImplementation((data) =>
+        Promise.resolve({
+          id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+          ...data,
+        }),
+      ),
       saveVerificationToken: jest.fn().mockResolvedValue(undefined),
       findByEmail: jest.fn().mockResolvedValue(null),
     } as any;
