@@ -1,27 +1,33 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsString, IsNumber, IsOptional, IsUUID, IsDateString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
+import {
+  IsString,
+  IsNumber,
+  IsOptional,
+  IsUUID,
+  IsDateString,
+} from "class-validator";
 
 /**
  * Standard API response wrapper for push token operations
  */
 export class ApiResponseDto<T = any> {
-  @ApiProperty({ 
-    description: 'Indicates if the operation was successful' 
+  @ApiProperty({
+    description: "Indicates if the operation was successful",
   })
   success: boolean;
 
-  @ApiProperty({ 
-    description: 'Human-readable message describing the result' 
+  @ApiProperty({
+    description: "Human-readable message describing the result",
   })
   message: string;
 
-  @ApiPropertyOptional({ 
-    description: 'Response data (varies by endpoint)' 
+  @ApiPropertyOptional({
+    description: "Response data (varies by endpoint)",
   })
   data?: T;
 
-  @ApiPropertyOptional({ 
-    description: 'Error details if operation failed' 
+  @ApiPropertyOptional({
+    description: "Error details if operation failed",
   })
   error?: {
     code: string;
@@ -29,13 +35,13 @@ export class ApiResponseDto<T = any> {
     details?: any;
   };
 
-  @ApiProperty({ 
-    description: 'Request correlation ID for tracing' 
+  @ApiProperty({
+    description: "Request correlation ID for tracing",
   })
   correlationId: string;
 
-  @ApiProperty({ 
-    description: 'Response timestamp' 
+  @ApiProperty({
+    description: "Response timestamp",
   })
   timestamp: string;
 }
@@ -44,22 +50,23 @@ export class ApiResponseDto<T = any> {
  * Error response for push token operations
  */
 export class PushTokenErrorResponseDto {
-  @ApiProperty({ 
-    description: 'Error code',
-    example: 'INVALID_TOKEN_FORMAT'
+  @ApiProperty({
+    description: "Error code",
+    example: "INVALID_TOKEN_FORMAT",
   })
   @IsString()
   code: string;
 
-  @ApiProperty({ 
-    description: 'Error message',
-    example: 'The provided token does not match the required format for FCM tokens'
+  @ApiProperty({
+    description: "Error message",
+    example:
+      "The provided token does not match the required format for FCM tokens",
   })
   @IsString()
   message: string;
 
-  @ApiPropertyOptional({ 
-    description: 'Additional error details'
+  @ApiPropertyOptional({
+    description: "Additional error details",
   })
   @IsOptional()
   details?: {
@@ -69,14 +76,14 @@ export class PushTokenErrorResponseDto {
     validationErrors?: string[];
   };
 
-  @ApiProperty({ 
-    description: 'Error timestamp'
+  @ApiProperty({
+    description: "Error timestamp",
   })
   @IsDateString()
   timestamp: string;
 
-  @ApiProperty({ 
-    description: 'Request correlation ID'
+  @ApiProperty({
+    description: "Request correlation ID",
   })
   @IsString()
   correlationId: string;
@@ -86,18 +93,18 @@ export class PushTokenErrorResponseDto {
  * Token registration response with created token details
  */
 export class TokenRegistrationResponseDto {
-  @ApiProperty({ 
-    description: 'Registration success indicator' 
+  @ApiProperty({
+    description: "Registration success indicator",
   })
   success: boolean = true;
 
-  @ApiProperty({ 
-    description: 'Registration result message' 
+  @ApiProperty({
+    description: "Registration result message",
   })
-  message: string = 'Token registered successfully';
+  message: string = "Token registered successfully";
 
-  @ApiProperty({ 
-    description: 'Created token details' 
+  @ApiProperty({
+    description: "Created token details",
   })
   data: {
     tokenId: string;
@@ -108,13 +115,13 @@ export class TokenRegistrationResponseDto {
     deviceCount: number; // Total devices for this user
   };
 
-  @ApiProperty({ 
-    description: 'Request correlation ID for tracing' 
+  @ApiProperty({
+    description: "Request correlation ID for tracing",
   })
   correlationId: string;
 
-  @ApiProperty({ 
-    description: 'Response timestamp' 
+  @ApiProperty({
+    description: "Response timestamp",
   })
   timestamp: string;
 }
@@ -123,50 +130,50 @@ export class TokenRegistrationResponseDto {
  * Token validation summary for monitoring and health checks
  */
 export class TokenValidationSummaryDto {
-  @ApiProperty({ 
-    description: 'Total tokens validated in this batch' 
+  @ApiProperty({
+    description: "Total tokens validated in this batch",
   })
   @IsNumber()
   totalValidated: number;
 
-  @ApiProperty({ 
-    description: 'Number of valid tokens' 
+  @ApiProperty({
+    description: "Number of valid tokens",
   })
   @IsNumber()
   validTokens: number;
 
-  @ApiProperty({ 
-    description: 'Number of invalid tokens' 
+  @ApiProperty({
+    description: "Number of invalid tokens",
   })
   @IsNumber()
   invalidTokens: number;
 
-  @ApiProperty({ 
-    description: 'Number of expired tokens' 
+  @ApiProperty({
+    description: "Number of expired tokens",
   })
   @IsNumber()
   expiredTokens: number;
 
-  @ApiProperty({ 
-    description: 'Number of unregistered tokens' 
+  @ApiProperty({
+    description: "Number of unregistered tokens",
   })
   @IsNumber()
   unregisteredTokens: number;
 
-  @ApiProperty({ 
-    description: 'Validation processing time in milliseconds' 
+  @ApiProperty({
+    description: "Validation processing time in milliseconds",
   })
   @IsNumber()
   processingTimeMs: number;
 
-  @ApiProperty({ 
-    description: 'Validation timestamp' 
+  @ApiProperty({
+    description: "Validation timestamp",
   })
   @IsDateString()
   validatedAt: string;
 
-  @ApiProperty({ 
-    description: 'Validation correlation ID' 
+  @ApiProperty({
+    description: "Validation correlation ID",
   })
   @IsString()
   correlationId: string;
@@ -176,19 +183,19 @@ export class TokenValidationSummaryDto {
  * User's push notification preferences (for future enhancement)
  */
 export class PushNotificationPreferencesDto {
-  @ApiProperty({ 
-    description: 'User ID' 
+  @ApiProperty({
+    description: "User ID",
   })
   @IsUUID()
   userId: string;
 
-  @ApiProperty({ 
-    description: 'Whether push notifications are enabled' 
+  @ApiProperty({
+    description: "Whether push notifications are enabled",
   })
   enabled: boolean;
 
-  @ApiPropertyOptional({ 
-    description: 'Preferred notification types' 
+  @ApiPropertyOptional({
+    description: "Preferred notification types",
   })
   @IsOptional()
   notificationTypes?: {
@@ -198,30 +205,30 @@ export class PushNotificationPreferencesDto {
     critical: boolean;
   };
 
-  @ApiPropertyOptional({ 
-    description: 'Quiet hours configuration' 
+  @ApiPropertyOptional({
+    description: "Quiet hours configuration",
   })
   @IsOptional()
   quietHours?: {
     enabled: boolean;
     startTime: string; // HH:MM format
-    endTime: string;   // HH:MM format
+    endTime: string; // HH:MM format
     timezone: string;
   };
 
-  @ApiPropertyOptional({ 
-    description: 'Category-specific preferences' 
+  @ApiPropertyOptional({
+    description: "Category-specific preferences",
   })
   @IsOptional()
   categories?: {
     [categoryName: string]: {
       enabled: boolean;
-      priority: 'low' | 'normal' | 'high';
+      priority: "low" | "normal" | "high";
     };
   };
 
-  @ApiProperty({ 
-    description: 'Last updated timestamp' 
+  @ApiProperty({
+    description: "Last updated timestamp",
   })
   @IsDateString()
   updatedAt: string;
@@ -231,8 +238,8 @@ export class PushNotificationPreferencesDto {
  * Push notification delivery statistics
  */
 export class DeliveryStatsDto {
-  @ApiProperty({ 
-    description: 'Time period for these statistics' 
+  @ApiProperty({
+    description: "Time period for these statistics",
   })
   period: {
     start: string;
@@ -240,8 +247,8 @@ export class DeliveryStatsDto {
     duration: string; // e.g., "24h", "7d", "30d"
   };
 
-  @ApiProperty({ 
-    description: 'Overall delivery statistics' 
+  @ApiProperty({
+    description: "Overall delivery statistics",
   })
   overall: {
     totalSent: number;
@@ -251,8 +258,8 @@ export class DeliveryStatsDto {
     avgDeliveryTime: number; // milliseconds
   };
 
-  @ApiProperty({ 
-    description: 'Statistics by platform' 
+  @ApiProperty({
+    description: "Statistics by platform",
   })
   byPlatform: {
     ios: {
@@ -269,8 +276,8 @@ export class DeliveryStatsDto {
     };
   };
 
-  @ApiProperty({ 
-    description: 'Common failure reasons and counts' 
+  @ApiProperty({
+    description: "Common failure reasons and counts",
   })
   failureReasons: Array<{
     reason: string;
@@ -278,8 +285,8 @@ export class DeliveryStatsDto {
     percentage: number;
   }>;
 
-  @ApiProperty({ 
-    description: 'Statistics generation timestamp' 
+  @ApiProperty({
+    description: "Statistics generation timestamp",
   })
   @IsDateString()
   generatedAt: string;
@@ -289,26 +296,26 @@ export class DeliveryStatsDto {
  * Token cleanup operation result
  */
 export class TokenCleanupResultDto {
-  @ApiProperty({ 
-    description: 'Number of tokens marked for cleanup' 
+  @ApiProperty({
+    description: "Number of tokens marked for cleanup",
   })
   @IsNumber()
   markedForCleanup: number;
 
-  @ApiProperty({ 
-    description: 'Number of tokens actually deleted' 
+  @ApiProperty({
+    description: "Number of tokens actually deleted",
   })
   @IsNumber()
   deleted: number;
 
-  @ApiProperty({ 
-    description: 'Number of tokens deactivated' 
+  @ApiProperty({
+    description: "Number of tokens deactivated",
   })
   @IsNumber()
   deactivated: number;
 
-  @ApiProperty({ 
-    description: 'Cleanup criteria used' 
+  @ApiProperty({
+    description: "Cleanup criteria used",
   })
   criteria: {
     maxFailureCount: number;
@@ -316,20 +323,20 @@ export class TokenCleanupResultDto {
     inactivityDays: number;
   };
 
-  @ApiProperty({ 
-    description: 'Cleanup processing time in milliseconds' 
+  @ApiProperty({
+    description: "Cleanup processing time in milliseconds",
   })
   @IsNumber()
   processingTimeMs: number;
 
-  @ApiProperty({ 
-    description: 'Cleanup operation timestamp' 
+  @ApiProperty({
+    description: "Cleanup operation timestamp",
   })
   @IsDateString()
   executedAt: string;
 
-  @ApiProperty({ 
-    description: 'Operation correlation ID' 
+  @ApiProperty({
+    description: "Operation correlation ID",
   })
   @IsString()
   correlationId: string;
@@ -339,37 +346,37 @@ export class TokenCleanupResultDto {
  * Token migration result (for platform updates)
  */
 export class TokenMigrationResultDto {
-  @ApiProperty({ 
-    description: 'Migration operation ID' 
+  @ApiProperty({
+    description: "Migration operation ID",
   })
   @IsUUID()
   migrationId: string;
 
-  @ApiProperty({ 
-    description: 'Migration type' 
+  @ApiProperty({
+    description: "Migration type",
   })
-  migrationType: 'format_update' | 'platform_change' | 'encryption_update';
+  migrationType: "format_update" | "platform_change" | "encryption_update";
 
-  @ApiProperty({ 
-    description: 'Number of tokens processed' 
+  @ApiProperty({
+    description: "Number of tokens processed",
   })
   @IsNumber()
   tokensProcessed: number;
 
-  @ApiProperty({ 
-    description: 'Number of successful migrations' 
+  @ApiProperty({
+    description: "Number of successful migrations",
   })
   @IsNumber()
   successfulMigrations: number;
 
-  @ApiProperty({ 
-    description: 'Number of failed migrations' 
+  @ApiProperty({
+    description: "Number of failed migrations",
   })
   @IsNumber()
   failedMigrations: number;
 
-  @ApiProperty({ 
-    description: 'Migration failures with details' 
+  @ApiProperty({
+    description: "Migration failures with details",
   })
   failures: Array<{
     tokenId: string;
@@ -377,20 +384,20 @@ export class TokenMigrationResultDto {
     originalValue?: string;
   }>;
 
-  @ApiProperty({ 
-    description: 'Migration processing time in milliseconds' 
+  @ApiProperty({
+    description: "Migration processing time in milliseconds",
   })
   @IsNumber()
   processingTimeMs: number;
 
-  @ApiProperty({ 
-    description: 'Migration execution timestamp' 
+  @ApiProperty({
+    description: "Migration execution timestamp",
   })
   @IsDateString()
   executedAt: string;
 
-  @ApiProperty({ 
-    description: 'Migration correlation ID' 
+  @ApiProperty({
+    description: "Migration correlation ID",
   })
   @IsString()
   correlationId: string;
@@ -400,22 +407,22 @@ export class TokenMigrationResultDto {
  * System-wide push token metrics for monitoring
  */
 export class SystemMetricsDto {
-  @ApiProperty({ 
-    description: 'Total active tokens across all tenants' 
+  @ApiProperty({
+    description: "Total active tokens across all tenants",
   })
   @IsNumber()
   totalActiveTokens: number;
 
-  @ApiProperty({ 
-    description: 'Active tokens by platform' 
+  @ApiProperty({
+    description: "Active tokens by platform",
   })
   tokensByPlatform: {
     ios: number;
     android: number;
   };
 
-  @ApiProperty({ 
-    description: 'Active tokens by tenant' 
+  @ApiProperty({
+    description: "Active tokens by tenant",
   })
   tokensByTenant: Array<{
     tenantId: string;
@@ -423,8 +430,8 @@ export class SystemMetricsDto {
     percentage: number;
   }>;
 
-  @ApiProperty({ 
-    description: 'Token health indicators' 
+  @ApiProperty({
+    description: "Token health indicators",
   })
   healthIndicators: {
     healthyTokens: number;
@@ -433,8 +440,8 @@ export class SystemMetricsDto {
     averageFailureRate: number;
   };
 
-  @ApiProperty({ 
-    description: 'Recent activity metrics' 
+  @ApiProperty({
+    description: "Recent activity metrics",
   })
   recentActivity: {
     newRegistrations24h: number;
@@ -443,8 +450,8 @@ export class SystemMetricsDto {
     failures24h: number;
   };
 
-  @ApiProperty({ 
-    description: 'Database performance metrics' 
+  @ApiProperty({
+    description: "Database performance metrics",
   })
   performance: {
     avgQueryTime: number;
@@ -452,8 +459,8 @@ export class SystemMetricsDto {
     activeConnections: number;
   };
 
-  @ApiProperty({ 
-    description: 'Metrics collection timestamp' 
+  @ApiProperty({
+    description: "Metrics collection timestamp",
   })
   @IsDateString()
   collectedAt: string;

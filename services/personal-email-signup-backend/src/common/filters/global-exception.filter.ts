@@ -5,8 +5,8 @@ import {
   HttpException,
   HttpStatus,
   Logger,
-} from '@nestjs/common';
-import { Request, Response } from 'express';
+} from "@nestjs/common";
+import { Request, Response } from "express";
 
 export interface ErrorResponse {
   statusCode: number;
@@ -27,7 +27,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
 
-    const correlationId = request.correlationId || 'unknown';
+    const correlationId = request.correlationId || "unknown";
     const timestamp = new Date().toISOString();
     const path = request.url;
 
@@ -39,8 +39,8 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exceptionResponse = exception.getResponse();
-      
-      if (typeof exceptionResponse === 'object' && exceptionResponse !== null) {
+
+      if (typeof exceptionResponse === "object" && exceptionResponse !== null) {
         const responseObj = exceptionResponse as any;
         message = responseObj.message || exception.message;
         error = responseObj.error || exception.name;
@@ -52,13 +52,13 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       }
     } else if (exception instanceof Error) {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = 'Internal server error';
-      error = 'InternalServerError';
-      errorCode = 'INTERNAL_SERVER_ERROR';
-      
+      message = "Internal server error";
+      error = "InternalServerError";
+      errorCode = "INTERNAL_SERVER_ERROR";
+
       // Log the actual error for debugging
       this.logger.error({
-        message: 'Unhandled exception',
+        message: "Unhandled exception",
         correlationId,
         error: {
           name: exception.name,
@@ -70,12 +70,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       });
     } else {
       status = HttpStatus.INTERNAL_SERVER_ERROR;
-      message = 'Unknown error occurred';
-      error = 'UnknownError';
-      errorCode = 'UNKNOWN_ERROR';
-      
+      message = "Unknown error occurred";
+      error = "UnknownError";
+      errorCode = "UNKNOWN_ERROR";
+
       this.logger.error({
-        message: 'Unknown exception type',
+        message: "Unknown exception type",
         correlationId,
         exception: String(exception),
         timestamp,
@@ -95,7 +95,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
     // Log the error response
     this.logger.error({
-      message: 'HTTP exception occurred',
+      message: "HTTP exception occurred",
       statusCode: errorResponse.statusCode,
       error: errorResponse.error,
       correlationId: errorResponse.correlationId,
@@ -103,7 +103,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       path: errorResponse.path,
       errorCode: errorResponse.errorCode,
       errorMessage: errorResponse.message,
-      userAgent: request.get('User-Agent'),
+      userAgent: request.get("User-Agent"),
       ip: request.ip,
       method: request.method,
     });
@@ -115,21 +115,21 @@ export class GlobalExceptionFilter implements ExceptionFilter {
     // Map common HTTP exceptions to error codes
     switch (status) {
       case HttpStatus.BAD_REQUEST:
-        return 'BAD_REQUEST';
+        return "BAD_REQUEST";
       case HttpStatus.UNAUTHORIZED:
-        return 'UNAUTHORIZED';
+        return "UNAUTHORIZED";
       case HttpStatus.FORBIDDEN:
-        return 'FORBIDDEN';
+        return "FORBIDDEN";
       case HttpStatus.NOT_FOUND:
-        return 'NOT_FOUND';
+        return "NOT_FOUND";
       case HttpStatus.CONFLICT:
-        return 'CONFLICT';
+        return "CONFLICT";
       case HttpStatus.UNPROCESSABLE_ENTITY:
-        return 'VALIDATION_ERROR';
+        return "VALIDATION_ERROR";
       case HttpStatus.TOO_MANY_REQUESTS:
-        return 'RATE_LIMIT_EXCEEDED';
+        return "RATE_LIMIT_EXCEEDED";
       case HttpStatus.INTERNAL_SERVER_ERROR:
-        return 'INTERNAL_SERVER_ERROR';
+        return "INTERNAL_SERVER_ERROR";
       default:
         return `HTTP_${status}`;
     }

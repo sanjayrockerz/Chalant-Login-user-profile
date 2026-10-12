@@ -1,101 +1,275 @@
 // filepath: src/user/reserved-usernames.service.ts
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 export interface ReservedUsernameCheck {
   isReserved: boolean;
   reason?: string;
-  category?: 'system' | 'admin' | 'api' | 'security' | 'brand' | 'custom';
+  category?: "system" | "admin" | "api" | "security" | "brand" | "custom";
 }
 
 @Injectable()
 export class ReservedUsernamesService {
   private readonly logger = new Logger(ReservedUsernamesService.name);
-  
+
   // Centrally governed reserved usernames to prevent routing conflicts and impersonation
   private readonly SYSTEM_RESERVED = new Set([
     // Core system routes and functionality
-    'admin', 'root', 'system', 'app', 'www', 'mail', 'email',
-    'ftp', 'ssh', 'ssl', 'http', 'https', 'tcp', 'udp', 'dns',
-    
+    "admin",
+    "root",
+    "system",
+    "app",
+    "www",
+    "mail",
+    "email",
+    "ftp",
+    "ssh",
+    "ssl",
+    "http",
+    "https",
+    "tcp",
+    "udp",
+    "dns",
+
     // Administrative and support
-    'support', 'help', 'contact', 'info', 'about', 'terms', 'privacy',
-    'legal', 'security', 'abuse', 'report', 'feedback', 'bug', 'bugs',
-    'service', 'services',
-    
+    "support",
+    "help",
+    "contact",
+    "info",
+    "about",
+    "terms",
+    "privacy",
+    "legal",
+    "security",
+    "abuse",
+    "report",
+    "feedback",
+    "bug",
+    "bugs",
+    "service",
+    "services",
+
     // Authentication and user management
-    'auth', 'login', 'logout', 'signin', 'signout', 'signup', 'register',
-    'account', 'profile', 'user', 'users', 'member', 'members',
-    'password', 'reset', 'verify', 'verification', 'activate', 'deactivate',
-    
+    "auth",
+    "login",
+    "logout",
+    "signin",
+    "signout",
+    "signup",
+    "register",
+    "account",
+    "profile",
+    "user",
+    "users",
+    "member",
+    "members",
+    "password",
+    "reset",
+    "verify",
+    "verification",
+    "activate",
+    "deactivate",
+
     // API and technical endpoints
-    'webhook', 'webhooks', 'callback', 'oauth', 'sso', 'saml',
-    'graphql', 'rest', 'api', 'v1', 'v2', 'v3', 'v4', 'v5',
-    'health', 'status', 'ping', 'metrics', 'monitoring', 'logs',
-    
+    "webhook",
+    "webhooks",
+    "callback",
+    "oauth",
+    "sso",
+    "saml",
+    "graphql",
+    "rest",
+    "api",
+    "v1",
+    "v2",
+    "v3",
+    "v4",
+    "v5",
+    "health",
+    "status",
+    "ping",
+    "metrics",
+    "monitoring",
+    "logs",
+
     // File and media handling
-    'static', 'assets', 'images', 'img', 'css', 'js', 'javascript',
-    'uploads', 'download', 'downloads', 'files', 'media', 'cdn',
-    
+    "static",
+    "assets",
+    "images",
+    "img",
+    "css",
+    "js",
+    "javascript",
+    "uploads",
+    "download",
+    "downloads",
+    "files",
+    "media",
+    "cdn",
+
     // Database and technical
-    'db', 'database', 'cache', 'redis', 'postgres', 'mysql',
-    'mongodb', 'elastic', 'search', 'index', 'backup', 'restore',
-    
+    "db",
+    "database",
+    "cache",
+    "redis",
+    "postgres",
+    "mysql",
+    "mongodb",
+    "elastic",
+    "search",
+    "index",
+    "backup",
+    "restore",
+
     // Security and compliance
-    'security', 'audit', 'compliance', 'gdpr', 'ccpa', 'hipaa',
-    'pci', 'soc', 'iso', 'encrypt', 'decrypt', 'keys', 'cert',
-    
+    "security",
+    "audit",
+    "compliance",
+    "gdpr",
+    "ccpa",
+    "hipaa",
+    "pci",
+    "soc",
+    "iso",
+    "encrypt",
+    "decrypt",
+    "keys",
+    "cert",
+
     // Business and brand protection
-    'sales', 'marketing', 'business', 'enterprise', 'corporate',
-    'company', 'brand', 'trademark', 'copyright', 'patent',
+    "sales",
+    "marketing",
+    "business",
+    "enterprise",
+    "corporate",
+    "company",
+    "brand",
+    "trademark",
+    "copyright",
+    "patent",
   ]);
 
   private readonly ADMIN_RESERVED = new Set([
-    'administrator',
-    'moderator',
-    'mod',
-    'staff',
-    'team',
-    'owner',
-    'manager',
-    'operator'
+    "administrator",
+    "moderator",
+    "mod",
+    "staff",
+    "team",
+    "owner",
+    "manager",
+    "operator",
   ]);
 
   private readonly API_RESERVED = new Set([
     // Common API patterns that could conflict with routes
-    'get', 'post', 'put', 'patch', 'delete', 'head', 'options',
-    'create', 'read', 'update', 'delete', 'list', 'search',
-    'find', 'filter', 'sort', 'order', 'limit', 'offset',
-    'page', 'pages', 'next', 'prev', 'previous', 'first', 'last',
+    "get",
+    "post",
+    "put",
+    "patch",
+    "delete",
+    "head",
+    "options",
+    "create",
+    "read",
+    "update",
+    "delete",
+    "list",
+    "search",
+    "find",
+    "filter",
+    "sort",
+    "order",
+    "limit",
+    "offset",
+    "page",
+    "pages",
+    "next",
+    "prev",
+    "previous",
+    "first",
+    "last",
   ]);
 
   private readonly SECURITY_RESERVED = new Set([
     // Potential impersonation targets
-    'null', 'undefined', 'none', 'empty', 'blank', 'default',
-    'anonymous', 'guest', 'visitor', 'public', 'private',
-    'test', 'testing', 'demo', 'example', 'sample', 'placeholder',
-    'temp', 'temporary', 'tmp', 'draft', 'preview', 'staging',
-    
+    "null",
+    "undefined",
+    "none",
+    "empty",
+    "blank",
+    "default",
+    "anonymous",
+    "guest",
+    "visitor",
+    "public",
+    "private",
+    "test",
+    "testing",
+    "demo",
+    "example",
+    "sample",
+    "placeholder",
+    "temp",
+    "temporary",
+    "tmp",
+    "draft",
+    "preview",
+    "staging",
+
     // Common attack vectors
-    'script', 'iframe', 'embed', 'object', 'applet', 'form',
-    'input', 'select', 'option', 'textarea', 'button', 'link',
-    'eval', 'exec', 'system', 'shell', 'cmd', 'command',
+    "script",
+    "iframe",
+    "embed",
+    "object",
+    "applet",
+    "form",
+    "input",
+    "select",
+    "option",
+    "textarea",
+    "button",
+    "link",
+    "eval",
+    "exec",
+    "system",
+    "shell",
+    "cmd",
+    "command",
   ]);
 
   private readonly BRAND_RESERVED = new Set([
     // Platform-specific brand protection (customize per application)
-    'colleging', 'college', 'university', 'edu', 'education',
-    'student', 'students', 'faculty', 'professor', 'teacher',
-    'class', 'classes', 'course', 'courses', 'degree', 'grades',
-    
+    "colleging",
+    "college",
+    "university",
+    "edu",
+    "education",
+    "student",
+    "students",
+    "faculty",
+    "professor",
+    "teacher",
+    "class",
+    "classes",
+    "course",
+    "courses",
+    "degree",
+    "grades",
+
     // Social media giants (prevent confusion)
-    'facebook', 'instagram', 'twitter', 'tiktok', 'snapchat',
-    'linkedin', 'youtube', 'google', 'apple', 'microsoft',
+    "facebook",
+    "instagram",
+    "twitter",
+    "tiktok",
+    "snapchat",
+    "linkedin",
+    "youtube",
+    "google",
+    "apple",
+    "microsoft",
   ]);
 
-  constructor(
-    private readonly configService: ConfigService
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Check if a username is reserved
@@ -113,8 +287,8 @@ export class ReservedUsernamesService {
     if (this.ADMIN_RESERVED.has(normalizedUsername)) {
       return {
         isReserved: true,
-        reason: 'Username contains administrative terms',
-        category: 'admin'
+        reason: "Username contains administrative terms",
+        category: "admin",
       };
     }
 
@@ -122,8 +296,8 @@ export class ReservedUsernamesService {
     if (this.API_RESERVED.has(normalizedUsername)) {
       return {
         isReserved: true,
-        reason: 'Username conflicts with API endpoints',
-        category: 'api'
+        reason: "Username conflicts with API endpoints",
+        category: "api",
       };
     }
 
@@ -131,8 +305,8 @@ export class ReservedUsernamesService {
     if (this.SYSTEM_RESERVED.has(normalizedUsername)) {
       return {
         isReserved: true,
-        reason: 'Username is reserved for system functionality',
-        category: 'system'
+        reason: "Username is reserved for system functionality",
+        category: "system",
       };
     }
 
@@ -140,8 +314,8 @@ export class ReservedUsernamesService {
     if (this.SECURITY_RESERVED.has(normalizedUsername)) {
       return {
         isReserved: true,
-        reason: 'Username is reserved for security reasons',
-        category: 'security'
+        reason: "Username is reserved for security reasons",
+        category: "security",
       };
     }
 
@@ -149,18 +323,18 @@ export class ReservedUsernamesService {
     if (this.BRAND_RESERVED.has(normalizedUsername)) {
       return {
         isReserved: true,
-        reason: 'Username is reserved for brand protection',
-        category: 'brand'
+        reason: "Username is reserved for brand protection",
+        category: "brand",
       };
     }
 
     // Check custom reserved names from configuration
-  const customReserved = this.getCustomReservedNames();
+    const customReserved = this.getCustomReservedNames();
     if (customReserved.has(normalizedUsername)) {
       return {
         isReserved: true,
-        reason: 'Username is reserved by custom policy',
-        category: 'custom'
+        reason: "Username is reserved by custom policy",
+        category: "custom",
       };
     }
 
@@ -178,8 +352,9 @@ export class ReservedUsernamesService {
    * Allows runtime configuration of additional reserved names
    */
   private getCustomReservedNames(): Set<string> {
-    const customNames = this.configService.get<string[]>('CUSTOM_RESERVED_USERNAMES') || [];
-    return new Set(customNames.map(name => name.toLowerCase()));
+    const customNames =
+      this.configService.get<string[]>("CUSTOM_RESERVED_USERNAMES") || [];
+    return new Set(customNames.map((name) => name.toLowerCase()));
   }
 
   /**
@@ -188,29 +363,41 @@ export class ReservedUsernamesService {
    */
   private checkReservedPatterns(username: string): ReservedUsernameCheck {
     // Check for admin-like patterns
-    if (username.includes('admin') || username.includes('mod') || username.includes('staff')) {
+    if (
+      username.includes("admin") ||
+      username.includes("mod") ||
+      username.includes("staff")
+    ) {
       return {
         isReserved: true,
-        reason: 'Username contains administrative terms',
-        category: 'admin'
+        reason: "Username contains administrative terms",
+        category: "admin",
       };
     }
 
     // Check for system-like patterns
-    if (username.startsWith('sys') || username.startsWith('app') || username.startsWith('api')) {
+    if (
+      username.startsWith("sys") ||
+      username.startsWith("app") ||
+      username.startsWith("api")
+    ) {
       return {
         isReserved: true,
-        reason: 'Username follows system naming pattern',
-        category: 'system'
+        reason: "Username follows system naming pattern",
+        category: "system",
       };
     }
 
     // Check for test/demo patterns
-    if (username.startsWith('test') || username.startsWith('demo') || username.startsWith('sample')) {
+    if (
+      username.startsWith("test") ||
+      username.startsWith("demo") ||
+      username.startsWith("sample")
+    ) {
       return {
         isReserved: true,
-        reason: 'Username follows test/demo pattern',
-        category: 'security'
+        reason: "Username follows test/demo pattern",
+        category: "security",
       };
     }
 
@@ -218,8 +405,8 @@ export class ReservedUsernamesService {
     if (/^\d+$/.test(username) && username.length <= 6) {
       return {
         isReserved: true,
-        reason: 'Short numeric usernames are reserved to prevent ID conflicts',
-        category: 'system'
+        reason: "Short numeric usernames are reserved to prevent ID conflicts",
+        category: "system",
       };
     }
 
@@ -240,15 +427,20 @@ export class ReservedUsernamesService {
   } {
     const customCount = this.getCustomReservedNames().size;
     const adminCount = this.ADMIN_RESERVED.size;
-    
+
     return {
       system: this.SYSTEM_RESERVED.size + adminCount,
       api: this.API_RESERVED.size,
       security: this.SECURITY_RESERVED.size,
       brand: this.BRAND_RESERVED.size,
       custom: customCount,
-      total: this.SYSTEM_RESERVED.size + adminCount + this.API_RESERVED.size + 
-             this.SECURITY_RESERVED.size + this.BRAND_RESERVED.size + customCount
+      total:
+        this.SYSTEM_RESERVED.size +
+        adminCount +
+        this.API_RESERVED.size +
+        this.SECURITY_RESERVED.size +
+        this.BRAND_RESERVED.size +
+        customCount,
     };
   }
 
@@ -259,19 +451,23 @@ export class ReservedUsernamesService {
   addCustomReserved(username: string, reason?: string): boolean {
     try {
       const normalizedUsername = username.toLowerCase();
-      const current = this.configService.get<string[]>('CUSTOM_RESERVED_USERNAMES') || [];
-      
+      const current =
+        this.configService.get<string[]>("CUSTOM_RESERVED_USERNAMES") || [];
+
       if (!current.includes(normalizedUsername)) {
         current.push(normalizedUsername);
         // Note: This only affects the current instance
         // For persistent changes, update the configuration system
-        this.logger.warn(`Added custom reserved username: ${normalizedUsername}`, { reason });
+        this.logger.warn(
+          `Added custom reserved username: ${normalizedUsername}`,
+          { reason },
+        );
         return true;
       }
-      
+
       return false; // Already reserved
     } catch (error) {
-      this.logger.error('Failed to add custom reserved username', error);
+      this.logger.error("Failed to add custom reserved username", error);
       return false;
     }
   }
@@ -280,7 +476,10 @@ export class ReservedUsernamesService {
    * Check if a username is similar to reserved names
    * Detects potential typosquatting or confusion attempts
    */
-  isSimilarToReserved(username: string): { similar: boolean; matches: string[] } {
+  isSimilarToReserved(username: string): {
+    similar: boolean;
+    matches: string[];
+  } {
     const normalizedUsername = username.toLowerCase();
     const matches: string[] = [];
 
@@ -291,7 +490,7 @@ export class ReservedUsernamesService {
       ...Array.from(this.API_RESERVED),
       ...Array.from(this.SECURITY_RESERVED),
       ...Array.from(this.BRAND_RESERVED),
-      ...Array.from(this.getCustomReservedNames())
+      ...Array.from(this.getCustomReservedNames()),
     ];
 
     for (const reserved of allReserved) {
@@ -312,7 +511,7 @@ export class ReservedUsernamesService {
 
     return {
       similar: matches.length > 0,
-      matches: Array.from(new Set(matches)) // Remove duplicates
+      matches: Array.from(new Set(matches)), // Remove duplicates
     };
   }
 
@@ -323,18 +522,18 @@ export class ReservedUsernamesService {
   private isCharacterSubstitution(username: string, reserved: string): boolean {
     // Common substitutions: 0->o, 1->i, 3->e, 5->s, etc.
     const substitutions: { [key: string]: string[] } = {
-      'o': ['0'],
-      'i': ['1', 'l'],
-      'e': ['3'],
-      's': ['5'],
-      'a': ['@'],
-      'g': ['9']
+      o: ["0"],
+      i: ["1", "l"],
+      e: ["3"],
+      s: ["5"],
+      a: ["@"],
+      g: ["9"],
     };
 
     // Very basic implementation - could be enhanced with edit distance
     for (const [original, subs] of Object.entries(substitutions)) {
       for (const sub of subs) {
-        if (username.replace(new RegExp(sub, 'g'), original) === reserved) {
+        if (username.replace(new RegExp(sub, "g"), original) === reserved) {
           return true;
         }
       }

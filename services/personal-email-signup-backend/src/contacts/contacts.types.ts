@@ -1,16 +1,16 @@
-import { PrismaClient } from '@prisma/client';
-import { ContactIdentifierType, MatchType } from './dto/contacts.dto';
+import { PrismaClient } from "@prisma/client";
+import { ContactIdentifierType, MatchType } from "./dto/contacts.dto";
 
 export type PrismaTransactionClient = Omit<
   PrismaClient,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+  "$connect" | "$disconnect" | "$on" | "$transaction" | "$use" | "$extends"
 >;
 
 export interface RequestContext {
   correlationId: string;
   tenantId: string;
   userAgent?: string;
-  userTier?: 'free' | 'premium' | 'enterprise';
+  userTier?: "free" | "premium" | "enterprise";
   ipAddressHash?: string;
   deviceIdHash?: string;
 }

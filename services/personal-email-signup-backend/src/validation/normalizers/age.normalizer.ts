@@ -10,7 +10,7 @@ export function normalizeAge(input: unknown): number | null {
     return null;
   }
 
-  if (typeof input === 'number' && Number.isFinite(input)) {
+  if (typeof input === "number" && Number.isFinite(input)) {
     return Math.trunc(input);
   }
 
@@ -27,7 +27,10 @@ export function normalizeAge(input: unknown): number | null {
   return Math.trunc(parsed);
 }
 
-export function isValidAge(age: number | null, options: AgeValidationOptions = {}): boolean {
+export function isValidAge(
+  age: number | null,
+  options: AgeValidationOptions = {},
+): boolean {
   if (age === null || !Number.isFinite(age)) {
     return false;
   }

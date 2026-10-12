@@ -4,14 +4,14 @@ import {
   ExecutionContext,
   CallHandler,
   Logger,
-} from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { tap, catchError } from 'rxjs/operators';
-import { Request, Response } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+} from "@nestjs/common";
+import { Observable } from "rxjs";
+import { tap, catchError } from "rxjs/operators";
+import { Request, Response } from "express";
+import { v4 as uuidv4 } from "uuid";
 
 // Extend Express Request to include user and correlationId
-declare module 'express' {
+declare module "express" {
   interface Request {
     user?: any;
     correlationId?: string;
@@ -38,20 +38,20 @@ export class LoggingInterceptor implements NestInterceptor {
     const ctx = context.switchToHttp();
     const request = ctx.getRequest<Request>();
     const response = ctx.getResponse<Response>();
-    
+
     // Generate correlation ID
     const correlationId = uuidv4();
-    
+
     // Add correlation ID to request for downstream use
     request.correlationId = correlationId;
-    response.setHeader('X-Correlation-ID', correlationId);
+    response.setHeader("X-Correlation-ID", correlationId);
 
     const loggingContext: LoggingContext = {
       correlationId,
       method: request.method,
       url: request.url,
-      userAgent: request.get('User-Agent'),
-      ip: request.ip || request.connection.remoteAddress || 'unknown',
+      userAgent: request.get("User-Agent"),
+      ip: request.ip || request.connection.remoteAddress || "unknown",
       userId: request.user?.userId,
       timestamp: new Date().toISOString(),
       requestBody: this.sanitizeBody(request.body),
@@ -62,19 +62,19 @@ export class LoggingInterceptor implements NestInterceptor {
 
     // Log incoming request
     this.logger.log({
-      message: 'Incoming request',
-      type: 'REQUEST',
+      message: "Incoming request",
+      type: "REQUEST",
       ...loggingContext,
     });
 
     return next.handle().pipe(
       tap((responseData) => {
         const duration = Date.now() - startTime;
-        
+
         // Log successful response
         this.logger.log({
-          message: 'Request completed successfully',
-          type: 'RESPONSE',
+          message: "Request completed successfully",
+          type: "RESPONSE",
           ...loggingContext,
           statusCode: response.statusCode,
           duration,
@@ -83,24 +83,25 @@ export class LoggingInterceptor implements NestInterceptor {
       }),
       catchError((error) => {
         const duration = Date.now() - startTime;
-        
+
         // Log error response
         this.logger.error({
-          message: 'Request failed',
-          type: 'ERROR',
+          message: "Request failed",
+          type: "ERROR",
           ...loggingContext,
           statusCode: error.status || 500,
           duration,
           error: {
             name: error.name,
             message: error.message,
-            stack: process.env.NODE_ENV !== 'production' ? error.stack : undefined,
+            stack:
+              process.env.NODE_ENV !== "production" ? error.stack : undefined,
           },
         });
 
         // Add correlation ID to error for client tracking
         error.correlationId = correlationId;
-        
+
         throw error;
       }),
     );
@@ -108,16 +109,22 @@ export class LoggingInterceptor implements NestInterceptor {
 
   private sanitizeBody(body: any): any {
     if (!body) return body;
-    
+
     const sanitized = { ...body };
-    const sensitiveFields = ['password', 'token', 'secret', 'key', 'authorization'];
-    
+    const sensitiveFields = [
+      "password",
+      "token",
+      "secret",
+      "key",
+      "authorization",
+    ];
+
     for (const field of sensitiveFields) {
       if (sanitized[field]) {
-        sanitized[field] = '[REDACTED]';
+        sanitized[field] = "[REDACTED]";
       }
     }
-    
+
     return sanitized;
   }
 }

@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import * as bcrypt from 'bcryptjs';
-import zxcvbn, { ZXCVBNResult, ZXCVBNFeedback, ZXCVBNSequence } from 'zxcvbn';
-import { PasswordBreachService } from '../password-breach.service';
+import { Injectable, Logger } from "@nestjs/common";
+import * as bcrypt from "bcryptjs";
+import zxcvbn, { ZXCVBNResult, ZXCVBNFeedback, ZXCVBNSequence } from "zxcvbn";
+import { PasswordBreachService } from "../password-breach.service";
 
 export interface PasswordPolicyViolation {
   code: string;
@@ -12,7 +12,7 @@ export interface PasswordPolicyViolation {
 export interface PasswordPolicyResult {
   compliant: boolean;
   score: number;
-  crackTimesDisplay: ZXCVBNResult['crack_times_display'];
+  crackTimesDisplay: ZXCVBNResult["crack_times_display"];
   warnings: string[];
   violations: PasswordPolicyViolation[];
   breached: boolean;
@@ -42,20 +42,20 @@ const BCRYPT_COST = 12;
 // Dictionary names shipped with zxcvbn that map to the SecLists/HIBP top lists
 // and common language dictionaries. These names are stable across versions.
 const COMMON_PASSWORD_DICTIONARIES = new Set<string>([
-  'passwords',
-  'passwords_common',
+  "passwords",
+  "passwords_common",
 ]);
 
 const LANGUAGE_DICTIONARIES = new Set<string>([
-  'english',
-  'english_wikipedia',
-  'surnames',
-  'male_names',
-  'female_names',
-  'spanish',
-  'french',
-  'german',
-  'italian',
+  "english",
+  "english_wikipedia",
+  "surnames",
+  "male_names",
+  "female_names",
+  "spanish",
+  "french",
+  "german",
+  "italian",
 ]);
 
 @Injectable()
@@ -64,14 +64,17 @@ export class PasswordPolicyService {
 
   constructor(private readonly breachService: PasswordBreachService) {}
 
-  async evaluate(password: string, options: PasswordPolicyOptions = {}): Promise<PasswordPolicyResult> {
+  async evaluate(
+    password: string,
+    options: PasswordPolicyOptions = {},
+  ): Promise<PasswordPolicyResult> {
     const violations: PasswordPolicyViolation[] = [];
     const warnings: string[] = [];
 
-    if (typeof password !== 'string') {
+    if (typeof password !== "string") {
       violations.push({
-        code: 'invalid_type',
-        message: 'Password must be provided as a string value.',
+        code: "invalid_type",
+        message: "Password must be provided as a string value.",
       });
       return this.buildResult({
         compliant: false,
@@ -83,12 +86,12 @@ export class PasswordPolicyService {
       });
     }
 
-    const normalized = password.normalize('NFKC');
+    const normalized = password.normalize("NFKC");
     const graphemeLength = [...normalized].length;
 
     if (graphemeLength < MIN_LENGTH) {
       violations.push({
-        code: 'too_short',
+        code: "too_short",
         message: `Password must be at least ${MIN_LENGTH} characters long.`,
         context: { length: graphemeLength },
       });
@@ -96,32 +99,46 @@ export class PasswordPolicyService {
 
     if (graphemeLength > MAX_LENGTH) {
       violations.push({
-        code: 'too_long',
+        code: "too_long",
         message: `Password must be ${MAX_LENGTH} characters or fewer to ensure reliable hashing performance.`,
         context: { length: graphemeLength },
       });
     }
 
-    const zxcvbnResult = this.calculateStrength(normalized, options.userInputs ?? []);
+    const zxcvbnResult = this.calculateStrength(
+      normalized,
+      options.userInputs ?? [],
+    );
     warnings.push(...this.collectWarnings(zxcvbnResult.feedback));
 
-    const commonPasswordViolation = this.detectCommonPassword(zxcvbnResult.sequence, normalized);
+    const commonPasswordViolation = this.detectCommonPassword(
+      zxcvbnResult.sequence,
+      normalized,
+    );
     if (commonPasswordViolation) {
       violations.push(commonPasswordViolation);
     }
 
-    const dictionaryViolation = this.detectDictionaryWord(zxcvbnResult.sequence, normalized);
+    const dictionaryViolation = this.detectDictionaryWord(
+      zxcvbnResult.sequence,
+      normalized,
+    );
     if (dictionaryViolation) {
       violations.push(dictionaryViolation);
     }
 
-    const keyboardViolation = this.detectKeyboardPattern(zxcvbnResult.sequence, normalized);
+    const keyboardViolation = this.detectKeyboardPattern(
+      zxcvbnResult.sequence,
+      normalized,
+    );
     if (keyboardViolation) {
       violations.push(keyboardViolation);
     }
 
     if (zxcvbnResult.score < 3) {
-      warnings.push('Consider choosing a longer passphrase to improve resistance against guessing attacks.');
+      warnings.push(
+        "Consider choosing a longer passphrase to improve resistance against guessing attacks.",
+      );
     }
 
     let breached = false;
@@ -131,14 +148,20 @@ export class PasswordPolicyService {
         breached = breachResult.isBreached;
         if (breachResult.isBreached) {
           violations.push({
-            code: 'breached_password',
-            message: 'This password appears in known data breaches. Please choose a different password.',
-            context: breachResult.breachCount ? { breachCount: breachResult.breachCount } : undefined,
+            code: "breached_password",
+            message:
+              "This password appears in known data breaches. Please choose a different password.",
+            context: breachResult.breachCount
+              ? { breachCount: breachResult.breachCount }
+              : undefined,
           });
         }
       } catch (error) {
         // As required, fail open but emit diagnostic logging for visibility.
-        this.logger.warn('Password breach lookup failed, allowing registration but logging event.', error as Error);
+        this.logger.warn(
+          "Password breach lookup failed, allowing registration but logging event.",
+          error as Error,
+        );
       }
     }
 
@@ -160,11 +183,22 @@ export class PasswordPolicyService {
     });
   }
 
-  private calculateStrength(password: string, userInputs: string[]): ZXCVBNResult {
+  private calculateStrength(
+    password: string,
+    userInputs: string[],
+  ): ZXCVBNResult {
     try {
-      return zxcvbn(password, userInputs.filter((value) => typeof value === 'string' && value.length > 0));
+      return zxcvbn(
+        password,
+        userInputs.filter(
+          (value) => typeof value === "string" && value.length > 0,
+        ),
+      );
     } catch (error) {
-      this.logger.error('Failed to calculate password strength with zxcvbn', error as Error);
+      this.logger.error(
+        "Failed to calculate password strength with zxcvbn",
+        error as Error,
+      );
       // Provide a conservative fallback result when zxcvbn cannot be executed.
       return {
         password,
@@ -174,7 +208,8 @@ export class PasswordPolicyService {
         sequence: [],
         calc_time: 0,
         feedback: {
-          warning: 'Unable to evaluate password strength. Treat as weak.' as unknown as ZXCVBNFeedback['warning'],
+          warning:
+            "Unable to evaluate password strength. Treat as weak." as unknown as ZXCVBNFeedback["warning"],
           suggestions: [],
         },
         crack_times_seconds: this.emptyCrackTimesSeconds(),
@@ -201,38 +236,55 @@ export class PasswordPolicyService {
     return messages;
   }
 
-  private detectCommonPassword(sequence: ZXCVBNSequence[], password: string): PasswordPolicyViolation | undefined {
+  private detectCommonPassword(
+    sequence: ZXCVBNSequence[],
+    password: string,
+  ): PasswordPolicyViolation | undefined {
     return sequence.find((entry) => {
-      if (entry.pattern !== 'dictionary') {
+      if (entry.pattern !== "dictionary") {
         return false;
       }
 
-      const dictionaryName = (entry as any).dictionary_name as string | undefined;
-      if (!dictionaryName || !COMMON_PASSWORD_DICTIONARIES.has(dictionaryName)) {
+      const dictionaryName = (entry as any).dictionary_name as
+        | string
+        | undefined;
+      if (
+        !dictionaryName ||
+        !COMMON_PASSWORD_DICTIONARIES.has(dictionaryName)
+      ) {
         return false;
       }
 
       // zxcvbn ranks draw from the SecLists top entries. Enforce the top 10k block list.
-      if (typeof (entry as any).rank === 'number' && (entry as any).rank > 10000) {
+      if (
+        typeof (entry as any).rank === "number" &&
+        (entry as any).rank > 10000
+      ) {
         return false;
       }
 
       return entry.token.length === password.length;
     })
       ? {
-          code: 'common_password',
-          message: 'This password is one of the most common choices and is easily guessable.',
+          code: "common_password",
+          message:
+            "This password is one of the most common choices and is easily guessable.",
         }
       : undefined;
   }
 
-  private detectDictionaryWord(sequence: ZXCVBNSequence[], password: string): PasswordPolicyViolation | undefined {
+  private detectDictionaryWord(
+    sequence: ZXCVBNSequence[],
+    password: string,
+  ): PasswordPolicyViolation | undefined {
     const dictionaryEntry = sequence.find((entry) => {
-      if (entry.pattern !== 'dictionary') {
+      if (entry.pattern !== "dictionary") {
         return false;
       }
 
-      const dictionaryName = (entry as any).dictionary_name as string | undefined;
+      const dictionaryName = (entry as any).dictionary_name as
+        | string
+        | undefined;
       if (!dictionaryName || !LANGUAGE_DICTIONARIES.has(dictionaryName)) {
         return false;
       }
@@ -245,24 +297,32 @@ export class PasswordPolicyService {
     }
 
     return {
-      code: 'dictionary_word',
-      message: 'Passwords based on dictionary words are easy to guess. Please choose a unique passphrase.',
+      code: "dictionary_word",
+      message:
+        "Passwords based on dictionary words are easy to guess. Please choose a unique passphrase.",
       context: {
         dictionary: (dictionaryEntry as any).dictionary_name,
       },
     };
   }
 
-  private detectKeyboardPattern(sequence: ZXCVBNSequence[], password: string): PasswordPolicyViolation | undefined {
-    const spatialEntry = sequence.find((entry) => entry.pattern === 'spatial' && entry.token.length === password.length);
+  private detectKeyboardPattern(
+    sequence: ZXCVBNSequence[],
+    password: string,
+  ): PasswordPolicyViolation | undefined {
+    const spatialEntry = sequence.find(
+      (entry) =>
+        entry.pattern === "spatial" && entry.token.length === password.length,
+    );
 
     if (!spatialEntry) {
       return undefined;
     }
 
     return {
-      code: 'keyboard_pattern',
-      message: 'Keyboard walk patterns (for example "qwerty" or sequential digits) are unsafe. Choose a less predictable passphrase.',
+      code: "keyboard_pattern",
+      message:
+        'Keyboard walk patterns (for example "qwerty" or sequential digits) are unsafe. Choose a less predictable passphrase.',
       context: {
         graph: (spatialEntry as any).graph,
       },
@@ -274,7 +334,7 @@ export class PasswordPolicyService {
     warnings: string[];
     violations: PasswordPolicyViolation[];
     score: number;
-    crackTimes: ZXCVBNResult['crack_times_display'];
+    crackTimes: ZXCVBNResult["crack_times_display"];
     breached: boolean;
     hash?: string;
   }): PasswordPolicyResult {
@@ -289,16 +349,16 @@ export class PasswordPolicyService {
     };
   }
 
-  private emptyCrackTimes(): ZXCVBNResult['crack_times_display'] {
+  private emptyCrackTimes(): ZXCVBNResult["crack_times_display"] {
     return {
-      online_throttling_100_per_hour: 'unknown',
-      online_no_throttling_10_per_second: 'unknown',
-      offline_slow_hashing_1e4_per_second: 'unknown',
-      offline_fast_hashing_1e10_per_second: 'unknown',
+      online_throttling_100_per_hour: "unknown",
+      online_no_throttling_10_per_second: "unknown",
+      offline_slow_hashing_1e4_per_second: "unknown",
+      offline_fast_hashing_1e10_per_second: "unknown",
     };
   }
 
-  private emptyCrackTimesSeconds(): ZXCVBNResult['crack_times_seconds'] {
+  private emptyCrackTimesSeconds(): ZXCVBNResult["crack_times_seconds"] {
     return {
       online_throttling_100_per_hour: 0,
       online_no_throttling_10_per_second: 0,

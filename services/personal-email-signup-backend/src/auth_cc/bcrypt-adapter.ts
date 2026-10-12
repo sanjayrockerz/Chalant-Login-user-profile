@@ -7,11 +7,11 @@ let impl: any;
 try {
   // Prefer native bcrypt when available
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  impl = require('bcrypt');
+  impl = require("bcrypt");
 } catch (err) {
   // Fallback to bcryptjs (pure JS)
   // eslint-disable-next-line @typescript-eslint/no-var-requires
-  impl = require('bcryptjs');
+  impl = require("bcryptjs");
 }
 
 export const genSalt = (rounds?: number): Promise<string> => {

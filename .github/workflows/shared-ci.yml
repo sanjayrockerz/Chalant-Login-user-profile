@@ -83,7 +83,7 @@ jobs:
             } else if (context.eventName === 'push') {
               const before = context.payload.before;
               const after = context.sha;
-              if (before) {
+              if (before && !/^0+$/.test(before)) {
                 const files = await github.paginate(
                   github.rest.repos.compareCommits,
                   {

@@ -1,17 +1,17 @@
-import { AuthService } from './auth.service';
-import { UserService } from '../user/user.service';
-import { EmailService } from '../email/email.service';
-import { RedisService } from '../redis/redis.service';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '../config/config.service';
-import { MetricsService } from '../metrics/metrics.service';
-import { PasswordBreachService } from '../security/password-breach.service';
-import { TermsService } from './terms.service';
-import { BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { AuthService } from "./auth.service";
+import { UserService } from "../user/user.service";
+import { EmailService } from "../email/email.service";
+import { RedisService } from "../redis/redis.service";
+import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "../config/config.service";
+import { MetricsService } from "../metrics/metrics.service";
+import { PasswordBreachService } from "../security/password-breach.service";
+import { TermsService } from "./terms.service";
+import { BadRequestException } from "@nestjs/common";
+import { PrismaClient } from "@prisma/client";
 
 // Mock ioredis before importing auth.service
-jest.mock('ioredis', () => {
+jest.mock("ioredis", () => {
   return {
     Redis: jest.fn(() => ({
       on: jest.fn().mockReturnThis(),
@@ -21,7 +21,7 @@ jest.mock('ioredis', () => {
   };
 });
 
-describe('AuthService.register (identity validation)', () => {
+describe("AuthService.register (identity validation)", () => {
   let service: AuthService;
   let userService: jest.Mocked<UserService>;
   let emailService: jest.Mocked<EmailService>;
@@ -39,7 +39,14 @@ describe('AuthService.register (identity validation)', () => {
     };
 
     userService = {
-      createUser: jest.fn().mockImplementation((data) => Promise.resolve({ id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479', ...data })),
+      createUser: jest
+        .fn()
+        .mockImplementation((data) =>
+          Promise.resolve({
+            id: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+            ...data,
+          }),
+        ),
       saveVerificationToken: jest.fn().mockResolvedValue(undefined),
       findByEmail: jest.fn().mockResolvedValue(null),
     } as any;
@@ -50,22 +57,22 @@ describe('AuthService.register (identity validation)', () => {
     } as any;
 
     const redisService = {
-      set: jest.fn().mockResolvedValue('OK'),
+      set: jest.fn().mockResolvedValue("OK"),
       get: jest.fn().mockResolvedValue(null),
       del: jest.fn().mockResolvedValue(0),
       getex: jest.fn().mockResolvedValue(null),
     } as any;
 
     const jwtService = {
-      sign: jest.fn().mockReturnValue('test.jwt.token'),
+      sign: jest.fn().mockReturnValue("test.jwt.token"),
       verify: jest.fn(),
     } as any;
 
     const configService = {
       get: (k: string) => {
         const config: any = {
-          'MIN_DECLARED_AGE': 16,
-          'PASSWORD_MIN_ENTROPY': 50,
+          MIN_DECLARED_AGE: 16,
+          PASSWORD_MIN_ENTROPY: 50,
         };
         return config[k];
       },
@@ -85,7 +92,7 @@ describe('AuthService.register (identity validation)', () => {
     const termsService = {
       validateTermsAcceptance: jest.fn().mockReturnValue(true),
       validateRegistrationTerms: jest.fn().mockReturnValue({ valid: true }),
-      getLatestVersion: jest.fn().mockReturnValue('1.0'),
+      getLatestVersion: jest.fn().mockReturnValue("1.0"),
     } as any;
 
     // Directly instantiate AuthService with all mocked dependencies
@@ -102,15 +109,28 @@ describe('AuthService.register (identity validation)', () => {
     );
   });
 
-  it('rejects registration when declared_age < MIN_DECLARED_AGE', async () => {
-    const dto: any = { username: 'u1', email: 'u1@example.com', password: 'P@ssw0rd', declared_age: 15 };
+  it("rejects registration when declared_age < MIN_DECLARED_AGE", async () => {
+    const dto: any = {
+      username: "u1",
+      email: "u1@example.com",
+      password: "P@ssw0rd",
+      declared_age: 15,
+    };
 
     await expect(service.register(dto)).rejects.toThrow(BadRequestException);
     expect(userService.createUser).not.toHaveBeenCalled();
   });
 
-  it('accepts registration when declared_age >= MIN_DECLARED_AGE and persists fields', async () => {
-    const dto: any = { username: 'u2', email: 'u2@example.com', password: 'P@ssw0rd', declared_age: 16, display_name: 'User Two', profile_image_url: 'https://img.example/x.jpg', pronouns: 'they/them' };
+  it("accepts registration when declared_age >= MIN_DECLARED_AGE and persists fields", async () => {
+    const dto: any = {
+      username: "u2",
+      email: "u2@example.com",
+      password: "P@ssw0rd",
+      declared_age: 16,
+      display_name: "User Two",
+      profile_image_url: "https://img.example/x.jpg",
+      pronouns: "they/them",
+    };
 
     const result = await service.register(dto);
 
@@ -119,15 +139,26 @@ describe('AuthService.register (identity validation)', () => {
     expect(result).toBeDefined();
   });
 
-  it('rejects when declared_age is non-integer (malformed)', async () => {
-    const dto: any = { username: 'u3', email: 'u3@example.com', password: 'P@ssw0rd', declared_age: 'sixteen' };
+  it("rejects when declared_age is non-integer (malformed)", async () => {
+    const dto: any = {
+      username: "u3",
+      email: "u3@example.com",
+      password: "P@ssw0rd",
+      declared_age: "sixteen",
+    };
 
     await expect(service.register(dto)).rejects.toThrow();
     expect(userService.createUser).not.toHaveBeenCalled();
   });
 
-  it('rejects when profile_image_url is not a valid URL', async () => {
-    const dto: any = { username: 'u4', email: 'u4@example.com', password: 'P@ssw0rd', declared_age: 20, profile_image_url: 'not-a-url' };
+  it("rejects when profile_image_url is not a valid URL", async () => {
+    const dto: any = {
+      username: "u4",
+      email: "u4@example.com",
+      password: "P@ssw0rd",
+      declared_age: 20,
+      profile_image_url: "not-a-url",
+    };
 
     await expect(service.register(dto)).rejects.toThrow();
     expect(userService.createUser).not.toHaveBeenCalled();

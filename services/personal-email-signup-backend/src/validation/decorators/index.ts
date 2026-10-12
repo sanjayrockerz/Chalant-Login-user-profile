@@ -1,1 +1,1 @@
-export * from './normalized.decorator';
+export * from "./normalized.decorator";

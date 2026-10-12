@@ -1,32 +1,38 @@
 /**
  * Auth Controller Stub
- * 
+ *
  * REST API endpoints for authentication operations.
  * This stub enables TypeScript compilation and NestJS DI resolution.
- * 
+ *
  * TODO: Replace with actual authentication controller implementation
  * - Add request validation with DTOs
  * - Implement rate limiting decorators
  * - Add API documentation with Swagger
  * - Implement proper error handling and responses
  * - Add request/response transformers
- * 
+ *
  * Consumers: Main application router, auth module
  * Priority: Critical (blocks authentication API)
  */
 
-import { 
-  Controller, 
-  Post, 
-  Body, 
-  HttpCode, 
-  HttpStatus, 
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
   Logger,
   Headers,
   Get,
   UseGuards,
-} from '@nestjs/common';
-import { AuthService, LoginRequest, RegisterRequest, OTPRequest, OTPValidation } from './auth.service';
+} from "@nestjs/common";
+import {
+  AuthService,
+  LoginRequest,
+  RegisterRequest,
+  OTPRequest,
+  OTPValidation,
+} from "./auth.service";
 
 export interface LoginDto {
   email: string;
@@ -62,23 +68,23 @@ export interface CompletePasswordResetDto {
 /**
  * Authentication controller handling auth API endpoints
  */
-@Controller('auth')
+@Controller("auth")
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
 
   constructor(private readonly authService: AuthService) {
-    this.logger.log('AuthController stub initialized');
+    this.logger.log("AuthController stub initialized");
   }
 
   /**
    * User login endpoint
    */
-  @Post('login')
+  @Post("login")
   @HttpCode(HttpStatus.OK)
   async login(
     @Body() loginDto: LoginDto,
-    @Headers('x-correlation-id') correlationId?: string,
-    @Headers('x-tenant-id') tenantId?: string,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-tenant-id") tenantId?: string,
   ) {
     this.logger.debug(`Login request stub for email: ${loginDto.email}`, {
       correlation_id: correlationId,
@@ -103,17 +109,20 @@ export class AuthController {
   /**
    * User registration endpoint
    */
-  @Post('register')
+  @Post("register")
   @HttpCode(HttpStatus.CREATED)
   async register(
     @Body() registerDto: RegisterDto,
-    @Headers('x-correlation-id') correlationId?: string,
-    @Headers('x-tenant-id') tenantId?: string,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-tenant-id") tenantId?: string,
   ) {
-    this.logger.debug(`Registration request stub for email: ${registerDto.email}`, {
-      correlation_id: correlationId,
-      tenant_id: tenantId,
-    });
+    this.logger.debug(
+      `Registration request stub for email: ${registerDto.email}`,
+      {
+        correlation_id: correlationId,
+        tenant_id: tenantId,
+      },
+    );
 
     // TODO: Add request validation
     // - Validate email format and uniqueness
@@ -133,17 +142,20 @@ export class AuthController {
   /**
    * Generate OTP for email verification
    */
-  @Post('otp/generate')
+  @Post("otp/generate")
   @HttpCode(HttpStatus.OK)
   async generateOTP(
     @Body() otpDto: OTPDto,
-    @Headers('x-correlation-id') correlationId?: string,
-    @Headers('x-tenant-id') tenantId?: string,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-tenant-id") tenantId?: string,
   ) {
-    this.logger.debug(`OTP generation request stub for email: ${otpDto.email}`, {
-      correlation_id: correlationId,
-      tenant_id: tenantId,
-    });
+    this.logger.debug(
+      `OTP generation request stub for email: ${otpDto.email}`,
+      {
+        correlation_id: correlationId,
+        tenant_id: tenantId,
+      },
+    );
 
     // TODO: Add rate limiting
     // - Limit OTP generation per email per time window
@@ -162,17 +174,20 @@ export class AuthController {
   /**
    * Validate OTP code
    */
-  @Post('otp/validate')
+  @Post("otp/validate")
   @HttpCode(HttpStatus.OK)
   async validateOTP(
     @Body() validationDto: OTPValidationDto,
-    @Headers('x-correlation-id') correlationId?: string,
-    @Headers('x-tenant-id') tenantId?: string,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-tenant-id") tenantId?: string,
   ) {
-    this.logger.debug(`OTP validation request stub for email: ${validationDto.email}`, {
-      correlation_id: correlationId,
-      tenant_id: tenantId,
-    });
+    this.logger.debug(
+      `OTP validation request stub for email: ${validationDto.email}`,
+      {
+        correlation_id: correlationId,
+        tenant_id: tenantId,
+      },
+    );
 
     // TODO: Add rate limiting for OTP validation
     // - Limit validation attempts per email
@@ -191,14 +206,14 @@ export class AuthController {
   /**
    * Refresh access token
    */
-  @Post('refresh')
+  @Post("refresh")
   @HttpCode(HttpStatus.OK)
   async refreshToken(
     @Body() refreshDto: RefreshTokenDto,
-    @Headers('x-correlation-id') correlationId?: string,
-    @Headers('x-tenant-id') tenantId?: string,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-tenant-id") tenantId?: string,
   ) {
-    this.logger.debug('Token refresh request stub', {
+    this.logger.debug("Token refresh request stub", {
       correlation_id: correlationId,
       tenant_id: tenantId,
     });
@@ -209,14 +224,14 @@ export class AuthController {
   /**
    * Complete password reset using token issued via email
    */
-  @Post('password-reset/complete')
+  @Post("password-reset/complete")
   @HttpCode(HttpStatus.OK)
   async completePasswordReset(
     @Body() resetDto: CompletePasswordResetDto,
-    @Headers('x-correlation-id') correlationId?: string,
-    @Headers('x-tenant-id') tenantId?: string,
+    @Headers("x-correlation-id") correlationId?: string,
+    @Headers("x-tenant-id") tenantId?: string,
   ) {
-    this.logger.debug('Password reset completion request received', {
+    this.logger.debug("Password reset completion request received", {
       correlation_id: correlationId,
       tenant_id: tenantId,
     });
@@ -231,13 +246,13 @@ export class AuthController {
   /**
    * Health check endpoint
    */
-  @Get('health')
+  @Get("health")
   async health() {
     return {
-      status: 'ok',
+      status: "ok",
       timestamp: new Date().toISOString(),
-      service: 'auth',
-      version: '1.0.0-stub',
+      service: "auth",
+      version: "1.0.0-stub",
     };
   }
 }

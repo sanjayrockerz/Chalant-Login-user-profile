@@ -22,7 +22,7 @@ on:
           - compliance
 
 env:
-  NODE_VERSION: 18.x
+  NODE_VERSION: 20.x
 
 concurrency:
   group: security-${{ github.ref }}
@@ -127,7 +127,7 @@ jobs:
         if: steps.check-npm.outputs.has_package_json == 'true'
         run: |
           cd ${{ matrix.path }}
-          npm ci --audit=false
+          npm ci --audit=false --ignore-scripts
 
       - name: Audit dependencies
         if: steps.check-npm.outputs.has_package_json == 'true'
@@ -292,7 +292,7 @@ jobs:
           # ESLint security plugin (if available)
           if [[ -f "package.json" ]] && grep -q "eslint" package.json; then
             echo "Running ESLint security checks..."
-            npm ci --audit=false
+            npm ci --audit=false --ignore-scripts
 
             # Check for security-related ESLint plugins
             if grep -q "eslint-plugin-security" package.json; then

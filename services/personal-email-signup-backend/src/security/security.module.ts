@@ -1,12 +1,12 @@
-import { Module } from '@nestjs/common';
-import { PasswordBreachService } from './password-breach.service';
-import { PasswordPolicyService } from './password-policy/password-policy.service';
-import { ConfigModule } from '../config/config.module';
-import { RedisModule } from '../redis/redis.module';
-import { RedisThrottlerStorageService } from './redis-throttler.storage';
-import { CustomThrottlerGuard } from './custom-throttler.guard';
-import { VelocitySignalsService } from './velocity-signals.service';
-import { HtmlSanitizerService } from './html-sanitizer.service';
+import { Module } from "@nestjs/common";
+import { PasswordBreachService } from "./password-breach.service";
+import { PasswordPolicyService } from "./password-policy/password-policy.service";
+import { ConfigModule } from "../config/config.module";
+import { RedisModule } from "../redis/redis.module";
+import { RedisThrottlerStorageService } from "./redis-throttler.storage";
+import { CustomThrottlerGuard } from "./custom-throttler.guard";
+import { VelocitySignalsService } from "./velocity-signals.service";
+import { HtmlSanitizerService } from "./html-sanitizer.service";
 
 @Module({
   imports: [ConfigModule, RedisModule],
@@ -15,16 +15,16 @@ import { HtmlSanitizerService } from './html-sanitizer.service';
     PasswordPolicyService,
     RedisThrottlerStorageService,
     CustomThrottlerGuard,
-  VelocitySignalsService,
-  HtmlSanitizerService,
+    VelocitySignalsService,
+    HtmlSanitizerService,
   ],
   exports: [
     PasswordBreachService,
     PasswordPolicyService,
     RedisThrottlerStorageService,
     CustomThrottlerGuard,
-  VelocitySignalsService,
-  HtmlSanitizerService,
+    VelocitySignalsService,
+    HtmlSanitizerService,
   ],
 })
 export class SecurityModule {}

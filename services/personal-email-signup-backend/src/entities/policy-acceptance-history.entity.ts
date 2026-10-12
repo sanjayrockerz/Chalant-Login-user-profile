@@ -1,17 +1,17 @@
-import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";
 
-@Entity('policy_acceptance_history')
+@Entity("policy_acceptance_history")
 export class PolicyAcceptanceHistory {
   @PrimaryGeneratedColumn()
   id: number;
 
-  @Column('uuid')
+  @Column("uuid")
   userId: string;
 
   @Column()
   policyVersion: string;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ type: "timestamp", default: () => "CURRENT_TIMESTAMP" })
   acceptedAt: Date;
 
   @Column({ nullable: true })

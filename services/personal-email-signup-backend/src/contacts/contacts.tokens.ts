@@ -1,7 +1,10 @@
-import { InjectionToken } from '@nestjs/common';
+import { InjectionToken } from "@nestjs/common";
 
 export interface PhoneNormalizationPort {
-  normalize: (input: string, countryHint?: string) => Promise<NormalizedPhoneResult> | NormalizedPhoneResult;
+  normalize: (
+    input: string,
+    countryHint?: string,
+  ) => Promise<NormalizedPhoneResult> | NormalizedPhoneResult;
 }
 
 export interface PhoneHashingPort {
@@ -16,5 +19,7 @@ export interface NormalizedPhoneResult {
   nationalNumber: string;
 }
 
-export const PHONE_NORMALIZATION_PORT: InjectionToken<PhoneNormalizationPort> = Symbol('PHONE_NORMALIZATION_PORT');
-export const PHONE_HASHING_PORT: InjectionToken<PhoneHashingPort> = Symbol('PHONE_HASHING_PORT');
+export const PHONE_NORMALIZATION_PORT: InjectionToken<PhoneNormalizationPort> =
+  Symbol("PHONE_NORMALIZATION_PORT");
+export const PHONE_HASHING_PORT: InjectionToken<PhoneHashingPort> =
+  Symbol("PHONE_HASHING_PORT");

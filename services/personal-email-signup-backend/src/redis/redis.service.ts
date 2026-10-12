@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
-import { ConfigService } from '../config/config.service';
-import { Redis, RedisOptions } from 'ioredis';
+import { Injectable, Logger, OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "../config/config.service";
+import { Redis, RedisOptions } from "ioredis";
 
 export interface CacheOptions {
   ttl?: number;
@@ -25,9 +25,9 @@ export class RedisService implements OnModuleDestroy {
   private readonly client: Redis;
 
   constructor(private readonly configService: ConfigService) {
-    const redisUrl = this.configService.get('REDIS_URL');
+    const redisUrl = this.configService.get("REDIS_URL");
     if (!redisUrl) {
-      throw new Error('REDIS_URL is not configured');
+      throw new Error("REDIS_URL is not configured");
     }
 
     const options: RedisOptions = {
@@ -38,9 +38,13 @@ export class RedisService implements OnModuleDestroy {
 
     this.client = new Redis(redisUrl, options);
 
-    this.client.on('connect', () => this.logger.log('Redis connection established'));
-    this.client.on('error', (err) => this.logger.error('Redis connection error', err as Error));
-    this.client.on('close', () => this.logger.warn('Redis connection closed'));
+    this.client.on("connect", () =>
+      this.logger.log("Redis connection established"),
+    );
+    this.client.on("error", (err) =>
+      this.logger.error("Redis connection error", err as Error),
+    );
+    this.client.on("close", () => this.logger.warn("Redis connection closed"));
   }
 
   getClient(): Redis {
@@ -51,23 +55,33 @@ export class RedisService implements OnModuleDestroy {
     try {
       await this.client.quit();
     } catch (error) {
-      this.logger.error('Failed to close Redis connection cleanly', error as Error);
+      this.logger.error(
+        "Failed to close Redis connection cleanly",
+        error as Error,
+      );
       this.client.disconnect();
     }
   }
 
-  async set(key: string, value: any, options: CacheOptions | number = {}): Promise<void> {
+  async set(
+    key: string,
+    value: any,
+    options: CacheOptions | number = {},
+  ): Promise<void> {
     const payload = this.serialize(value);
-    const cacheOptions: CacheOptions = typeof options === 'number' ? { ttl: options } : options;
+    const cacheOptions: CacheOptions =
+      typeof options === "number" ? { ttl: options } : options;
 
     try {
       if (cacheOptions.ttl && cacheOptions.ttl > 0) {
-        await this.client.set(key, payload, 'EX', cacheOptions.ttl);
+        await this.client.set(key, payload, "EX", cacheOptions.ttl);
       } else {
         await this.client.set(key, payload);
       }
     } catch (error) {
-      this.logger.error(`Redis SET failed for key ${key}`, error as Error, { correlationId: cacheOptions.correlationId });
+      this.logger.error(`Redis SET failed for key ${key}`, error as Error, {
+        correlationId: cacheOptions.correlationId,
+      });
       throw error;
     }
   }
@@ -121,13 +135,16 @@ export class RedisService implements OnModuleDestroy {
         };
       }
 
-      const { count, ttlSeconds } = await this.incrementWindowInternal(counterKey, windowSeconds);
+      const { count, ttlSeconds } = await this.incrementWindowInternal(
+        counterKey,
+        windowSeconds,
+      );
       const remaining = Math.max(0, limit - count);
 
       if (count > limit) {
         const penaltySeconds = blockSeconds ?? windowSeconds;
         if (penaltySeconds > 0) {
-          await this.client.set(blockKey, '1', 'EX', penaltySeconds);
+          await this.client.set(blockKey, "1", "EX", penaltySeconds);
         }
 
         return {
@@ -143,7 +160,11 @@ export class RedisService implements OnModuleDestroy {
         resetTime: Date.now() + ttlSeconds * 1000,
       };
     } catch (error) {
-      this.logger.error('Redis rate limit check failed; failing closed', error as Error, { key, correlationId });
+      this.logger.error(
+        "Redis rate limit check failed; failing closed",
+        error as Error,
+        { key, correlationId },
+      );
       throw error;
     }
   }
@@ -154,24 +175,39 @@ export class RedisService implements OnModuleDestroy {
     correlationId?: string,
   ): Promise<number> {
     try {
-      const { count } = await this.incrementWindowInternal(`throttle:${key}`, windowSeconds);
+      const { count } = await this.incrementWindowInternal(
+        `throttle:${key}`,
+        windowSeconds,
+      );
       return count;
     } catch (error) {
-      this.logger.error('Redis rate limit increment failed', error as Error, { key, correlationId });
+      this.logger.error("Redis rate limit increment failed", error as Error, {
+        key,
+        correlationId,
+      });
       return 1;
     }
   }
 
-  async incrementWindow(key: string, windowSeconds: number): Promise<WindowIncrementResult> {
+  async incrementWindow(
+    key: string,
+    windowSeconds: number,
+  ): Promise<WindowIncrementResult> {
     try {
       return await this.incrementWindowInternal(key, windowSeconds);
     } catch (error) {
-      this.logger.error('Redis window increment failed', error as Error, { key });
+      this.logger.error("Redis window increment failed", error as Error, {
+        key,
+      });
       return { count: 1, ttlSeconds: windowSeconds };
     }
   }
 
-  async setSession(sessionId: string, data: any, ttlSeconds: number = 3600): Promise<void> {
+  async setSession(
+    sessionId: string,
+    data: any,
+    ttlSeconds: number = 3600,
+  ): Promise<void> {
     await this.set(`session:${sessionId}`, data, { ttl: ttlSeconds });
   }
 
@@ -179,7 +215,11 @@ export class RedisService implements OnModuleDestroy {
     return this.get<T>(`session:${sessionId}`);
   }
 
-  async storeOTP(key: string, otp: string, ttlSeconds: number = 600): Promise<void> {
+  async storeOTP(
+    key: string,
+    otp: string,
+    ttlSeconds: number = 600,
+  ): Promise<void> {
     await this.set(`otp:${key}`, otp, { ttl: ttlSeconds });
   }
 
@@ -202,21 +242,25 @@ export class RedisService implements OnModuleDestroy {
     return this.client.ping();
   }
 
-  private async incrementWindowInternal(key: string, windowSeconds: number): Promise<WindowIncrementResult> {
+  private async incrementWindowInternal(
+    key: string,
+    windowSeconds: number,
+  ): Promise<WindowIncrementResult> {
     const pipeline = this.client.multi();
     pipeline.incr(key);
-    pipeline.expire(key, windowSeconds, 'NX');
+    pipeline.expire(key, windowSeconds, "NX");
     pipeline.ttl(key);
 
     const execResult = await pipeline.exec();
 
     if (!execResult) {
-      throw new Error('Redis pipeline execution returned null');
+      throw new Error("Redis pipeline execution returned null");
     }
 
     const incrResult = Number(execResult[0]?.[1] ?? 0);
     const ttlRaw = execResult[2]?.[1];
-    let ttlSeconds = typeof ttlRaw === 'number' ? ttlRaw : Number(ttlRaw ?? windowSeconds);
+    let ttlSeconds =
+      typeof ttlRaw === "number" ? ttlRaw : Number(ttlRaw ?? windowSeconds);
 
     if (!Number.isFinite(ttlSeconds) || ttlSeconds < 0) {
       await this.client.expire(key, windowSeconds);
@@ -230,14 +274,17 @@ export class RedisService implements OnModuleDestroy {
   }
 
   private serialize(value: any): string {
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       return value;
     }
 
     try {
       return JSON.stringify(value);
     } catch (error) {
-      this.logger.warn('Failed to serialize value for Redis; falling back to string', error as Error);
+      this.logger.warn(
+        "Failed to serialize value for Redis; falling back to string",
+        error as Error,
+      );
       return String(value);
     }
   }

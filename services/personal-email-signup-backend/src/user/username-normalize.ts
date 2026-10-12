@@ -5,5 +5,5 @@ export {
   USERNAME_MAX_LENGTH,
   USERNAME_REGEX,
   hasConsecutiveSpecials,
-  startsOrEndsWithSpecial
-} from '../validation/normalizers/username.normalizer';
+  startsOrEndsWithSpecial,
+} from "../validation/normalizers/username.normalizer";

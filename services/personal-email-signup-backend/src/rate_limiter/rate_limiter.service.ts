@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { RedisService } from '../redis/redis.service';
+import { Injectable } from "@nestjs/common";
+import { RedisService } from "../redis/redis.service";
 
 @Injectable()
 export class RateLimiterService {
@@ -16,11 +16,20 @@ export class RateLimiterService {
     scope?: string,
     blockSeconds?: number,
   ) {
-    const namespacedScope = scope ? scope.replace(/\s+/g, '_') : 'global';
+    const namespacedScope = scope ? scope.replace(/\s+/g, "_") : "global";
     const key = `rl:${namespacedScope}:${dimension}:${id}`;
-    const result = await this.redisService.checkRateLimit(key, limit, windowSeconds, undefined, blockSeconds);
+    const result = await this.redisService.checkRateLimit(
+      key,
+      limit,
+      windowSeconds,
+      undefined,
+      blockSeconds,
+    );
     const count = Math.max(0, limit - result.remaining);
-  const retryAfter = Math.max(Math.ceil((result.resetTime - Date.now()) / 1000), 0);
+    const retryAfter = Math.max(
+      Math.ceil((result.resetTime - Date.now()) / 1000),
+      0,
+    );
 
     return {
       allowed: result.allowed,
@@ -30,9 +39,16 @@ export class RateLimiterService {
     };
   }
 
-  async incrementWindowCounter(namespace: string, id: string, windowSeconds: number) {
+  async incrementWindowCounter(
+    namespace: string,
+    id: string,
+    windowSeconds: number,
+  ) {
     const key = `metric:${namespace}:${id}`;
-    const { count, ttlSeconds } = await this.redisService.incrementWindow(key, windowSeconds);
+    const { count, ttlSeconds } = await this.redisService.incrementWindow(
+      key,
+      windowSeconds,
+    );
     return { count, ttl: ttlSeconds };
   }
 }

@@ -1,14 +1,14 @@
-import { PushPlatform } from './push-token.dto';
+import { PushPlatform } from "./push-token.dto";
 
 export type DeliveryStatus =
-  | 'sent'
-  | 'queued'
-  | 'delivered'
-  | 'failed'
-  | 'expired'
-  | 'unregistered'
-  | 'invalid'
-  | 'throttled';
+  | "sent"
+  | "queued"
+  | "delivered"
+  | "failed"
+  | "expired"
+  | "unregistered"
+  | "invalid"
+  | "throttled";
 
 export interface NotificationDeliveryFeedbackDto {
   tokenId: string;

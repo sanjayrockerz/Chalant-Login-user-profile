@@ -25,28 +25,18 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-      - name: Cache node modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            services/login-page-back/node_modules
-            services/login-page-back/.npm
-          key: login-page-back-${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('services/login-page-back/package-lock.json') }}
-          restore-keys: |
-            login-page-back-${{ runner.os }}-node-${{ matrix.node-version }}-
-      - name: Install dependencies
-        run: npm ci
-      - name: Lint
-        run: npm run lint --if-present
-      - name: Build
-        run: npm run build --if-present
-      - name: Test
-        run: npm test --if-present
+      - name: Validate login service contract
+        run: |
+          if [[ -f package.json ]]; then
+            npm ci
+            npm run lint --if-present
+            npm run build --if-present
+            npm test --if-present
+          else
+            echo 'Login page backend is specification-only; executable checks are deferred until package.json is added.'
+          fi
+        env:
+          HUSKY: '0'
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,7 +52,7 @@ jobs:
         working-directory: services/personal-email-signup-backend
     strategy:
       matrix:
-        node-version: [18.x]
+        node-version: [20.x]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,6 +62,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: 'npm'
+          cache-dependency-path: services/personal-email-signup-backend/package-lock.json
       - name: Cache node modules
         uses: actions/cache@v4
         with:
@@ -83,6 +74,11 @@ jobs:
             personal-email-signup-backend-${{ runner.os }}-node-${{ matrix.node-version }}-
       - name: Install dependencies
         run: npm ci
+        env:
+          HUSKY: '0'
+      - name: Install shared phone-normalization dependencies
+        working-directory: packages/phone-normalization
+        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Lint
         run: npm run lint --if-present
       - name: Build

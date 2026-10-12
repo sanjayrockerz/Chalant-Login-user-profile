@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import winston from 'winston';
-import Transport from 'winston-transport';
-import { randomUUID } from 'crypto';
-import { PushPlatform, PushTokenType } from '../dto/push-token.dto';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import winston from "winston";
+import Transport from "winston-transport";
+import { randomUUID } from "crypto";
+import { PushPlatform, PushTokenType } from "../dto/push-token.dto";
 
 type LokiLogPayload = {
   streams: Array<{
@@ -31,7 +31,7 @@ class LokiTransport extends Transport {
   }
 
   async log(info: any, callback: () => void): Promise<void> {
-    setImmediate(() => this.emit('logged', info));
+    setImmediate(() => this.emit("logged", info));
 
     try {
       const now = BigInt(Date.now()) * 1000000n; // Loki expects nanoseconds
@@ -49,21 +49,21 @@ class LokiTransport extends Transport {
 
       const fetchFn = (globalThis as any).fetch;
       if (!fetchFn) {
-        throw new Error('Fetch API not available in current runtime');
+        throw new Error("Fetch API not available in current runtime");
       }
 
       await fetchFn(this.endpoint, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
-          ...(this.tenantId ? { 'X-Scope-OrgID': this.tenantId } : {}),
+          "Content-Type": "application/json",
+          ...(this.tenantId ? { "X-Scope-OrgID": this.tenantId } : {}),
         },
         body: JSON.stringify(payload),
       });
     } catch (error) {
       if (!this.silent) {
         // eslint-disable-next-line no-console
-        console.error('Failed to push Loki log', error);
+        console.error("Failed to push Loki log", error);
       }
     }
 
@@ -106,7 +106,7 @@ interface InvalidatedEvent {
   tenantId: string;
   tokenId: string;
   correlationId: string;
-  reason: 'failure_threshold' | 'feedback_api' | 'cleanup_job' | 'hard_error';
+  reason: "failure_threshold" | "feedback_api" | "cleanup_job" | "hard_error";
   errorCode?: string;
 }
 
@@ -135,17 +135,17 @@ export class PushTokenAuditLoggerService {
 
   constructor(private readonly configService: ConfigService) {
     const lokiUrl =
-      this.configService.get<string>('observability.lokiUrl') ||
-      this.configService.get<string>('LOKI_URL');
+      this.configService.get<string>("observability.lokiUrl") ||
+      this.configService.get<string>("LOKI_URL");
     const lokiTenant =
-      this.configService.get<string>('observability.lokiOrgId') ||
-      this.configService.get<string>('LOKI_ORG_ID');
+      this.configService.get<string>("observability.lokiOrgId") ||
+      this.configService.get<string>("LOKI_ORG_ID");
 
     this.lokiEnabled = Boolean(lokiUrl);
 
     const transports: Transport[] = [
       new winston.transports.Console({
-        level: 'info',
+        level: "info",
         format: winston.format.json(),
       }) as Transport,
     ];
@@ -153,101 +153,125 @@ export class PushTokenAuditLoggerService {
     if (lokiUrl) {
       transports.push(
         new LokiTransport({
-          level: 'info',
+          level: "info",
           endpoint: lokiUrl,
           tenantId: lokiTenant,
           labels: {
-            service: 'push-token-service',
-            source: 'auth-backend',
+            service: "push-token-service",
+            source: "auth-backend",
           },
         }),
       );
     }
 
     this.auditLogger = winston.createLogger({
-      level: 'info',
+      level: "info",
       format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.errors({ stack: true }),
         winston.format.json(),
       ),
       defaultMeta: {
-        component: 'push-tokens',
+        component: "push-tokens",
       },
       transports,
     });
   }
 
   async logRegistered(event: RegisteredEvent): Promise<void> {
-    const payload = this.buildEventPayload('push_tokens.registered', {
-      user_id: event.userId,
-      platform: event.platform,
-      token_type: event.tokenType,
-      token_id: event.tokenId,
-      tenant_id: event.tenantId,
-      has_device_metadata: event.hasDeviceMetadata,
-      is_new_token: event.isNewToken,
-    }, event.correlationId);
+    const payload = this.buildEventPayload(
+      "push_tokens.registered",
+      {
+        user_id: event.userId,
+        platform: event.platform,
+        token_type: event.tokenType,
+        token_id: event.tokenId,
+        tenant_id: event.tenantId,
+        has_device_metadata: event.hasDeviceMetadata,
+        is_new_token: event.isNewToken,
+      },
+      event.correlationId,
+    );
 
     this.write(payload);
   }
 
   async logRefreshed(event: RefreshedEvent): Promise<void> {
-    const payload = this.buildEventPayload('push_tokens.refreshed', {
-      user_id: event.userId,
-      platform: event.platform,
-      old_token_id: event.oldTokenId,
-      new_token_id: event.newTokenId,
-      tenant_id: event.tenantId,
-    }, event.correlationId);
+    const payload = this.buildEventPayload(
+      "push_tokens.refreshed",
+      {
+        user_id: event.userId,
+        platform: event.platform,
+        old_token_id: event.oldTokenId,
+        new_token_id: event.newTokenId,
+        tenant_id: event.tenantId,
+      },
+      event.correlationId,
+    );
 
     this.write(payload);
   }
 
   async logUnregistered(event: UnregisteredEvent): Promise<void> {
-    const payload = this.buildEventPayload('push_tokens.unregistered', {
-      user_id: event.userId,
-      platform: event.platform,
-      tenant_id: event.tenantId,
-      reason: event.reason,
-      unregistered_count: event.unregisteredCount,
-    }, event.correlationId);
+    const payload = this.buildEventPayload(
+      "push_tokens.unregistered",
+      {
+        user_id: event.userId,
+        platform: event.platform,
+        tenant_id: event.tenantId,
+        reason: event.reason,
+        unregistered_count: event.unregisteredCount,
+      },
+      event.correlationId,
+    );
 
     this.write(payload);
   }
 
   async logInvalidated(event: InvalidatedEvent): Promise<void> {
-    const payload = this.buildEventPayload('push_tokens.invalidated', {
-      user_id: event.userId,
-      platform: event.platform,
-      tenant_id: event.tenantId,
-      token_id: event.tokenId,
-      reason: event.reason,
-      error_code: event.errorCode,
-    }, event.correlationId);
+    const payload = this.buildEventPayload(
+      "push_tokens.invalidated",
+      {
+        user_id: event.userId,
+        platform: event.platform,
+        tenant_id: event.tenantId,
+        token_id: event.tokenId,
+        reason: event.reason,
+        error_code: event.errorCode,
+      },
+      event.correlationId,
+    );
 
     this.write(payload);
   }
 
   async logDeliverySuccess(event: DeliverySuccessEvent): Promise<void> {
-    const payload = this.buildEventPayload('push_tokens.delivery_success', {
-      token_id: event.tokenId,
-      platform: event.platform,
-      notification_type: event.notificationType,
-      tenant_id: event.tenantId,
-    }, event.correlationId);
+    const payload = this.buildEventPayload(
+      "push_tokens.delivery_success",
+      {
+        token_id: event.tokenId,
+        platform: event.platform,
+        notification_type: event.notificationType,
+        tenant_id: event.tenantId,
+      },
+      event.correlationId,
+    );
 
     this.write(payload);
   }
 
   async logDeliveryFailure(event: DeliveryFailureEvent): Promise<void> {
-    const payload = this.buildEventPayload('push_tokens.delivery_failure', {
-      token_id: event.tokenId,
-      platform: event.platform,
-      error_code: event.errorCode,
-      attempt_number: event.attemptNumber,
-      tenant_id: event.tenantId,
-    }, event.correlationId);
+    const payload = this.buildEventPayload(
+      "push_tokens.delivery_failure",
+      {
+        token_id: event.tokenId,
+        platform: event.platform,
+        error_code: event.errorCode,
+        attempt_number: event.attemptNumber,
+        tenant_id: event.tenantId,
+      },
+      event.correlationId,
+    );
 
     this.write(payload);
   }
@@ -257,9 +281,9 @@ export class PushTokenAuditLoggerService {
 
     if (!this.lokiEnabled) {
       this.logger.debug({
-        message: 'Audit event emitted (Loki disabled)',
-        event_type: payload['event_type'],
-        correlation_id: payload['correlation_id'],
+        message: "Audit event emitted (Loki disabled)",
+        event_type: payload["event_type"],
+        correlation_id: payload["correlation_id"],
       });
     }
   }

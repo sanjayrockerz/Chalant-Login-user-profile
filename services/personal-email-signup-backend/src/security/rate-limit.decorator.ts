@@ -1,6 +1,6 @@
-import { SetMetadata } from '@nestjs/common';
+import { SetMetadata } from "@nestjs/common";
 
-export const RATE_LIMIT_RULES_KEY = 'rate_limit_rules';
+export const RATE_LIMIT_RULES_KEY = "rate_limit_rules";
 
 export interface RateLimitDimensionRule {
   limit: number;
@@ -13,4 +13,5 @@ export interface RateLimitOptions {
   device?: RateLimitDimensionRule;
 }
 
-export const RateLimit = (options: RateLimitOptions) => SetMetadata(RATE_LIMIT_RULES_KEY, options);
+export const RateLimit = (options: RateLimitOptions) =>
+  SetMetadata(RATE_LIMIT_RULES_KEY, options);

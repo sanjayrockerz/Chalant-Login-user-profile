@@ -14,8 +14,8 @@ import {
   Logger,
   ParseUUIDPipe,
   ValidationPipe,
-  UsePipes
-} from '@nestjs/common';
+  UsePipes,
+} from "@nestjs/common";
 import {
   ApiTags,
   ApiOperation,
@@ -23,10 +23,10 @@ import {
   ApiBearerAuth,
   ApiParam,
   ApiQuery,
-  ApiBody
-} from '@nestjs/swagger';
-import { Request } from 'express';
-import { v4 as uuidv4 } from 'uuid';
+  ApiBody,
+} from "@nestjs/swagger";
+import { Request } from "express";
+import { v4 as uuidv4 } from "uuid";
 import {
   IsArray,
   ArrayNotEmpty,
@@ -34,10 +34,10 @@ import {
   ArrayUnique,
   IsOptional,
   IsInt,
-  Min
-} from 'class-validator';
+  Min,
+} from "class-validator";
 
-import { PushTokenService } from '../services/push-token.service';
+import { PushTokenService } from "../services/push-token.service";
 import {
   RegisterPushTokenDto,
   UpdatePushTokenDto,
@@ -45,19 +45,19 @@ import {
   PushTokenResponseDto,
   PaginatedPushTokensResponseDto,
   BulkTokenOperationDto,
-  BulkOperationResultDto
-} from '../dto/push-token.dto';
+  BulkOperationResultDto,
+} from "../dto/push-token.dto";
 import {
   ApiResponseDto,
   TokenRegistrationResponseDto,
-  PushTokenErrorResponseDto
-} from '../dto/push-token-responses.dto';
+  PushTokenErrorResponseDto,
+} from "../dto/push-token-responses.dto";
 
 class TokenValidationRequestDto {
   @IsArray()
   @ArrayNotEmpty()
   @ArrayUnique()
-  @IsUUID('4', { each: true })
+  @IsUUID("4", { each: true })
   tokenIds: string[];
 }
 
@@ -84,8 +84,8 @@ class CleanupTokensRequestDto {
 // import { GetUser } from '../../auth/decorators/get-user.decorator';
 // import { GetTenant } from '../../auth/decorators/get-tenant.decorator';
 
-@ApiTags('Push Tokens')
-@Controller('push-tokens')
+@ApiTags("Push Tokens")
+@Controller("push-tokens")
 @ApiBearerAuth()
 // @UseGuards(JwtAuthGuard, TenantGuard) // Uncomment when auth guards are available
 export class PushTokenController {
@@ -99,59 +99,73 @@ export class PushTokenController {
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @ApiOperation({
-    summary: 'Register push notification token',
-    description: 'Register a new FCM or APNs token for push notifications. If the token already exists, it will be updated with new device metadata.'
+    summary: "Register push notification token",
+    description:
+      "Register a new FCM or APNs token for push notifications. If the token already exists, it will be updated with new device metadata.",
   })
   @ApiBody({ type: RegisterPushTokenDto })
   @ApiResponse({
     status: HttpStatus.CREATED,
-    description: 'Token registered successfully',
-    type: TokenRegistrationResponseDto
+    description: "Token registered successfully",
+    type: TokenRegistrationResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid token format or validation error',
-    type: PushTokenErrorResponseDto
+    description: "Invalid token format or validation error",
+    type: PushTokenErrorResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
-    description: 'Token already exists for this user and platform',
-    type: PushTokenErrorResponseDto
+    description: "Token already exists for this user and platform",
+    type: PushTokenErrorResponseDto,
   })
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
   async registerToken(
     @Body() registerDto: RegisterPushTokenDto,
-    @Req() request: Request
+    @Req() request: Request,
     // @GetUser() user: { id: string; tenantId: string }, // Uncomment when available
     // @GetTenant() tenantId: string // Uncomment when available
   ): Promise<TokenRegistrationResponseDto> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
-    const userAgent = request.headers['user-agent'];
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
+    const userAgent = request.headers["user-agent"];
     const ipAddress = request.ip || request.connection.remoteAddress;
-  const userHeader = request.headers['x-user-id'];
-  const tenantHeader = request.headers['x-tenant-id'];
-  const userId = typeof userHeader === 'string' && userHeader.length > 0 ? userHeader : 'mock-user-id';
-  const tenantId = typeof tenantHeader === 'string' && tenantHeader.length > 0 ? tenantHeader : 'default';
+    const userHeader = request.headers["x-user-id"];
+    const tenantHeader = request.headers["x-tenant-id"];
+    const userId =
+      typeof userHeader === "string" && userHeader.length > 0
+        ? userHeader
+        : "mock-user-id";
+    const tenantId =
+      typeof tenantHeader === "string" && tenantHeader.length > 0
+        ? tenantHeader
+        : "default";
 
     this.logger.log({
-      message: 'Token registration request received',
+      message: "Token registration request received",
       userId,
       platform: registerDto.platform,
       correlationId,
       userAgent,
-      ipAddress
+      ipAddress,
     });
 
     try {
       const startTime = Date.now();
-      
+
       const tokenResponse = await this.pushTokenService.registerToken(
         userId,
         registerDto,
         tenantId,
         correlationId,
         userAgent,
-        ipAddress
+        ipAddress,
       );
 
       const processingTime = Date.now() - startTime;
@@ -164,70 +178,98 @@ export class PushTokenController {
       const deviceCount = 1; // This would come from the service
 
       this.logger.log({
-        message: 'Token registration completed successfully',
+        message: "Token registration completed successfully",
         tokenId: tokenResponse.id,
         userId,
         isNewToken,
         isExistingTokenUpdated,
         processingTimeMs: processingTime,
-        correlationId
+        correlationId,
       });
 
       return {
         success: true,
-        message: isNewToken ? 'Token registered successfully' : 'Token updated successfully',
+        message: isNewToken
+          ? "Token registered successfully"
+          : "Token updated successfully",
         data: {
           tokenId: tokenResponse.id,
           maskedToken: tokenResponse.maskedToken,
           platform: tokenResponse.platform,
           isNewToken,
           isExistingTokenUpdated,
-          deviceCount
+          deviceCount,
         },
         correlationId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-
     } catch (error) {
       this.logger.error({
-        message: 'Token registration failed',
+        message: "Token registration failed",
         userId,
         platform: registerDto.platform,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       throw error;
     }
   }
 
-  @Post('validate')
+  @Post("validate")
   @HttpCode(HttpStatus.OK)
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
   async validateTokens(
     @Body() body: TokenValidationRequestDto,
-    @Req() request: Request
-  ): Promise<{ success: boolean; data: any; correlationId: string; timestamp: string }> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
+    @Req() request: Request,
+  ): Promise<{
+    success: boolean;
+    data: any;
+    correlationId: string;
+    timestamp: string;
+  }> {
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
 
-    const results = await this.pushTokenService.validateTokens(body.tokenIds, correlationId);
+    const results = await this.pushTokenService.validateTokens(
+      body.tokenIds,
+      correlationId,
+    );
 
     return {
       success: true,
       data: results,
       correlationId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
-  @Post('cleanup')
+  @Post("cleanup")
   @HttpCode(HttpStatus.OK)
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
   async cleanupTokens(
     @Body() body: CleanupTokensRequestDto,
-    @Req() request: Request
-  ): Promise<{ success: boolean; data: any; correlationId: string; timestamp: string }> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
+    @Req() request: Request,
+  ): Promise<{
+    success: boolean;
+    data: any;
+    correlationId: string;
+    timestamp: string;
+  }> {
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
 
     const maxFailures = body.maxFailures ?? 3;
     const daysSinceLastValidation = body.daysSinceLastValidation ?? 14;
@@ -237,14 +279,14 @@ export class PushTokenController {
       maxFailures,
       daysSinceLastValidation,
       daysToKeepDeleted,
-      correlationId
+      correlationId,
     );
 
     return {
       success: true,
       data: cleanupResult,
       correlationId,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 
@@ -253,63 +295,96 @@ export class PushTokenController {
    */
   @Get()
   @ApiOperation({
-    summary: 'List user push tokens',
-    description: 'Retrieve all push tokens for the authenticated user with optional filtering by platform and status.'
+    summary: "List user push tokens",
+    description:
+      "Retrieve all push tokens for the authenticated user with optional filtering by platform and status.",
   })
-  @ApiQuery({ name: 'platform', required: false, description: 'Filter by platform (ios/android)' })
-  @ApiQuery({ name: 'active', required: false, description: 'Filter by active status', type: 'boolean' })
-  @ApiQuery({ name: 'includeFailures', required: false, description: 'Include tokens with failures', type: 'boolean' })
-  @ApiQuery({ name: 'page', required: false, description: 'Page number', type: 'number' })
-  @ApiQuery({ name: 'limit', required: false, description: 'Items per page (max 100)', type: 'number' })
+  @ApiQuery({
+    name: "platform",
+    required: false,
+    description: "Filter by platform (ios/android)",
+  })
+  @ApiQuery({
+    name: "active",
+    required: false,
+    description: "Filter by active status",
+    type: "boolean",
+  })
+  @ApiQuery({
+    name: "includeFailures",
+    required: false,
+    description: "Include tokens with failures",
+    type: "boolean",
+  })
+  @ApiQuery({
+    name: "page",
+    required: false,
+    description: "Page number",
+    type: "number",
+  })
+  @ApiQuery({
+    name: "limit",
+    required: false,
+    description: "Items per page (max 100)",
+    type: "number",
+  })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Tokens retrieved successfully',
-    type: PaginatedPushTokensResponseDto
+    description: "Tokens retrieved successfully",
+    type: PaginatedPushTokensResponseDto,
   })
   async listTokens(
     @Query() queryDto: ListPushTokensQueryDto,
-    @Req() request: Request
+    @Req() request: Request,
     // @GetUser() user: { id: string } // Uncomment when available
-  ): Promise<{ success: boolean; data: PaginatedPushTokensResponseDto; correlationId: string; timestamp: string }> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
-    const userHeader = request.headers['x-user-id'];
-    const userId = typeof userHeader === 'string' && userHeader.length > 0 ? userHeader : 'mock-user-id';
+  ): Promise<{
+    success: boolean;
+    data: PaginatedPushTokensResponseDto;
+    correlationId: string;
+    timestamp: string;
+  }> {
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
+    const userHeader = request.headers["x-user-id"];
+    const userId =
+      typeof userHeader === "string" && userHeader.length > 0
+        ? userHeader
+        : "mock-user-id";
 
     this.logger.log({
-      message: 'Token list request received',
+      message: "Token list request received",
       userId,
       filters: queryDto,
-      correlationId
+      correlationId,
     });
 
     try {
       const result = await this.pushTokenService.listUserTokens(
         userId,
         queryDto,
-        correlationId
+        correlationId,
       );
 
       this.logger.log({
-        message: 'Token list retrieved successfully',
+        message: "Token list retrieved successfully",
         userId,
         tokenCount: result.tokens.length,
         total: result.pagination.total,
-        correlationId
+        correlationId,
       });
 
       return {
         success: true,
         data: result,
         correlationId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-
     } catch (error) {
       this.logger.error({
-        message: 'Token list retrieval failed',
+        message: "Token list retrieval failed",
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -319,36 +394,46 @@ export class PushTokenController {
   /**
    * Get specific token details
    */
-  @Get(':id')
+  @Get(":id")
   @ApiOperation({
-    summary: 'Get push token details',
-    description: 'Retrieve details for a specific push token belonging to the authenticated user.'
+    summary: "Get push token details",
+    description:
+      "Retrieve details for a specific push token belonging to the authenticated user.",
   })
-  @ApiParam({ name: 'id', description: 'Token UUID', type: 'string' })
+  @ApiParam({ name: "id", description: "Token UUID", type: "string" })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Token details retrieved successfully',
-    type: PushTokenResponseDto
+    description: "Token details retrieved successfully",
+    type: PushTokenResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
-    description: 'Token not found or not accessible',
-    type: PushTokenErrorResponseDto
+    description: "Token not found or not accessible",
+    type: PushTokenErrorResponseDto,
   })
   async getToken(
-    @Param('id', ParseUUIDPipe) tokenId: string,
-    @Req() request: Request
+    @Param("id", ParseUUIDPipe) tokenId: string,
+    @Req() request: Request,
     // @GetUser() user: { id: string } // Uncomment when available
-  ): Promise<{ success: boolean; data: PushTokenResponseDto; correlationId: string; timestamp: string }> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
-    const userHeader = request.headers['x-user-id'];
-    const userId = typeof userHeader === 'string' && userHeader.length > 0 ? userHeader : 'mock-user-id';
+  ): Promise<{
+    success: boolean;
+    data: PushTokenResponseDto;
+    correlationId: string;
+    timestamp: string;
+  }> {
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
+    const userHeader = request.headers["x-user-id"];
+    const userId =
+      typeof userHeader === "string" && userHeader.length > 0
+        ? userHeader
+        : "mock-user-id";
 
     this.logger.log({
-      message: 'Token details request received',
+      message: "Token details request received",
       tokenId,
       userId,
-      correlationId
+      correlationId,
     });
 
     try {
@@ -356,42 +441,41 @@ export class PushTokenController {
       const result = await this.pushTokenService.listUserTokens(
         userId,
         { page: 1, limit: 1, active: undefined, includeFailures: true },
-        correlationId
+        correlationId,
       );
 
-      const token = result.tokens.find(t => t.id === tokenId);
+      const token = result.tokens.find((t) => t.id === tokenId);
       if (!token) {
         this.logger.warn({
-          message: 'Token not found',
+          message: "Token not found",
           tokenId,
           userId,
-          correlationId
+          correlationId,
         });
-        
-        throw new Error('Token not found or not accessible');
+
+        throw new Error("Token not found or not accessible");
       }
 
       this.logger.log({
-        message: 'Token details retrieved successfully',
+        message: "Token details retrieved successfully",
         tokenId,
         userId,
-        correlationId
+        correlationId,
       });
 
       return {
         success: true,
         data: token,
         correlationId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-
     } catch (error) {
       this.logger.error({
-        message: 'Token details retrieval failed',
+        message: "Token details retrieval failed",
         tokenId,
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -401,52 +485,68 @@ export class PushTokenController {
   /**
    * Update an existing push token
    */
-  @Put(':id')
+  @Put(":id")
   @ApiOperation({
-    summary: 'Update push token',
-    description: 'Update an existing push token with new token value, device metadata, or status.'
+    summary: "Update push token",
+    description:
+      "Update an existing push token with new token value, device metadata, or status.",
   })
-  @ApiParam({ name: 'id', description: 'Token UUID', type: 'string' })
+  @ApiParam({ name: "id", description: "Token UUID", type: "string" })
   @ApiBody({ type: UpdatePushTokenDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Token updated successfully',
-    type: PushTokenResponseDto
+    description: "Token updated successfully",
+    type: PushTokenResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
-    description: 'Token not found or not accessible',
-    type: PushTokenErrorResponseDto
+    description: "Token not found or not accessible",
+    type: PushTokenErrorResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid update data or validation error',
-    type: PushTokenErrorResponseDto
+    description: "Invalid update data or validation error",
+    type: PushTokenErrorResponseDto,
   })
   @ApiResponse({
     status: HttpStatus.CONFLICT,
-    description: 'Updated token conflicts with existing token',
-    type: PushTokenErrorResponseDto
+    description: "Updated token conflicts with existing token",
+    type: PushTokenErrorResponseDto,
   })
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
   async updateToken(
-    @Param('id', ParseUUIDPipe) tokenId: string,
+    @Param("id", ParseUUIDPipe) tokenId: string,
     @Body() updateDto: UpdatePushTokenDto,
-    @Req() request: Request
+    @Req() request: Request,
     // @GetUser() user: { id: string } // Uncomment when available
-  ): Promise<{ success: boolean; data: PushTokenResponseDto; correlationId: string; timestamp: string }> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
-  const userAgent = request.headers['user-agent'];
-  const ipAddress = request.ip || request.connection.remoteAddress;
-  const userHeader = request.headers['x-user-id'];
-  const userId = typeof userHeader === 'string' && userHeader.length > 0 ? userHeader : 'mock-user-id';
+  ): Promise<{
+    success: boolean;
+    data: PushTokenResponseDto;
+    correlationId: string;
+    timestamp: string;
+  }> {
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
+    const userAgent = request.headers["user-agent"];
+    const ipAddress = request.ip || request.connection.remoteAddress;
+    const userHeader = request.headers["x-user-id"];
+    const userId =
+      typeof userHeader === "string" && userHeader.length > 0
+        ? userHeader
+        : "mock-user-id";
 
     this.logger.log({
-      message: 'Token update request received',
+      message: "Token update request received",
       tokenId,
       userId,
       updateFields: Object.keys(updateDto),
-      correlationId
+      correlationId,
     });
 
     try {
@@ -456,30 +556,29 @@ export class PushTokenController {
         updateDto,
         correlationId,
         userAgent,
-        ipAddress
+        ipAddress,
       );
 
       this.logger.log({
-        message: 'Token updated successfully',
+        message: "Token updated successfully",
         tokenId,
         userId,
-        correlationId
+        correlationId,
       });
 
       return {
         success: true,
         data: result,
         correlationId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-
     } catch (error) {
       this.logger.error({
-        message: 'Token update failed',
+        message: "Token update failed",
         tokenId,
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -489,39 +588,53 @@ export class PushTokenController {
   /**
    * Delete/unregister a push token
    */
-  @Delete(':id')
+  @Delete(":id")
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Delete push token',
-    description: 'Delete/unregister a push token. The token will be soft-deleted and marked as inactive.'
+    summary: "Delete push token",
+    description:
+      "Delete/unregister a push token. The token will be soft-deleted and marked as inactive.",
   })
-  @ApiParam({ name: 'id', description: 'Token UUID', type: 'string' })
-  @ApiQuery({ name: 'reason', required: false, description: 'Reason for deletion' })
+  @ApiParam({ name: "id", description: "Token UUID", type: "string" })
+  @ApiQuery({
+    name: "reason",
+    required: false,
+    description: "Reason for deletion",
+  })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Token deleted successfully'
+    description: "Token deleted successfully",
   })
   @ApiResponse({
     status: HttpStatus.NOT_FOUND,
-    description: 'Token not found or not accessible',
-    type: PushTokenErrorResponseDto
+    description: "Token not found or not accessible",
+    type: PushTokenErrorResponseDto,
   })
   async deleteToken(
-    @Param('id', ParseUUIDPipe) tokenId: string,
+    @Param("id", ParseUUIDPipe) tokenId: string,
     @Req() request: Request,
-    @Query('reason') reason?: string
+    @Query("reason") reason?: string,
     // @GetUser() user: { id: string } // Uncomment when available
-  ): Promise<{ success: boolean; message: string; correlationId: string; timestamp: string }> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
-    const userHeader = request.headers['x-user-id'];
-    const userId = typeof userHeader === 'string' && userHeader.length > 0 ? userHeader : 'mock-user-id';
+  ): Promise<{
+    success: boolean;
+    message: string;
+    correlationId: string;
+    timestamp: string;
+  }> {
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
+    const userHeader = request.headers["x-user-id"];
+    const userId =
+      typeof userHeader === "string" && userHeader.length > 0
+        ? userHeader
+        : "mock-user-id";
 
     this.logger.log({
-      message: 'Token deletion request received',
+      message: "Token deletion request received",
       tokenId,
       userId,
       reason,
-      correlationId
+      correlationId,
     });
 
     try {
@@ -529,30 +642,29 @@ export class PushTokenController {
         tokenId,
         userId,
         correlationId,
-        reason
+        reason,
       );
 
       this.logger.log({
-        message: 'Token deleted successfully',
+        message: "Token deleted successfully",
         tokenId,
         userId,
-        correlationId
+        correlationId,
       });
 
       return {
         success: true,
-        message: 'Push token deleted successfully',
+        message: "Push token deleted successfully",
         correlationId,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
-
     } catch (error) {
       this.logger.error({
-        message: 'Token deletion failed',
+        message: "Token deletion failed",
         tokenId,
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -562,38 +674,49 @@ export class PushTokenController {
   /**
    * Bulk token operations (admin/system use)
    */
-  @Post('bulk')
+  @Post("bulk")
   @ApiOperation({
-    summary: 'Bulk token operations',
-    description: 'Perform bulk operations on multiple tokens (activate, deactivate, delete, validate).'
+    summary: "Bulk token operations",
+    description:
+      "Perform bulk operations on multiple tokens (activate, deactivate, delete, validate).",
   })
   @ApiBody({ type: BulkTokenOperationDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Bulk operation completed',
-    type: BulkOperationResultDto
+    description: "Bulk operation completed",
+    type: BulkOperationResultDto,
   })
   @ApiResponse({
     status: HttpStatus.BAD_REQUEST,
-    description: 'Invalid bulk operation request',
-    type: PushTokenErrorResponseDto
+    description: "Invalid bulk operation request",
+    type: PushTokenErrorResponseDto,
   })
-  @UsePipes(new ValidationPipe({ transform: true, whitelist: true, forbidNonWhitelisted: true }))
+  @UsePipes(
+    new ValidationPipe({
+      transform: true,
+      whitelist: true,
+      forbidNonWhitelisted: true,
+    }),
+  )
   async bulkTokenOperation(
     @Body() bulkDto: BulkTokenOperationDto,
-    @Req() request: Request
+    @Req() request: Request,
     // @GetUser() user: { id: string } // Uncomment when available
   ): Promise<BulkOperationResultDto> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
-    const userHeader = request.headers['x-user-id'];
-    const userId = typeof userHeader === 'string' && userHeader.length > 0 ? userHeader : 'mock-user-id';
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
+    const userHeader = request.headers["x-user-id"];
+    const userId =
+      typeof userHeader === "string" && userHeader.length > 0
+        ? userHeader
+        : "mock-user-id";
 
     this.logger.log({
-      message: 'Bulk token operation request received',
+      message: "Bulk token operation request received",
       operation: bulkDto.operation,
       tokenCount: bulkDto.tokenIds.length,
       userId,
-      correlationId
+      correlationId,
     });
 
     const startTime = Date.now();
@@ -602,19 +725,19 @@ export class PushTokenController {
 
     try {
       // For this example, implement validation operation
-      if (bulkDto.operation === 'validate') {
+      if (bulkDto.operation === "validate") {
         const validationResults = await this.pushTokenService.validateTokens(
           bulkDto.tokenIds,
-          correlationId
+          correlationId,
         );
 
-        validationResults.forEach(result => {
-          if (result.result === 'valid') {
+        validationResults.forEach((result) => {
+          if (result.result === "valid") {
             successfulTokens.push(result.tokenId);
           } else {
             failedOperations.push({
               tokenId: result.tokenId,
-              reason: result.message || 'Validation failed'
+              reason: result.message || "Validation failed",
             });
           }
         });
@@ -624,21 +747,21 @@ export class PushTokenController {
         for (const tokenId of bulkDto.tokenIds) {
           try {
             // Implement specific operation logic based on bulkDto.operation
-            if (bulkDto.operation === 'delete') {
+            if (bulkDto.operation === "delete") {
               await this.pushTokenService.deleteToken(
                 tokenId,
                 userId,
                 correlationId,
-                bulkDto.reason
+                bulkDto.reason,
               );
             }
             // Add other operations as needed
-            
+
             successfulTokens.push(tokenId);
           } catch (error) {
             failedOperations.push({
               tokenId,
-              reason: error.message
+              reason: error.message,
             });
           }
         }
@@ -651,26 +774,25 @@ export class PushTokenController {
         failureCount: failedOperations.length,
         successfulTokens,
         failedOperations,
-        processingTimeMs: processingTime
+        processingTimeMs: processingTime,
       };
 
       this.logger.log({
-        message: 'Bulk token operation completed',
+        message: "Bulk token operation completed",
         operation: bulkDto.operation,
         successCount: result.successCount,
         failureCount: result.failureCount,
         processingTimeMs: processingTime,
-        correlationId
+        correlationId,
       });
 
       return result;
-
     } catch (error) {
       this.logger.error({
-        message: 'Bulk token operation failed',
+        message: "Bulk token operation failed",
         operation: bulkDto.operation,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -680,42 +802,44 @@ export class PushTokenController {
   /**
    * Health check endpoint for push token system
    */
-  @Get('health/check')
+  @Get("health/check")
   @ApiOperation({
-    summary: 'Push token system health check',
-    description: 'Check the health status of the push token system including database connectivity and performance metrics.'
+    summary: "Push token system health check",
+    description:
+      "Check the health status of the push token system including database connectivity and performance metrics.",
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Health check completed',
+    description: "Health check completed",
     schema: {
-      type: 'object',
+      type: "object",
       properties: {
-        status: { type: 'string', enum: ['healthy', 'degraded', 'unhealthy'] },
-        timestamp: { type: 'string', format: 'date-time' },
+        status: { type: "string", enum: ["healthy", "degraded", "unhealthy"] },
+        timestamp: { type: "string", format: "date-time" },
         checks: {
-          type: 'object',
+          type: "object",
           properties: {
-            database: { type: 'boolean' },
-            tokenValidation: { type: 'boolean' },
+            database: { type: "boolean" },
+            tokenValidation: { type: "boolean" },
             performanceMetrics: {
-              type: 'object',
+              type: "object",
               properties: {
-                avgResponseTime: { type: 'number' },
-                errorRate: { type: 'number' }
-              }
-            }
-          }
-        }
-      }
-    }
+                avgResponseTime: { type: "number" },
+                errorRate: { type: "number" },
+              },
+            },
+          },
+        },
+      },
+    },
   })
   async healthCheck(@Req() request: Request): Promise<any> {
-    const correlationId = request.headers['x-correlation-id'] as string || uuidv4();
+    const correlationId =
+      (request.headers["x-correlation-id"] as string) || uuidv4();
 
     this.logger.log({
-      message: 'Health check request received',
-      correlationId
+      message: "Health check request received",
+      correlationId,
     });
 
     try {
@@ -725,41 +849,41 @@ export class PushTokenController {
         tokenValidation: true, // Would check token validation services
         performanceMetrics: {
           avgResponseTime: 150, // Would calculate from actual metrics
-          errorRate: 0.1 // Would calculate from actual error logs
-        }
+          errorRate: 0.1, // Would calculate from actual error logs
+        },
       };
 
-      const overallStatus = healthChecks.database && healthChecks.tokenValidation 
-        ? 'healthy' 
-        : 'degraded';
+      const overallStatus =
+        healthChecks.database && healthChecks.tokenValidation
+          ? "healthy"
+          : "degraded";
 
       const response = {
         status: overallStatus,
         timestamp: new Date().toISOString(),
         checks: healthChecks,
-        correlationId
+        correlationId,
       };
 
       this.logger.log({
-        message: 'Health check completed',
+        message: "Health check completed",
         status: overallStatus,
-        correlationId
+        correlationId,
       });
 
       return response;
-
     } catch (error) {
       this.logger.error({
-        message: 'Health check failed',
+        message: "Health check failed",
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       return {
-        status: 'unhealthy',
+        status: "unhealthy",
         timestamp: new Date().toISOString(),
         error: error.message,
-        correlationId
+        correlationId,
       };
     }
   }

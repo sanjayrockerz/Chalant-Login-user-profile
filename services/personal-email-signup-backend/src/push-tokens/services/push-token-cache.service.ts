@@ -1,6 +1,6 @@
-import { Injectable, Logger, OnModuleInit, Inject } from '@nestjs/common';
-import { Redis } from 'ioredis';
-import { PushTokenResponseDto, PushPlatform } from '../dto/push-token.dto';
+import { Injectable, Logger, OnModuleInit, Inject } from "@nestjs/common";
+import { Redis } from "ioredis";
+import { PushTokenResponseDto, PushPlatform } from "../dto/push-token.dto";
 
 /**
  * Redis caching service for push tokens
@@ -12,36 +12,34 @@ export class PushTokenCacheService implements OnModuleInit {
 
   // Cache key patterns
   private readonly CACHE_KEYS = {
-    USER_TOKENS: 'push:tokens:user:',           // push:tokens:user:{userId}
-    TOKEN_DETAILS: 'push:token:',               // push:token:{tokenId}
-    USER_ACTIVE_TOKENS: 'push:active:user:',    // push:active:user:{userId}
-    PLATFORM_TOKENS: 'push:platform:',         // push:platform:{userId}:{platform}
-    TOKEN_VALIDATION: 'push:validation:',       // push:validation:{tokenId}
-    HEALTH_METRICS: 'push:health:',             // push:health:{tenantId}
-    BULK_OPERATIONS: 'push:bulk:',              // push:bulk:{operationId}
+    USER_TOKENS: "push:tokens:user:", // push:tokens:user:{userId}
+    TOKEN_DETAILS: "push:token:", // push:token:{tokenId}
+    USER_ACTIVE_TOKENS: "push:active:user:", // push:active:user:{userId}
+    PLATFORM_TOKENS: "push:platform:", // push:platform:{userId}:{platform}
+    TOKEN_VALIDATION: "push:validation:", // push:validation:{tokenId}
+    HEALTH_METRICS: "push:health:", // push:health:{tenantId}
+    BULK_OPERATIONS: "push:bulk:", // push:bulk:{operationId}
   } as const;
 
   // Cache TTL configurations (in seconds)
   private readonly TTL_CONFIG = {
-    TOKEN_DETAILS: 3600,        // 1 hour for individual token details
-    USER_TOKENS: 1800,          // 30 minutes for user token lists
-    ACTIVE_TOKENS: 900,         // 15 minutes for active token lists
-    VALIDATION_RESULT: 7200,    // 2 hours for validation results
-    HEALTH_METRICS: 300,        // 5 minutes for health metrics
-    BULK_OPERATIONS: 600,       // 10 minutes for bulk operation results
-    TEMPORARY_LOCK: 60,         // 1 minute for operation locks
+    TOKEN_DETAILS: 3600, // 1 hour for individual token details
+    USER_TOKENS: 1800, // 30 minutes for user token lists
+    ACTIVE_TOKENS: 900, // 15 minutes for active token lists
+    VALIDATION_RESULT: 7200, // 2 hours for validation results
+    HEALTH_METRICS: 300, // 5 minutes for health metrics
+    BULK_OPERATIONS: 600, // 10 minutes for bulk operation results
+    TEMPORARY_LOCK: 60, // 1 minute for operation locks
   } as const;
 
-  constructor(
-    @Inject('REDIS_CLIENT') private readonly redis: Redis
-  ) {}
+  constructor(@Inject("REDIS_CLIENT") private readonly redis: Redis) {}
 
   async onModuleInit(): Promise<void> {
     try {
       await this.redis.ping();
-      this.logger.log('Redis connection established for push token caching');
+      this.logger.log("Redis connection established for push token caching");
     } catch (error) {
-      this.logger.error('Failed to establish Redis connection', error.message);
+      this.logger.error("Failed to establish Redis connection", error.message);
     }
   }
 
@@ -52,7 +50,7 @@ export class PushTokenCacheService implements OnModuleInit {
     userId: string,
     tokens: PushTokenResponseDto[],
     filters?: { platform?: PushPlatform; active?: boolean },
-    ttl: number = this.TTL_CONFIG.USER_TOKENS
+    ttl: number = this.TTL_CONFIG.USER_TOKENS,
   ): Promise<void> {
     try {
       const cacheKey = this.getUserTokensCacheKey(userId, filters);
@@ -60,31 +58,26 @@ export class PushTokenCacheService implements OnModuleInit {
         tokens,
         cachedAt: new Date().toISOString(),
         filters: filters || {},
-        count: tokens.length
+        count: tokens.length,
       };
 
-      await this.redis.setex(
-        cacheKey,
-        ttl,
-        JSON.stringify(cacheData)
-      );
+      await this.redis.setex(cacheKey, ttl, JSON.stringify(cacheData));
 
       this.logger.debug({
-        message: 'Cached user tokens',
+        message: "Cached user tokens",
         userId,
         tokenCount: tokens.length,
         cacheKey,
-        ttl
+        ttl,
       });
 
       // Also cache individual tokens for quick access
       await this.cacheMultipleTokens(tokens, this.TTL_CONFIG.TOKEN_DETAILS);
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to cache user tokens',
+        message: "Failed to cache user tokens",
         userId,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -94,7 +87,7 @@ export class PushTokenCacheService implements OnModuleInit {
    */
   async getCachedUserTokens(
     userId: string,
-    filters?: { platform?: PushPlatform; active?: boolean }
+    filters?: { platform?: PushPlatform; active?: boolean },
   ): Promise<{ tokens: PushTokenResponseDto[]; cachedAt: string } | null> {
     try {
       const cacheKey = this.getUserTokensCacheKey(userId, filters);
@@ -102,32 +95,31 @@ export class PushTokenCacheService implements OnModuleInit {
 
       if (!cached) {
         this.logger.debug({
-          message: 'User tokens cache miss',
+          message: "User tokens cache miss",
           userId,
-          cacheKey
+          cacheKey,
         });
         return null;
       }
 
       const data = JSON.parse(cached);
-      
+
       this.logger.debug({
-        message: 'User tokens cache hit',
+        message: "User tokens cache hit",
         userId,
         tokenCount: data.count,
-        cachedAt: data.cachedAt
+        cachedAt: data.cachedAt,
       });
 
       return {
         tokens: data.tokens,
-        cachedAt: data.cachedAt
+        cachedAt: data.cachedAt,
       };
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to retrieve cached user tokens',
+        message: "Failed to retrieve cached user tokens",
         userId,
-        error: error.message
+        error: error.message,
       });
       return null;
     }
@@ -138,34 +130,29 @@ export class PushTokenCacheService implements OnModuleInit {
    */
   async cacheToken(
     token: PushTokenResponseDto,
-    ttl: number = this.TTL_CONFIG.TOKEN_DETAILS
+    ttl: number = this.TTL_CONFIG.TOKEN_DETAILS,
   ): Promise<void> {
     try {
       const cacheKey = `${this.CACHE_KEYS.TOKEN_DETAILS}${token.id}`;
       const cacheData = {
         ...token,
-        cachedAt: new Date().toISOString()
+        cachedAt: new Date().toISOString(),
       };
 
-      await this.redis.setex(
-        cacheKey,
-        ttl,
-        JSON.stringify(cacheData)
-      );
+      await this.redis.setex(cacheKey, ttl, JSON.stringify(cacheData));
 
       this.logger.debug({
-        message: 'Cached token details',
+        message: "Cached token details",
         tokenId: token.id,
         userId: token.userId,
         platform: token.platform,
-        ttl
+        ttl,
       });
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to cache token details',
+        message: "Failed to cache token details",
         tokenId: token.id,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -180,29 +167,28 @@ export class PushTokenCacheService implements OnModuleInit {
 
       if (!cached) {
         this.logger.debug({
-          message: 'Token cache miss',
-          tokenId
+          message: "Token cache miss",
+          tokenId,
         });
         return null;
       }
 
       const token = JSON.parse(cached);
-      
+
       this.logger.debug({
-        message: 'Token cache hit',
+        message: "Token cache hit",
         tokenId,
-        cachedAt: token.cachedAt
+        cachedAt: token.cachedAt,
       });
 
       // Remove cache metadata before returning
       delete token.cachedAt;
       return token;
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to retrieve cached token',
+        message: "Failed to retrieve cached token",
         tokenId,
-        error: error.message
+        error: error.message,
       });
       return null;
     }
@@ -213,7 +199,7 @@ export class PushTokenCacheService implements OnModuleInit {
    */
   async cacheMultipleTokens(
     tokens: PushTokenResponseDto[],
-    ttl: number = this.TTL_CONFIG.TOKEN_DETAILS
+    ttl: number = this.TTL_CONFIG.TOKEN_DETAILS,
   ): Promise<void> {
     if (tokens.length === 0) return;
 
@@ -221,29 +207,28 @@ export class PushTokenCacheService implements OnModuleInit {
       const pipeline = this.redis.pipeline();
       const cacheTime = new Date().toISOString();
 
-      tokens.forEach(token => {
+      tokens.forEach((token) => {
         const cacheKey = `${this.CACHE_KEYS.TOKEN_DETAILS}${token.id}`;
         const cacheData = {
           ...token,
-          cachedAt: cacheTime
+          cachedAt: cacheTime,
         };
-        
+
         pipeline.setex(cacheKey, ttl, JSON.stringify(cacheData));
       });
 
       await pipeline.exec();
 
       this.logger.debug({
-        message: 'Bulk cached token details',
+        message: "Bulk cached token details",
         tokenCount: tokens.length,
-        ttl
+        ttl,
       });
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to bulk cache tokens',
+        message: "Failed to bulk cache tokens",
         tokenCount: tokens.length,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -254,34 +239,29 @@ export class PushTokenCacheService implements OnModuleInit {
   async cacheActiveTokens(
     userId: string,
     activeTokens: PushTokenResponseDto[],
-    ttl: number = this.TTL_CONFIG.ACTIVE_TOKENS
+    ttl: number = this.TTL_CONFIG.ACTIVE_TOKENS,
   ): Promise<void> {
     try {
       const cacheKey = `${this.CACHE_KEYS.USER_ACTIVE_TOKENS}${userId}`;
       const cacheData = {
         tokens: activeTokens,
         cachedAt: new Date().toISOString(),
-        count: activeTokens.length
+        count: activeTokens.length,
       };
 
-      await this.redis.setex(
-        cacheKey,
-        ttl,
-        JSON.stringify(cacheData)
-      );
+      await this.redis.setex(cacheKey, ttl, JSON.stringify(cacheData));
 
       this.logger.debug({
-        message: 'Cached active tokens',
+        message: "Cached active tokens",
         userId,
         activeTokenCount: activeTokens.length,
-        ttl
+        ttl,
       });
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to cache active tokens',
+        message: "Failed to cache active tokens",
         userId,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -289,7 +269,9 @@ export class PushTokenCacheService implements OnModuleInit {
   /**
    * Get cached active tokens for a user
    */
-  async getCachedActiveTokens(userId: string): Promise<PushTokenResponseDto[] | null> {
+  async getCachedActiveTokens(
+    userId: string,
+  ): Promise<PushTokenResponseDto[] | null> {
     try {
       const cacheKey = `${this.CACHE_KEYS.USER_ACTIVE_TOKENS}${userId}`;
       const cached = await this.redis.get(cacheKey);
@@ -299,21 +281,20 @@ export class PushTokenCacheService implements OnModuleInit {
       }
 
       const data = JSON.parse(cached);
-      
+
       this.logger.debug({
-        message: 'Active tokens cache hit',
+        message: "Active tokens cache hit",
         userId,
         tokenCount: data.count,
-        cachedAt: data.cachedAt
+        cachedAt: data.cachedAt,
       });
 
       return data.tokens;
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to retrieve cached active tokens',
+        message: "Failed to retrieve cached active tokens",
         userId,
-        error: error.message
+        error: error.message,
       });
       return null;
     }
@@ -330,29 +311,24 @@ export class PushTokenCacheService implements OnModuleInit {
       responseCode?: number;
       message?: string;
     },
-    ttl: number = this.TTL_CONFIG.VALIDATION_RESULT
+    ttl: number = this.TTL_CONFIG.VALIDATION_RESULT,
   ): Promise<void> {
     try {
       const cacheKey = `${this.CACHE_KEYS.TOKEN_VALIDATION}${tokenId}`;
-      
-      await this.redis.setex(
-        cacheKey,
-        ttl,
-        JSON.stringify(validationResult)
-      );
+
+      await this.redis.setex(cacheKey, ttl, JSON.stringify(validationResult));
 
       this.logger.debug({
-        message: 'Cached validation result',
+        message: "Cached validation result",
         tokenId,
         result: validationResult.result,
-        ttl
+        ttl,
       });
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to cache validation result',
+        message: "Failed to cache validation result",
         tokenId,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -370,12 +346,11 @@ export class PushTokenCacheService implements OnModuleInit {
       }
 
       return JSON.parse(cached);
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to retrieve cached validation result',
+        message: "Failed to retrieve cached validation result",
         tokenId,
-        error: error.message
+        error: error.message,
       });
       return null;
     }
@@ -389,7 +364,7 @@ export class PushTokenCacheService implements OnModuleInit {
       const patterns = [
         `${this.CACHE_KEYS.USER_TOKENS}${userId}*`,
         `${this.CACHE_KEYS.USER_ACTIVE_TOKENS}${userId}`,
-        `${this.CACHE_KEYS.PLATFORM_TOKENS}${userId}*`
+        `${this.CACHE_KEYS.PLATFORM_TOKENS}${userId}*`,
       ];
 
       for (const pattern of patterns) {
@@ -400,16 +375,15 @@ export class PushTokenCacheService implements OnModuleInit {
       }
 
       this.logger.debug({
-        message: 'Invalidated user cache',
+        message: "Invalidated user cache",
         userId,
-        patterns
+        patterns,
       });
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to invalidate user cache',
+        message: "Failed to invalidate user cache",
         userId,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -426,7 +400,7 @@ export class PushTokenCacheService implements OnModuleInit {
         const userPatterns = [
           `${this.CACHE_KEYS.USER_TOKENS}${userId}*`,
           `${this.CACHE_KEYS.USER_ACTIVE_TOKENS}${userId}`,
-          `${this.CACHE_KEYS.PLATFORM_TOKENS}${userId}*`
+          `${this.CACHE_KEYS.PLATFORM_TOKENS}${userId}*`,
         ];
 
         for (const pattern of userPatterns) {
@@ -440,18 +414,17 @@ export class PushTokenCacheService implements OnModuleInit {
       }
 
       this.logger.debug({
-        message: 'Invalidated token cache',
+        message: "Invalidated token cache",
         tokenId,
         userId,
-        deletedKeys: keysToDelete.length
+        deletedKeys: keysToDelete.length,
       });
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to invalidate token cache',
+        message: "Failed to invalidate token cache",
         tokenId,
         userId,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -461,29 +434,28 @@ export class PushTokenCacheService implements OnModuleInit {
    */
   async acquireOperationLock(
     lockKey: string,
-    ttl: number = this.TTL_CONFIG.TEMPORARY_LOCK
+    ttl: number = this.TTL_CONFIG.TEMPORARY_LOCK,
   ): Promise<boolean> {
     try {
       const fullKey = `lock:${lockKey}`;
-      const result = await this.redis.set(fullKey, '1', 'EX', ttl, 'NX');
-      
-      const acquired = result === 'OK';
-      
+      const result = await this.redis.set(fullKey, "1", "EX", ttl, "NX");
+
+      const acquired = result === "OK";
+
       if (acquired) {
         this.logger.debug({
-          message: 'Acquired operation lock',
+          message: "Acquired operation lock",
           lockKey: fullKey,
-          ttl
+          ttl,
         });
       }
 
       return acquired;
-
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to acquire operation lock',
+        message: "Failed to acquire operation lock",
         lockKey,
-        error: error.message
+        error: error.message,
       });
       return false;
     }
@@ -496,17 +468,16 @@ export class PushTokenCacheService implements OnModuleInit {
     try {
       const fullKey = `lock:${lockKey}`;
       await this.redis.del(fullKey);
-      
-      this.logger.debug({
-        message: 'Released operation lock',
-        lockKey: fullKey
-      });
 
+      this.logger.debug({
+        message: "Released operation lock",
+        lockKey: fullKey,
+      });
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to release operation lock',
+        message: "Failed to release operation lock",
         lockKey,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -521,9 +492,9 @@ export class PushTokenCacheService implements OnModuleInit {
     keysByPattern: Record<string, number>;
   }> {
     try {
-      const info = await this.redis.info('memory');
+      const info = await this.redis.info("memory");
       const memoryUsage = this.extractMemoryUsage(info);
-      
+
       // Count keys by pattern
       const keysByPattern: Record<string, number> = {};
       for (const [name, pattern] of Object.entries(this.CACHE_KEYS)) {
@@ -531,7 +502,10 @@ export class PushTokenCacheService implements OnModuleInit {
         keysByPattern[name] = keys.length;
       }
 
-      const totalKeys = Object.values(keysByPattern).reduce((sum, count) => sum + count, 0);
+      const totalKeys = Object.values(keysByPattern).reduce(
+        (sum, count) => sum + count,
+        0,
+      );
 
       // Hit rate would be calculated from actual metrics in a real implementation
       const hitRate = 0.85; // Placeholder
@@ -540,20 +514,19 @@ export class PushTokenCacheService implements OnModuleInit {
         totalKeys,
         memoryUsage,
         hitRate,
-        keysByPattern
+        keysByPattern,
       };
-
     } catch (error) {
       this.logger.error({
-        message: 'Failed to get cache statistics',
-        error: error.message
+        message: "Failed to get cache statistics",
+        error: error.message,
       });
-      
+
       return {
         totalKeys: 0,
-        memoryUsage: 'unknown',
+        memoryUsage: "unknown",
         hitRate: 0,
-        keysByPattern: {}
+        keysByPattern: {},
       };
     }
   }
@@ -563,7 +536,9 @@ export class PushTokenCacheService implements OnModuleInit {
    */
   async clearAllPushTokenCache(): Promise<number> {
     try {
-      const patterns = Object.values(this.CACHE_KEYS).map(pattern => `${pattern}*`);
+      const patterns = Object.values(this.CACHE_KEYS).map(
+        (pattern) => `${pattern}*`,
+      );
       let deletedCount = 0;
 
       for (const pattern of patterns) {
@@ -575,16 +550,15 @@ export class PushTokenCacheService implements OnModuleInit {
       }
 
       this.logger.log({
-        message: 'Cleared all push token cache',
-        deletedKeys: deletedCount
+        message: "Cleared all push token cache",
+        deletedKeys: deletedCount,
       });
 
       return deletedCount;
-
     } catch (error) {
       this.logger.error({
-        message: 'Failed to clear push token cache',
-        error: error.message
+        message: "Failed to clear push token cache",
+        error: error.message,
       });
       return 0;
     }
@@ -596,26 +570,29 @@ export class PushTokenCacheService implements OnModuleInit {
 
   private getUserTokensCacheKey(
     userId: string,
-    filters?: { platform?: PushPlatform; active?: boolean }
+    filters?: { platform?: PushPlatform; active?: boolean },
   ): string {
     let key = `${this.CACHE_KEYS.USER_TOKENS}${userId}`;
-    
+
     if (filters) {
       const filterParts: string[] = [];
       if (filters.platform) filterParts.push(`platform:${filters.platform}`);
-      if (filters.active !== undefined) filterParts.push(`active:${filters.active}`);
-      
+      if (filters.active !== undefined)
+        filterParts.push(`active:${filters.active}`);
+
       if (filterParts.length > 0) {
-        key += `:${filterParts.join(':')}`;
+        key += `:${filterParts.join(":")}`;
       }
     }
-    
+
     return key;
   }
 
   private extractMemoryUsage(info: string): string {
-    const lines = info.split('\r\n');
-    const memoryLine = lines.find(line => line.startsWith('used_memory_human:'));
-    return memoryLine ? memoryLine.split(':')[1] : 'unknown';
+    const lines = info.split("\r\n");
+    const memoryLine = lines.find((line) =>
+      line.startsWith("used_memory_human:"),
+    );
+    return memoryLine ? memoryLine.split(":")[1] : "unknown";
   }
 }

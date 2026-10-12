@@ -1,6 +1,6 @@
 // filepath: src/user/username-validation.service.ts
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
 export interface UsernameValidationResult {
   isValid: boolean;
@@ -12,23 +12,21 @@ export interface UsernameValidationResult {
 export interface UsernameAvailabilityResult {
   available: boolean;
   canonical: string | null;
-  reason?: 'reserved' | 'taken' | 'invalid' | 'rate_limited';
+  reason?: "reserved" | "taken" | "invalid" | "rate_limited";
   suggestions?: string[];
 }
 
 @Injectable()
 export class UsernameValidationService {
   private readonly logger = new Logger(UsernameValidationService.name);
-  
+
   // Instagram-style username rules
   private readonly USERNAME_MIN_LENGTH = 1;
   private readonly USERNAME_MAX_LENGTH = 30;
   private readonly USERNAME_PATTERN = /^[a-zA-Z0-9_.]{1,30}$/;
   private readonly CANONICAL_PATTERN = /^[a-z0-9_.]{1,30}$/;
 
-  constructor(
-    private readonly configService: ConfigService
-  ) {}
+  constructor(private readonly configService: ConfigService) {}
 
   /**
    * Validate username format according to Instagram-style rules
@@ -40,46 +38,56 @@ export class UsernameValidationService {
 
     // Check for null/undefined
     if (!username) {
-      errors.push('Username is required');
+      errors.push("Username is required");
       return {
         isValid: false,
         canonical: null,
         errors,
-        warnings
+        warnings,
       };
     }
 
     // Check length constraints
     if (username.length < this.USERNAME_MIN_LENGTH) {
-      errors.push(`Username must be at least ${this.USERNAME_MIN_LENGTH} character long`);
+      errors.push(
+        `Username must be at least ${this.USERNAME_MIN_LENGTH} character long`,
+      );
     }
 
     if (username.length > this.USERNAME_MAX_LENGTH) {
-      errors.push(`Username must be no more than ${this.USERNAME_MAX_LENGTH} characters long`);
+      errors.push(
+        `Username must be no more than ${this.USERNAME_MAX_LENGTH} characters long`,
+      );
     }
 
     // Check character constraints
     if (!this.USERNAME_PATTERN.test(username)) {
-      errors.push('Username can only contain letters (a-z), digits (0-9), underscores (_), and periods (.)');
+      errors.push(
+        "Username can only contain letters (a-z), digits (0-9), underscores (_), and periods (.)",
+      );
     }
 
     // Check for spaces (common mistake)
-    if (username.includes(' ')) {
-      errors.push('Username cannot contain spaces');
+    if (username.includes(" ")) {
+      errors.push("Username cannot contain spaces");
     }
 
     // Check for consecutive periods/underscores (Instagram rule)
-    if (username.includes('..') || username.includes('__')) {
-      warnings.push('Consecutive periods or underscores may cause confusion');
+    if (username.includes("..") || username.includes("__")) {
+      warnings.push("Consecutive periods or underscores may cause confusion");
     }
 
     // Check for starting/ending with period or underscore
-    if (username.startsWith('.') || username.startsWith('_')) {
-      warnings.push('Username starting with period or underscore may be harder to remember');
+    if (username.startsWith(".") || username.startsWith("_")) {
+      warnings.push(
+        "Username starting with period or underscore may be harder to remember",
+      );
     }
 
-    if (username.endsWith('.') || username.endsWith('_')) {
-      warnings.push('Username ending with period or underscore may be harder to remember');
+    if (username.endsWith(".") || username.endsWith("_")) {
+      warnings.push(
+        "Username ending with period or underscore may be harder to remember",
+      );
     }
 
     // Generate canonical form (lowercase)
@@ -87,14 +95,14 @@ export class UsernameValidationService {
 
     // Validate canonical form
     if (canonical && !this.CANONICAL_PATTERN.test(canonical)) {
-      errors.push('Username normalization failed - invalid canonical form');
+      errors.push("Username normalization failed - invalid canonical form");
     }
 
     return {
       isValid: errors.length === 0,
       canonical: errors.length === 0 ? canonical : null,
       errors,
-      warnings
+      warnings,
     };
   }
 
@@ -104,7 +112,7 @@ export class UsernameValidationService {
    */
   normalizeUsername(username: string): string {
     if (!username) {
-      return '';
+      return "";
     }
 
     // Convert to lowercase for case-insensitive storage
@@ -127,7 +135,7 @@ export class UsernameValidationService {
   validateForRegistration(username: string): UsernameValidationResult {
     // Start with format validation
     const formatResult = this.validateFormat(username);
-    
+
     if (!formatResult.isValid) {
       return formatResult;
     }
@@ -137,17 +145,21 @@ export class UsernameValidationService {
 
     // Check for numeric-only usernames (discouraged but not forbidden)
     if (/^\d+$/.test(username)) {
-      additionalWarnings.push('numeric-only usernames may be harder for others to remember');
+      additionalWarnings.push(
+        "numeric-only usernames may be harder for others to remember",
+      );
     }
 
     // Check for single character usernames (valid but discouraged)
     if (username.length === 1) {
-      additionalWarnings.push('single character usernames are valid but may be harder to remember');
+      additionalWarnings.push(
+        "single character usernames are valid but may be harder to remember",
+      );
     }
 
     return {
       ...formatResult,
-      warnings: [...formatResult.warnings, ...additionalWarnings]
+      warnings: [...formatResult.warnings, ...additionalWarnings],
     };
   }
 
@@ -158,7 +170,7 @@ export class UsernameValidationService {
   generateSuggestions(desiredUsername: string, count: number = 3): string[] {
     const suggestions: string[] = [];
     const canonical = this.normalizeUsername(desiredUsername);
-    
+
     if (!canonical || !this.validateFormat(canonical).isValid) {
       return suggestions;
     }
@@ -195,34 +207,39 @@ export class UsernameValidationService {
    * Check if username change is allowed based on rate limiting rules
    */
   isUsernameChangeAllowed(
-    lastChangedAt: Date | null, 
+    lastChangedAt: Date | null,
     changeCount: number,
-    userId: string
+    userId: string,
   ): { allowed: boolean; reason?: string; nextAllowedAt?: Date } {
     const now = new Date();
-    
+
     // Get configuration
-    const maxChangesPerMonth = this.configService.get<number>('USERNAME_MAX_CHANGES_PER_MONTH') || 3;
-    const minDaysBetweenChanges = this.configService.get<number>('USERNAME_MIN_DAYS_BETWEEN_CHANGES') || 30;
+    const maxChangesPerMonth =
+      this.configService.get<number>("USERNAME_MAX_CHANGES_PER_MONTH") || 3;
+    const minDaysBetweenChanges =
+      this.configService.get<number>("USERNAME_MIN_DAYS_BETWEEN_CHANGES") || 30;
 
     // Check if user has exceeded monthly change limit
     if (changeCount >= maxChangesPerMonth) {
       return {
         allowed: false,
-        reason: `Maximum ${maxChangesPerMonth} username changes per month exceeded`
+        reason: `Maximum ${maxChangesPerMonth} username changes per month exceeded`,
       };
     }
 
     // Check minimum time between changes
     if (lastChangedAt) {
-      const daysSinceLastChange = (now.getTime() - lastChangedAt.getTime()) / (1000 * 60 * 60 * 24);
-      
+      const daysSinceLastChange =
+        (now.getTime() - lastChangedAt.getTime()) / (1000 * 60 * 60 * 24);
+
       if (daysSinceLastChange < minDaysBetweenChanges) {
-        const nextAllowedAt = new Date(lastChangedAt.getTime() + (minDaysBetweenChanges * 24 * 60 * 60 * 1000));
+        const nextAllowedAt = new Date(
+          lastChangedAt.getTime() + minDaysBetweenChanges * 24 * 60 * 60 * 1000,
+        );
         return {
           allowed: false,
           reason: `Must wait ${minDaysBetweenChanges} days between username changes`,
-          nextAllowedAt
+          nextAllowedAt,
         };
       }
     }
@@ -236,7 +253,7 @@ export class UsernameValidationService {
    */
   sanitizeForLogging(username: string): string {
     if (!username || username.length <= 2) {
-      return '***';
+      return "***";
     }
 
     // Show first 2 characters + asterisks + length
@@ -261,6 +278,6 @@ export class UsernameValidationService {
   private applyUnicodeNormalization(username: string): string {
     // Apply NFKC normalization for Unicode strings
     // For now, we only handle ASCII
-    return username.normalize('NFKC');
+    return username.normalize("NFKC");
   }
 }

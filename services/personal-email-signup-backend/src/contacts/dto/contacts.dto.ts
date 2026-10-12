@@ -16,34 +16,34 @@ import {
   IsUUID,
   Length,
   Matches,
-} from 'class-validator';
-import { Type, Transform } from 'class-transformer';
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+} from "class-validator";
+import { Type, Transform } from "class-transformer";
+import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 
 /**
  * Contact Import Data Transfer Objects
- * 
+ *
  * Defines the API contracts for contact upload, suggestions, and privacy controls.
  * All DTOs include comprehensive validation and OpenAPI documentation.
  */
 
 export enum ContactIdentifierType {
-  PHONE = 'phone',
-  EMAIL = 'email',
+  PHONE = "phone",
+  EMAIL = "email",
 }
 
 export enum MatchType {
-  MUTUAL = 'mutual',
-  ONE_SIDED = 'one_sided',
-  ALL = 'all',
+  MUTUAL = "mutual",
+  ONE_SIDED = "one_sided",
+  ALL = "all",
 }
 
 export enum DeletionReason {
-  PRIVACY_PREFERENCE = 'privacy_preference',
-  TEMPORARY_PRIVACY = 'temporary_privacy',
-  ACCOUNT_CLOSURE = 'account_closure',
-  DATA_MINIMIZATION = 'data_minimization',
-  OTHER = 'other',
+  PRIVACY_PREFERENCE = "privacy_preference",
+  TEMPORARY_PRIVACY = "temporary_privacy",
+  ACCOUNT_CLOSURE = "account_closure",
+  DATA_MINIMIZATION = "data_minimization",
+  OTHER = "other",
 }
 
 /**
@@ -52,8 +52,8 @@ export enum DeletionReason {
  */
 export class ContactIdentifierDto {
   @ApiProperty({
-    description: 'Contact identifier (phone number or email address)',
-    example: '+1234567890',
+    description: "Contact identifier (phone number or email address)",
+    example: "+1234567890",
     minLength: 3,
     maxLength: 320, // Max email length per RFC
   })
@@ -62,7 +62,7 @@ export class ContactIdentifierDto {
   identifier: string;
 
   @ApiProperty({
-    description: 'Type of contact identifier',
+    description: "Type of contact identifier",
     enum: ContactIdentifierType,
     example: ContactIdentifierType.PHONE,
   })
@@ -76,39 +76,39 @@ export class ContactIdentifierDto {
  */
 export class ContactUploadDto {
   @ApiProperty({
-    description: 'Array of contact identifiers to upload',
+    description: "Array of contact identifiers to upload",
     type: [ContactIdentifierDto],
     example: [
-      { identifier: '+1234567890', type: 'phone' },
-      { identifier: 'friend@example.com', type: 'email' },
+      { identifier: "+1234567890", type: "phone" },
+      { identifier: "friend@example.com", type: "email" },
     ],
     minItems: 1,
     maxItems: 1000,
   })
   @IsArray()
-  @ArrayMinSize(1, { message: 'At least one contact is required' })
-  @ArrayMaxSize(1000, { message: 'Maximum 1000 contacts allowed per upload' })
+  @ArrayMinSize(1, { message: "At least one contact is required" })
+  @ArrayMaxSize(1000, { message: "Maximum 1000 contacts allowed per upload" })
   @ValidateNested({ each: true })
   @Type(() => ContactIdentifierDto)
   contacts: ContactIdentifierDto[];
 
   @ApiProperty({
-    description: 'Acknowledgment that user understands privacy implications',
+    description: "Acknowledgment that user understands privacy implications",
     example: true,
   })
   @IsBoolean()
   privacy_acknowledgment: boolean;
 
   @ApiProperty({
-    description: 'Consent for data retention according to platform policy',
+    description: "Consent for data retention according to platform policy",
     example: true,
   })
   @IsBoolean()
   data_retention_consent: boolean;
 
   @ApiPropertyOptional({
-    description: 'Optional user notes about the upload',
-    example: 'Importing contacts from phone backup',
+    description: "Optional user notes about the upload",
+    example: "Importing contacts from phone backup",
     maxLength: 500,
   })
   @IsOptional()
@@ -123,31 +123,31 @@ export class ContactUploadDto {
  */
 export class ProcessingSummaryDto {
   @ApiProperty({
-    description: 'Total number of contacts processed',
+    description: "Total number of contacts processed",
     example: 150,
   })
   total_processed: number;
 
   @ApiProperty({
-    description: 'Number of contacts successfully matched',
+    description: "Number of contacts successfully matched",
     example: 142,
   })
   successfully_matched: number;
 
   @ApiProperty({
-    description: 'Number of contacts that failed validation',
+    description: "Number of contacts that failed validation",
     example: 5,
   })
   validation_failures: number;
 
   @ApiProperty({
-    description: 'Number of duplicate contacts found and deduplicated',
+    description: "Number of duplicate contacts found and deduplicated",
     example: 3,
   })
   duplicates_found: number;
 
   @ApiProperty({
-    description: 'Breakdown of processing by identifier type',
+    description: "Breakdown of processing by identifier type",
     example: { phone: 80, email: 70 },
   })
   type_breakdown: Record<string, number>;
@@ -159,32 +159,32 @@ export class ProcessingSummaryDto {
  */
 export class ContactSuggestionDto {
   @ApiProperty({
-    description: 'Unique identifier for the suggested user',
-    example: 'user_abc123',
+    description: "Unique identifier for the suggested user",
+    example: "user_abc123",
   })
   user_id: string;
 
   @ApiProperty({
-    description: 'Display name of the suggested user',
-    example: 'John Smith',
+    description: "Display name of the suggested user",
+    example: "John Smith",
   })
   display_name: string;
 
   @ApiPropertyOptional({
-    description: 'Profile picture URL of the suggested user',
-    example: 'https://cdn.example.com/avatars/user_abc123.jpg',
+    description: "Profile picture URL of the suggested user",
+    example: "https://cdn.example.com/avatars/user_abc123.jpg",
   })
   profile_picture_url?: string;
 
   @ApiProperty({
-    description: 'Match type indicating mutual or one-sided discovery',
-    enum: ['mutual', 'one_sided'],
-    example: 'mutual',
+    description: "Match type indicating mutual or one-sided discovery",
+    enum: ["mutual", "one_sided"],
+    example: "mutual",
   })
-  match_type: 'mutual' | 'one_sided';
+  match_type: "mutual" | "one_sided";
 
   @ApiProperty({
-    description: 'Confidence score for the match (0.0 to 1.0)',
+    description: "Confidence score for the match (0.0 to 1.0)",
     example: 0.95,
     minimum: 0,
     maximum: 1,
@@ -192,32 +192,33 @@ export class ContactSuggestionDto {
   confidence_score: number;
 
   @ApiProperty({
-    description: 'Type of identifier that created the match',
+    description: "Type of identifier that created the match",
     enum: ContactIdentifierType,
     example: ContactIdentifierType.PHONE,
   })
   match_source: ContactIdentifierType;
 
   @ApiProperty({
-    description: 'Timestamp when the match was first discovered',
-    example: '2024-01-15T10:30:00Z',
+    description: "Timestamp when the match was first discovered",
+    example: "2024-01-15T10:30:00Z",
   })
   discovered_at: string;
 
   @ApiPropertyOptional({
-    description: 'Number of mutual connections between users',
+    description: "Number of mutual connections between users",
     example: 5,
   })
   mutual_connections?: number;
 
   @ApiPropertyOptional({
-    description: 'Indicates if this user is currently active on the platform',
+    description: "Indicates if this user is currently active on the platform",
     example: true,
   })
   is_active?: boolean;
 
   @ApiProperty({
-    description: 'Indicates if this suggestion can be acted upon (not blocked, etc.)',
+    description:
+      "Indicates if this suggestion can be acted upon (not blocked, etc.)",
     example: true,
   })
   is_actionable: boolean;
@@ -229,49 +230,49 @@ export class ContactSuggestionDto {
  */
 export class PaginationDto {
   @ApiProperty({
-    description: 'Current page number (1-based)',
+    description: "Current page number (1-based)",
     example: 1,
   })
   page: number;
 
   @ApiProperty({
-    description: 'Current offset within the full result set',
+    description: "Current offset within the full result set",
     example: 0,
   })
   offset: number;
 
   @ApiProperty({
-    description: 'Number of items per page',
+    description: "Number of items per page",
     example: 20,
   })
   limit: number;
 
   @ApiProperty({
-    description: 'Total number of suggestions available',
+    description: "Total number of suggestions available",
     example: 87,
   })
   total: number;
 
   @ApiProperty({
-    description: 'Total number of pages available',
+    description: "Total number of pages available",
     example: 5,
   })
   total_pages: number;
 
   @ApiProperty({
-    description: 'Whether there are more pages available',
+    description: "Whether there are more pages available",
     example: true,
   })
   has_next: boolean;
 
   @ApiProperty({
-    description: 'Whether additional records are available beyond this page',
+    description: "Whether additional records are available beyond this page",
     example: true,
   })
   has_more: boolean;
 
   @ApiProperty({
-    description: 'Whether there are previous pages available',
+    description: "Whether there are previous pages available",
     example: false,
   })
   has_previous: boolean;
@@ -283,47 +284,47 @@ export class PaginationDto {
  */
 export class ContactUploadResponseDto {
   @ApiProperty({
-    description: 'Unique identifier for this upload batch',
-    example: 'batch_abc123xyz',
+    description: "Unique identifier for this upload batch",
+    example: "batch_abc123xyz",
   })
   upload_batch_id: string;
 
   @ApiProperty({
-    description: 'Summary of contact processing results',
+    description: "Summary of contact processing results",
     type: ProcessingSummaryDto,
   })
   processing_summary: ProcessingSummaryDto;
 
   @ApiProperty({
-    description: 'Array of friend suggestions based on uploaded contacts',
+    description: "Array of friend suggestions based on uploaded contacts",
     type: [ContactSuggestionDto],
   })
   suggestions: ContactSuggestionDto[];
 
   @ApiPropertyOptional({
-    description: 'Identifiers that failed validation during processing',
+    description: "Identifiers that failed validation during processing",
     type: [String],
-    example: ['12345', 'abc'],
+    example: ["12345", "abc"],
   })
   invalid_identifiers?: string[];
 
   @ApiProperty({
-    description: 'Pagination information for suggestions',
+    description: "Pagination information for suggestions",
     type: PaginationDto,
   })
   pagination: PaginationDto;
 
   @ApiProperty({
-    description: 'Timestamp when the upload was processed',
-    example: '2024-01-15T10:30:00Z',
+    description: "Timestamp when the upload was processed",
+    example: "2024-01-15T10:30:00Z",
   })
   processed_at: string;
 
   @ApiProperty({
-    description: 'Data retention information',
+    description: "Data retention information",
     example: {
       retention_period_days: 90,
-      expires_at: '2024-04-15T10:30:00Z',
+      expires_at: "2024-04-15T10:30:00Z",
       can_delete_anytime: true,
     },
   })
@@ -334,7 +335,7 @@ export class ContactUploadResponseDto {
   };
 
   @ApiProperty({
-    description: 'Privacy controls and settings information',
+    description: "Privacy controls and settings information",
     example: {
       discovery_enabled: true,
       mutual_discovery_only: false,
@@ -348,19 +349,28 @@ export class ContactUploadResponseDto {
   };
 
   @ApiPropertyOptional({
-    description: 'Security review metadata when anomaly detection triggers additional safeguards',
+    description:
+      "Security review metadata when anomaly detection triggers additional safeguards",
     example: {
-      action: 'challenge',
+      action: "challenge",
       cooldown_seconds: 3600,
       signals: [
-        { type: 'duplicate_ratio_high', severity: 'high', message: '92% duplicates detected' },
+        {
+          type: "duplicate_ratio_high",
+          severity: "high",
+          message: "92% duplicates detected",
+        },
       ],
     },
   })
   security_review?: {
-    action: 'allow' | 'monitor' | 'challenge' | 'block';
+    action: "allow" | "monitor" | "challenge" | "block";
     cooldown_seconds?: number;
-    signals: Array<{ type: string; severity: 'low' | 'medium' | 'high'; message: string }>;
+    signals: Array<{
+      type: string;
+      severity: "low" | "medium" | "high";
+      message: string;
+    }>;
   };
 }
 
@@ -370,7 +380,7 @@ export class ContactUploadResponseDto {
  */
 export class SuggestionQueryDto {
   @ApiPropertyOptional({
-    description: 'Filter suggestions by match type',
+    description: "Filter suggestions by match type",
     enum: MatchType,
     example: MatchType.MUTUAL,
   })
@@ -379,7 +389,7 @@ export class SuggestionQueryDto {
   match_type?: MatchType;
 
   @ApiPropertyOptional({
-    description: 'Minimum confidence score for suggestions (0.0 to 1.0)',
+    description: "Minimum confidence score for suggestions (0.0 to 1.0)",
     example: 0.7,
     minimum: 0,
     maximum: 1,
@@ -392,7 +402,7 @@ export class SuggestionQueryDto {
   min_confidence?: number;
 
   @ApiPropertyOptional({
-    description: 'Page number for pagination (1-based)',
+    description: "Page number for pagination (1-based)",
     example: 1,
     minimum: 1,
   })
@@ -403,7 +413,7 @@ export class SuggestionQueryDto {
   page?: number;
 
   @ApiPropertyOptional({
-    description: 'Offset for pagination (overrides page when provided)',
+    description: "Offset for pagination (overrides page when provided)",
     example: 0,
     minimum: 0,
   })
@@ -414,7 +424,7 @@ export class SuggestionQueryDto {
   offset?: number;
 
   @ApiPropertyOptional({
-    description: 'Number of suggestions per page (max 50)',
+    description: "Number of suggestions per page (max 50)",
     example: 20,
     minimum: 1,
     maximum: 50,
@@ -427,20 +437,20 @@ export class SuggestionQueryDto {
   limit?: number;
 
   @ApiPropertyOptional({
-    description: 'ISO timestamp to filter suggestions newer than this date',
-    example: '2024-01-01T00:00:00Z',
+    description: "ISO timestamp to filter suggestions newer than this date",
+    example: "2024-01-01T00:00:00Z",
   })
   @IsOptional()
   @IsDateString()
   since?: string;
 
   @ApiPropertyOptional({
-    description: 'Only include suggestions from active users',
+    description: "Only include suggestions from active users",
     example: true,
   })
   @IsOptional()
   @IsBoolean()
-  @Transform(({ value }) => value === 'true' || value === true)
+  @Transform(({ value }) => value === "true" || value === true)
   active_users_only?: boolean;
 }
 
@@ -450,29 +460,29 @@ export class SuggestionQueryDto {
  */
 export class ContactSuggestionResponseDto {
   @ApiProperty({
-    description: 'Array of friend suggestions',
+    description: "Array of friend suggestions",
     type: [ContactSuggestionDto],
   })
   suggestions: ContactSuggestionDto[];
 
   @ApiProperty({
-    description: 'Pagination information',
+    description: "Pagination information",
     type: PaginationDto,
   })
   pagination: PaginationDto;
 
   @ApiProperty({
-    description: 'Timestamp when suggestions were generated',
-    example: '2024-01-15T10:30:00Z',
+    description: "Timestamp when suggestions were generated",
+    example: "2024-01-15T10:30:00Z",
   })
   generated_at: string;
 
   @ApiProperty({
-    description: 'Cache information for client optimization',
+    description: "Cache information for client optimization",
     example: {
       cached: true,
-      cache_expires_at: '2024-01-15T10:45:00Z',
-      fresh_data_available_at: '2024-01-15T11:00:00Z',
+      cache_expires_at: "2024-01-15T10:45:00Z",
+      fresh_data_available_at: "2024-01-15T11:00:00Z",
     },
   })
   cache_info: {
@@ -482,7 +492,7 @@ export class ContactSuggestionResponseDto {
   };
 
   @ApiProperty({
-    description: 'Summary statistics for all available suggestions',
+    description: "Summary statistics for all available suggestions",
     example: {
       total_mutual: 15,
       total_one_sided: 72,
@@ -504,21 +514,21 @@ export class ContactSuggestionResponseDto {
  */
 export class PrivacyControlsDto {
   @ApiProperty({
-    description: 'Confirmation that user wants to delete contacts',
+    description: "Confirmation that user wants to delete contacts",
     example: true,
   })
   @IsBoolean()
   confirm_deletion: boolean;
 
   @ApiProperty({
-    description: 'Whether to opt out of future contact-based discovery',
+    description: "Whether to opt out of future contact-based discovery",
     example: true,
   })
   @IsBoolean()
   opt_out_of_discovery: boolean;
 
   @ApiPropertyOptional({
-    description: 'Reason for deletion request',
+    description: "Reason for deletion request",
     enum: DeletionReason,
     example: DeletionReason.PRIVACY_PREFERENCE,
   })
@@ -527,8 +537,8 @@ export class PrivacyControlsDto {
   deletion_reason?: DeletionReason;
 
   @ApiPropertyOptional({
-    description: 'Optional user feedback about the deletion',
-    example: 'Want to maintain privacy while using the platform',
+    description: "Optional user feedback about the deletion",
+    example: "Want to maintain privacy while using the platform",
     maxLength: 1000,
   })
   @IsOptional()
@@ -543,26 +553,26 @@ export class PrivacyControlsDto {
  */
 export class DeletionSummaryDto {
   @ApiProperty({
-    description: 'Number of contact identifiers deleted',
+    description: "Number of contact identifiers deleted",
     example: 150,
   })
   contacts_deleted: number;
 
   @ApiProperty({
-    description: 'Number of suggestions cleared from discovery',
+    description: "Number of suggestions cleared from discovery",
     example: 87,
   })
   suggestions_cleared: number;
 
   @ApiProperty({
-    description: 'Number of mutual discoveries affected',
+    description: "Number of mutual discoveries affected",
     example: 23,
   })
   mutual_discoveries_removed: number;
 
   @ApiProperty({
-    description: 'Timestamp when deletion was completed',
-    example: '2024-01-15T10:30:00Z',
+    description: "Timestamp when deletion was completed",
+    example: "2024-01-15T10:30:00Z",
   })
   completed_at: string;
 }
@@ -573,26 +583,26 @@ export class DeletionSummaryDto {
  */
 export class PrivacySettingsDto {
   @ApiProperty({
-    description: 'Whether contact-based discovery is enabled',
+    description: "Whether contact-based discovery is enabled",
     example: false,
   })
   discovery_enabled: boolean;
 
   @ApiProperty({
-    description: 'Whether user has opted out of contact discovery',
+    description: "Whether user has opted out of contact discovery",
     example: true,
   })
   discovery_opted_out: boolean;
 
   @ApiProperty({
-    description: 'Whether to only allow mutual discoveries',
+    description: "Whether to only allow mutual discoveries",
     example: false,
   })
   mutual_discovery_only: boolean;
 
   @ApiProperty({
-    description: 'Timestamp when settings were last updated',
-    example: '2024-01-15T10:30:00Z',
+    description: "Timestamp when settings were last updated",
+    example: "2024-01-15T10:30:00Z",
   })
   last_updated: string;
 }
@@ -603,25 +613,25 @@ export class PrivacySettingsDto {
  */
 export class ContactDeletionResponseDto {
   @ApiProperty({
-    description: 'Unique identifier for this deletion batch',
-    example: 'deletion_abc123xyz',
+    description: "Unique identifier for this deletion batch",
+    example: "deletion_abc123xyz",
   })
   deletion_batch_id: string;
 
   @ApiProperty({
-    description: 'Summary of deletion operation results',
+    description: "Summary of deletion operation results",
     type: DeletionSummaryDto,
   })
   deletion_summary: DeletionSummaryDto;
 
   @ApiProperty({
-    description: 'Updated privacy settings after deletion',
+    description: "Updated privacy settings after deletion",
     type: PrivacySettingsDto,
   })
   privacy_settings: PrivacySettingsDto;
 
   @ApiProperty({
-    description: 'Information about data removal timeline',
+    description: "Information about data removal timeline",
     example: {
       immediate_removal: true,
       full_purge_within_days: 30,
@@ -637,7 +647,7 @@ export class ContactDeletionResponseDto {
   };
 
   @ApiProperty({
-    description: 'Compliance and legal information',
+    description: "Compliance and legal information",
     example: {
       gdpr_compliant: true,
       ccpa_compliant: true,

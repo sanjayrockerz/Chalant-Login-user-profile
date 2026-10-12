@@ -1,39 +1,65 @@
-import { Injectable, Logger, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, QueryRunner, DataSource } from 'typeorm';
-import { Cron } from '@nestjs/schedule';
-import { randomUUID } from 'crypto';
-import { 
-  RegisterPushTokenDto, 
-  UpdatePushTokenDto, 
-  ListPushTokensQueryDto, 
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  NotFoundException,
+  ConflictException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import { Repository, QueryRunner, DataSource } from "typeorm";
+import { Cron } from "@nestjs/schedule";
+import { randomUUID } from "crypto";
+import {
+  RegisterPushTokenDto,
+  UpdatePushTokenDto,
+  ListPushTokensQueryDto,
   PushTokenResponseDto,
   PaginatedPushTokensResponseDto,
   BulkTokenOperationDto,
   BulkOperationResultDto,
   TokenValidationResultDto,
   PushPlatform,
-  PushTokenType
-} from '../dto/push-token.dto';
-import { NotificationDeliveryFeedbackDto, DeliveryStatus } from '../dto/notification-feedback.dto';
-import { TokenValidationUtils } from '../validators/push-token.validators';
-import { PushToken } from '../entities/push-token.entity';
-import { PushTokenAudit } from '../entities/push-token-audit.entity';
-import { PushTokenValidation } from '../entities/push-token-validation.entity';
-import { PushTokenCacheService } from './push-token-cache.service';
-import { PushTokenObservabilityService } from './push-token-observability.service';
-import { PushTokenAuditLoggerService } from './push-token-audit-logger.service';
+  PushTokenType,
+} from "../dto/push-token.dto";
+import {
+  NotificationDeliveryFeedbackDto,
+  DeliveryStatus,
+} from "../dto/notification-feedback.dto";
+import { TokenValidationUtils } from "../validators/push-token.validators";
+import { PushToken } from "../entities/push-token.entity";
+import { PushTokenAudit } from "../entities/push-token-audit.entity";
+import { PushTokenValidation } from "../entities/push-token-validation.entity";
+import { PushTokenCacheService } from "./push-token-cache.service";
+import { PushTokenObservabilityService } from "./push-token-observability.service";
+import { PushTokenAuditLoggerService } from "./push-token-audit-logger.service";
 
 @Injectable()
 export class PushTokenService {
   private readonly logger = new Logger(PushTokenService.name);
-  private readonly hardFailureCodes = new Set(['UNREGISTERED', 'INVALID_ARGUMENT', '410']);
-  private readonly transientFailureCodes = new Set(['429', 'RESOURCE_EXHAUSTED', 'UNAVAILABLE', 'DEADLINE_EXCEEDED', 'TIMEOUT', '503']);
-  private readonly failureStatuses = new Set<DeliveryStatus>(['failed', 'expired', 'unregistered', 'invalid', 'throttled']);
+  private readonly hardFailureCodes = new Set([
+    "UNREGISTERED",
+    "INVALID_ARGUMENT",
+    "410",
+  ]);
+  private readonly transientFailureCodes = new Set([
+    "429",
+    "RESOURCE_EXHAUSTED",
+    "UNAVAILABLE",
+    "DEADLINE_EXCEEDED",
+    "TIMEOUT",
+    "503",
+  ]);
+  private readonly failureStatuses = new Set<DeliveryStatus>([
+    "failed",
+    "expired",
+    "unregistered",
+    "invalid",
+    "throttled",
+  ]);
   private readonly tokenRefreshGraceMs = 60 * 60 * 1000; // 1 hour grace window
   private readonly failureThreshold = 3;
   private readonly failureWindowMs = 7 * 24 * 60 * 60 * 1000; // 7 days
-  
+
   constructor(
     @InjectRepository(PushToken)
     private readonly pushTokenRepository: Repository<PushToken>,
@@ -53,48 +79,48 @@ export class PushTokenService {
   async registerToken(
     userId: string,
     registerDto: RegisterPushTokenDto,
-    tenantId: string = 'default',
+    tenantId: string = "default",
     correlationId: string,
     userAgent?: string,
-    ipAddress?: string
+    ipAddress?: string,
   ): Promise<PushTokenResponseDto> {
     const startTime = Date.now();
-    
+
     this.logger.log({
-      message: 'Starting token registration',
+      message: "Starting token registration",
       userId,
       platform: registerDto.platform,
       tokenType: registerDto.tokenType,
       correlationId,
-      tenantId
+      tenantId,
     });
 
     // Validate token format for platform
     const validationResult = TokenValidationUtils.validateTokenForPlatform(
       registerDto.token,
       registerDto.platform,
-      registerDto.tokenType
+      registerDto.tokenType,
     );
 
     if (!validationResult.isValid) {
       this.logger.warn({
-        message: 'Invalid token format during registration',
+        message: "Invalid token format during registration",
         userId,
         platform: registerDto.platform,
         error: validationResult.error,
-        correlationId
+        correlationId,
       });
-      
+
       throw new BadRequestException(validationResult.error);
     }
 
     // Hash token for duplicate detection
     const tokenHash = TokenValidationUtils.hashToken(registerDto.token);
     const maskedToken = TokenValidationUtils.maskToken(registerDto.token);
-    
+
     // Normalize device metadata
     const normalizedMetadata = TokenValidationUtils.normalizeDeviceMetadata(
-      registerDto.deviceMetadata
+      registerDto.deviceMetadata,
     );
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -104,12 +130,14 @@ export class PushTokenService {
     try {
       // Check for existing token with same hash using query builder for better control
       let existingToken = await queryRunner.manager
-        .createQueryBuilder(PushToken, 'token')
-        .where('token.userId = :userId', { userId })
-        .andWhere('token.tokenHash = :tokenHash', { tokenHash })
-        .andWhere('token.platform = :platform', { platform: registerDto.platform })
-        .andWhere('token.active = :active', { active: true })
-        .andWhere('token.deletedAt IS NULL')
+        .createQueryBuilder(PushToken, "token")
+        .where("token.userId = :userId", { userId })
+        .andWhere("token.tokenHash = :tokenHash", { tokenHash })
+        .andWhere("token.platform = :platform", {
+          platform: registerDto.platform,
+        })
+        .andWhere("token.active = :active", { active: true })
+        .andWhere("token.deletedAt IS NULL")
         .getOne();
 
       let isNewToken = false;
@@ -132,10 +160,10 @@ export class PushTokenService {
         isExistingTokenUpdated = true;
 
         this.logger.log({
-          message: 'Updated existing token',
+          message: "Updated existing token",
           tokenId: tokenEntity.id,
           userId,
-          correlationId
+          correlationId,
         });
       } else {
         // Create new token
@@ -158,27 +186,32 @@ export class PushTokenService {
         isNewToken = true;
 
         this.logger.log({
-          message: 'Created new token',
+          message: "Created new token",
           tokenId: tokenEntity.id,
           userId,
-          correlationId
+          correlationId,
         });
 
         const existingActives = await queryRunner.manager
-          .createQueryBuilder(PushToken, 'token')
-          .where('token.userId = :userId', { userId })
-          .andWhere('token.platform = :platform', { platform: registerDto.platform })
-          .andWhere('token.id != :tokenId', { tokenId: tokenEntity.id })
-          .andWhere('token.active = :active', { active: true })
-          .andWhere('token.deletedAt IS NULL')
-          .orderBy('token.updatedAt', 'DESC')
+          .createQueryBuilder(PushToken, "token")
+          .where("token.userId = :userId", { userId })
+          .andWhere("token.platform = :platform", {
+            platform: registerDto.platform,
+          })
+          .andWhere("token.id != :tokenId", { tokenId: tokenEntity.id })
+          .andWhere("token.active = :active", { active: true })
+          .andWhere("token.deletedAt IS NULL")
+          .orderBy("token.updatedAt", "DESC")
           .getMany();
 
         if (existingActives.length > 0) {
           const graceBoundary = new Date(Date.now() - this.tokenRefreshGraceMs);
           const deviceId = this.extractDeviceId(normalizedMetadata);
           const matchingDevice = deviceId
-            ? existingActives.find(token => this.extractDeviceId(token.deviceMetadata) === deviceId)
+            ? existingActives.find(
+                (token) =>
+                  this.extractDeviceId(token.deviceMetadata) === deviceId,
+              )
             : undefined;
 
           const candidate = matchingDevice ?? existingActives[0];
@@ -189,53 +222,53 @@ export class PushTokenService {
         }
       }
 
-        // If this is marked as primary, deactivate other primary tokens
-        if (registerDto.isPrimary) {
-          await queryRunner.manager
-            .createQueryBuilder()
-            .update(PushToken)
-            .set({ updatedAt: new Date() })
-            .where('userId = :userId', { userId })
-            .andWhere('platform = :platform', { platform: registerDto.platform })
-            .andWhere('active = :active', { active: true })
-            .andWhere('deletedAt IS NULL')
-            .andWhere('id != :tokenId', { tokenId: tokenEntity.id })
-            .execute();
-        }      // Create audit entry
+      // If this is marked as primary, deactivate other primary tokens
+      if (registerDto.isPrimary) {
+        await queryRunner.manager
+          .createQueryBuilder()
+          .update(PushToken)
+          .set({ updatedAt: new Date() })
+          .where("userId = :userId", { userId })
+          .andWhere("platform = :platform", { platform: registerDto.platform })
+          .andWhere("active = :active", { active: true })
+          .andWhere("deletedAt IS NULL")
+          .andWhere("id != :tokenId", { tokenId: tokenEntity.id })
+          .execute();
+      } // Create audit entry
       await queryRunner.manager.save(PushTokenAudit, {
         tokenId: tokenEntity.id,
         userId,
-        eventType: isNewToken ? 'registered' : 'updated',
+        eventType: isNewToken ? "registered" : "updated",
         eventData: {
           platform: registerDto.platform,
           tokenType: registerDto.tokenType,
           deviceMetadata: normalizedMetadata,
           isPrimary: registerDto.isPrimary,
           isNewToken,
-          isExistingTokenUpdated
+          isExistingTokenUpdated,
         },
         correlationId,
         tenantId,
         userAgent,
         ipAddress,
-        createdBy: 'api_registration'
+        createdBy: "api_registration",
       });
 
-        // Get total device count for user
-        const deviceCount = await queryRunner.manager.count(PushToken, {
-          where: {
-            userId,
-            active: true,
-            deletedAt: undefined
-          }
-        });
+      // Get total device count for user
+      const deviceCount = await queryRunner.manager.count(PushToken, {
+        where: {
+          userId,
+          active: true,
+          deletedAt: undefined,
+        },
+      });
 
       await queryRunner.commitTransaction();
 
       // Cache the new/updated token
       const responseDto = this.mapToResponseDto(tokenEntity);
       await this.cacheService.cacheToken(responseDto);
-      
+
       // Invalidate user cache to ensure fresh data on next request
       await this.cacheService.invalidateUserCache(userId);
 
@@ -246,7 +279,9 @@ export class PushTokenService {
         tokenType: registerDto.tokenType,
         tenantId,
         correlationId,
-        hasDeviceMetadata: Boolean(normalizedMetadata && Object.keys(normalizedMetadata).length),
+        hasDeviceMetadata: Boolean(
+          normalizedMetadata && Object.keys(normalizedMetadata).length,
+        ),
         isNewToken,
       });
 
@@ -263,16 +298,16 @@ export class PushTokenService {
 
       const processingTime = Date.now() - startTime;
       const isRefresh = Boolean(refreshedFromTokenId);
-      
+
       this.logger.log({
-        message: 'Token registration completed',
+        message: "Token registration completed",
         tokenId: tokenEntity.id,
         userId,
         isNewToken,
         isExistingTokenUpdated,
         deviceCount,
         processingTimeMs: processingTime,
-        correlationId
+        correlationId,
       });
 
       // Record observability metrics
@@ -285,7 +320,7 @@ export class PushTokenService {
         correlationId,
         userId,
         isNewToken,
-        isRefresh
+        isRefresh,
       );
 
       return {
@@ -303,19 +338,18 @@ export class PushTokenService {
         failureCount: tokenEntity.failureCount,
         lastFailureAt: tokenEntity.lastFailureAt?.toISOString(),
         failureReason: tokenEntity.failureReason,
-        tenantId: tokenEntity.tenantId
+        tenantId: tokenEntity.tenantId,
       };
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      
+
       const processingTime = Date.now() - startTime;
-      
+
       this.logger.error({
-        message: 'Token registration failed',
+        message: "Token registration failed",
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
 
       // Record failure metrics
@@ -329,9 +363,9 @@ export class PushTokenService {
         userId,
         false,
         false,
-        error.constructor.name
+        error.constructor.name,
       );
-      
+
       throw error;
     } finally {
       await queryRunner.release();
@@ -347,13 +381,13 @@ export class PushTokenService {
     updateDto: UpdatePushTokenDto,
     correlationId: string,
     userAgent?: string,
-    ipAddress?: string
+    ipAddress?: string,
   ): Promise<PushTokenResponseDto> {
     this.logger.log({
-      message: 'Starting token update',
+      message: "Starting token update",
       tokenId,
       userId,
-      correlationId
+      correlationId,
     });
 
     const existingToken = await this.pushTokenRepository.findOne({
@@ -361,12 +395,12 @@ export class PushTokenService {
         id: tokenId,
         userId,
         active: true,
-        deletedAt: undefined
-      }
+        deletedAt: undefined,
+      },
     });
 
     if (!existingToken) {
-      throw new NotFoundException('Push token not found or not accessible');
+      throw new NotFoundException("Push token not found or not accessible");
     }
 
     // Validate new token format if provided
@@ -374,25 +408,30 @@ export class PushTokenService {
       const validationResult = TokenValidationUtils.validateTokenForPlatform(
         updateDto.token,
         existingToken.platform,
-        existingToken.tokenType
+        existingToken.tokenType,
       );
 
       if (!validationResult.isValid) {
         throw new BadRequestException(validationResult.error);
       }
 
-        // Check for duplicate token
-        const tokenHash = TokenValidationUtils.hashToken(updateDto.token);
-        const duplicateToken = await this.pushTokenRepository
-          .createQueryBuilder('token')
-          .where('token.userId = :userId', { userId })
-          .andWhere('token.tokenHash = :tokenHash', { tokenHash })
-          .andWhere('token.platform = :platform', { platform: existingToken.platform })
-          .andWhere('token.active = :active', { active: true })
-          .andWhere('token.deletedAt IS NULL')
-          .andWhere('token.id != :tokenId', { tokenId })
-          .getOne();      if (duplicateToken) {
-        throw new ConflictException('Token already registered for this user and platform');
+      // Check for duplicate token
+      const tokenHash = TokenValidationUtils.hashToken(updateDto.token);
+      const duplicateToken = await this.pushTokenRepository
+        .createQueryBuilder("token")
+        .where("token.userId = :userId", { userId })
+        .andWhere("token.tokenHash = :tokenHash", { tokenHash })
+        .andWhere("token.platform = :platform", {
+          platform: existingToken.platform,
+        })
+        .andWhere("token.active = :active", { active: true })
+        .andWhere("token.deletedAt IS NULL")
+        .andWhere("token.id != :tokenId", { tokenId })
+        .getOne();
+      if (duplicateToken) {
+        throw new ConflictException(
+          "Token already registered for this user and platform",
+        );
       }
     }
 
@@ -403,12 +442,14 @@ export class PushTokenService {
     try {
       // Update token fields
       const updatedFields: Partial<PushToken> = {
-        updatedAt: new Date()
+        updatedAt: new Date(),
       };
 
       if (updateDto.token) {
         updatedFields.token = updateDto.token;
-        updatedFields.tokenHash = TokenValidationUtils.hashToken(updateDto.token);
+        updatedFields.tokenHash = TokenValidationUtils.hashToken(
+          updateDto.token,
+        );
         updatedFields.lastValidatedAt = new Date();
         updatedFields.failureCount = 0; // Reset on token update
         updatedFields.lastFailureAt = null;
@@ -416,37 +457,42 @@ export class PushTokenService {
       }
 
       if (updateDto.deviceMetadata !== undefined) {
-        updatedFields.deviceMetadata = TokenValidationUtils.normalizeDeviceMetadata(
-          updateDto.deviceMetadata
-        );
+        updatedFields.deviceMetadata =
+          TokenValidationUtils.normalizeDeviceMetadata(
+            updateDto.deviceMetadata,
+          );
       }
 
       if (updateDto.active !== undefined) {
         updatedFields.active = updateDto.active;
       }
 
-      await queryRunner.manager.update(PushToken, { id: tokenId }, updatedFields);
+      await queryRunner.manager.update(
+        PushToken,
+        { id: tokenId },
+        updatedFields,
+      );
 
       // Create audit entry
       await queryRunner.manager.save(PushTokenAudit, {
         tokenId,
         userId,
-        eventType: 'updated',
+        eventType: "updated",
         eventData: {
           updatedFields: Object.keys(updatedFields),
           tokenUpdated: !!updateDto.token,
           metadataUpdated: updateDto.deviceMetadata !== undefined,
-          activeChanged: updateDto.active !== undefined
+          activeChanged: updateDto.active !== undefined,
         },
         correlationId,
         tenantId: existingToken.tenantId,
         userAgent,
         ipAddress,
-        createdBy: 'api_update'
+        createdBy: "api_update",
       });
 
       const updatedToken = await queryRunner.manager.findOne(PushToken, {
-        where: { id: tokenId }
+        where: { id: tokenId },
       });
 
       await queryRunner.commitTransaction();
@@ -455,30 +501,29 @@ export class PushTokenService {
       await this.cacheService.invalidateTokenCache(tokenId, userId);
 
       this.logger.log({
-        message: 'Token updated successfully',
+        message: "Token updated successfully",
         tokenId,
         userId,
-        correlationId
+        correlationId,
       });
 
       const responseDto = this.mapToResponseDto(updatedToken);
-      
+
       // Cache the updated token
       await this.cacheService.cacheToken(responseDto);
-      
-      return responseDto;
 
+      return responseDto;
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      
+
       this.logger.error({
-        message: 'Token update failed',
+        message: "Token update failed",
         tokenId,
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
-      
+
       throw error;
     } finally {
       await queryRunner.release();
@@ -491,13 +536,13 @@ export class PushTokenService {
   async listUserTokens(
     userId: string,
     queryDto: ListPushTokensQueryDto,
-    correlationId: string
+    correlationId: string,
   ): Promise<PaginatedPushTokensResponseDto> {
     this.logger.log({
-      message: 'Listing user tokens',
+      message: "Listing user tokens",
       userId,
       filters: queryDto,
-      correlationId
+      correlationId,
     });
 
     // Try to get from cache first (only for simple queries)
@@ -505,23 +550,26 @@ export class PushTokenService {
     if (isSimpleQuery) {
       const cachedResult = await this.cacheService.getCachedUserTokens(userId, {
         platform: queryDto.platform,
-        active: queryDto.active
+        active: queryDto.active,
       });
 
       if (cachedResult) {
         this.logger.debug({
-          message: 'Returning cached user tokens',
+          message: "Returning cached user tokens",
           userId,
           tokenCount: cachedResult.tokens.length,
           cachedAt: cachedResult.cachedAt,
-          correlationId
+          correlationId,
         });
 
         // Apply pagination to cached results
         const page = queryDto.page ?? 1;
         const limit = queryDto.limit ?? 20;
         const offset = (page - 1) * limit;
-        const paginatedTokens = cachedResult.tokens.slice(offset, offset + limit);
+        const paginatedTokens = cachedResult.tokens.slice(
+          offset,
+          offset + limit,
+        );
         const total = cachedResult.tokens.length;
         const totalPages = Math.ceil(total / limit);
 
@@ -533,49 +581,53 @@ export class PushTokenService {
             total,
             totalPages,
             hasNext: page < totalPages,
-            hasPrev: page > 1
-          }
+            hasPrev: page > 1,
+          },
         };
       }
     }
 
     // Fallback to database query
-    const queryBuilder = this.pushTokenRepository.createQueryBuilder('token')
-      .where('token.userId = :userId', { userId })
-      .andWhere('token.deletedAt IS NULL');
+    const queryBuilder = this.pushTokenRepository
+      .createQueryBuilder("token")
+      .where("token.userId = :userId", { userId })
+      .andWhere("token.deletedAt IS NULL");
 
     // Apply filters
     if (queryDto.platform) {
-      queryBuilder.andWhere('token.platform = :platform', { platform: queryDto.platform });
+      queryBuilder.andWhere("token.platform = :platform", {
+        platform: queryDto.platform,
+      });
     }
 
     if (queryDto.active !== undefined) {
-      queryBuilder.andWhere('token.active = :active', { active: queryDto.active });
+      queryBuilder.andWhere("token.active = :active", {
+        active: queryDto.active,
+      });
     }
 
     if (!queryDto.includeFailures) {
-      queryBuilder.andWhere('token.failureCount < :maxFailures', { maxFailures: 3 });
+      queryBuilder.andWhere("token.failureCount < :maxFailures", {
+        maxFailures: 3,
+      });
     }
 
     // Pagination with defaults
     const page = queryDto.page ?? 1;
     const limit = queryDto.limit ?? 20;
     const offset = (page - 1) * limit;
-    
-    queryBuilder
-      .orderBy('token.createdAt', 'DESC')
-      .offset(offset)
-      .limit(limit);
+
+    queryBuilder.orderBy("token.createdAt", "DESC").offset(offset).limit(limit);
 
     const [tokens, total] = await queryBuilder.getManyAndCount();
 
-    const tokenDtos = tokens.map(token => this.mapToResponseDto(token));
+    const tokenDtos = tokens.map((token) => this.mapToResponseDto(token));
 
     // Cache the results for future requests (only for first page)
     if (page === 1 && tokenDtos.length > 0) {
       await this.cacheService.cacheUserTokens(userId, tokenDtos, {
         platform: queryDto.platform,
-        active: queryDto.active
+        active: queryDto.active,
       });
     }
 
@@ -589,17 +641,18 @@ export class PushTokenService {
         total,
         totalPages,
         hasNext: page < totalPages,
-        hasPrev: page > 1
-      }
+        hasPrev: page > 1,
+      },
     };
   }
 
   async findActiveTokensForUser(userId: string): Promise<PushToken[]> {
-    return this.pushTokenRepository.createQueryBuilder('token')
-      .where('token.userId = :userId', { userId })
-      .andWhere('token.active = :active', { active: true })
-      .andWhere('token.deletedAt IS NULL')
-      .orderBy('token.updatedAt', 'DESC')
+    return this.pushTokenRepository
+      .createQueryBuilder("token")
+      .where("token.userId = :userId", { userId })
+      .andWhere("token.active = :active", { active: true })
+      .andWhere("token.deletedAt IS NULL")
+      .orderBy("token.updatedAt", "DESC")
       .getMany();
   }
 
@@ -608,8 +661,8 @@ export class PushTokenService {
       where: {
         id: tokenId,
         active: true,
-        deletedAt: undefined
-      }
+        deletedAt: undefined,
+      },
     });
 
     return token ?? null;
@@ -622,14 +675,14 @@ export class PushTokenService {
     tokenId: string,
     userId: string,
     correlationId: string,
-    reason?: string
+    reason?: string,
   ): Promise<void> {
     this.logger.log({
-      message: 'Starting token deletion',
+      message: "Starting token deletion",
       tokenId,
       userId,
       reason,
-      correlationId
+      correlationId,
     });
 
     const token = await this.pushTokenRepository.findOne({
@@ -637,12 +690,12 @@ export class PushTokenService {
         id: tokenId,
         userId,
         active: true,
-        deletedAt: undefined
-      }
+        deletedAt: undefined,
+      },
     });
 
     if (!token) {
-      throw new NotFoundException('Push token not found or not accessible');
+      throw new NotFoundException("Push token not found or not accessible");
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -651,25 +704,29 @@ export class PushTokenService {
 
     try {
       // Soft delete the token
-      await queryRunner.manager.update(PushToken, { id: tokenId }, {
-        active: false,
-        deletedAt: new Date(),
-        updatedAt: new Date(),
-        failureReason: reason || 'User requested deletion'
-      });
+      await queryRunner.manager.update(
+        PushToken,
+        { id: tokenId },
+        {
+          active: false,
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+          failureReason: reason || "User requested deletion",
+        },
+      );
 
       // Create audit entry
       await queryRunner.manager.save(PushTokenAudit, {
         tokenId,
         userId,
-        eventType: 'deleted',
+        eventType: "deleted",
         eventData: {
-          reason: reason || 'User requested deletion',
-          deletionMethod: 'api_request'
+          reason: reason || "User requested deletion",
+          deletionMethod: "api_request",
         },
         correlationId,
         tenantId: token.tenantId,
-        createdBy: 'api_deletion'
+        createdBy: "api_deletion",
       });
 
       await queryRunner.commitTransaction();
@@ -678,10 +735,10 @@ export class PushTokenService {
       await this.cacheService.invalidateTokenCache(tokenId, userId);
 
       this.logger.log({
-        message: 'Token deleted successfully',
+        message: "Token deleted successfully",
         tokenId,
         userId,
-        correlationId
+        correlationId,
       });
 
       await this.auditLogger.logUnregistered({
@@ -689,23 +746,25 @@ export class PushTokenService {
         platform: token.platform,
         tenantId: token.tenantId,
         correlationId,
-        reason: reason || 'user_logout',
+        reason: reason || "user_logout",
         unregisteredCount: 1,
       });
 
-      this.observabilityService.recordTokenUnregistered(token.platform, reason || 'user_logout');
-
+      this.observabilityService.recordTokenUnregistered(
+        token.platform,
+        reason || "user_logout",
+      );
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      
+
       this.logger.error({
-        message: 'Token deletion failed',
+        message: "Token deletion failed",
         tokenId,
         userId,
         error: error.message,
-        correlationId
+        correlationId,
       });
-      
+
       throw error;
     } finally {
       await queryRunner.release();
@@ -718,38 +777,38 @@ export class PushTokenService {
   async validateTokens(
     tokenIds: string[],
     correlationId: string,
-    validationType: 'registration' | 'periodic' | 'feedback' = 'periodic'
+    validationType: "registration" | "periodic" | "feedback" = "periodic",
   ): Promise<TokenValidationResultDto[]> {
     const startTime = Date.now();
-    
+
     this.logger.log({
-      message: 'Starting token validation',
+      message: "Starting token validation",
       tokenCount: tokenIds.length,
       validationType,
-      correlationId
+      correlationId,
     });
 
     return this.observabilityService.withTokenOperationSpan(
-      'validate_tokens',
+      "validate_tokens",
       async () => {
         const results: TokenValidationResultDto[] = [];
         const platformCounts: Record<PushPlatform, number> = {
           [PushPlatform.IOS]: 0,
-          [PushPlatform.ANDROID]: 0
+          [PushPlatform.ANDROID]: 0,
         };
 
         for (const tokenId of tokenIds) {
           try {
             const token = await this.pushTokenRepository.findOne({
-              where: { id: tokenId, active: true, deletedAt: undefined }
+              where: { id: tokenId, active: true, deletedAt: undefined },
             });
 
             if (!token) {
               results.push({
                 tokenId,
-                result: 'invalid',
-                message: 'Token not found',
-                validatedAt: new Date().toISOString()
+                result: "invalid",
+                message: "Token not found",
+                validatedAt: new Date().toISOString(),
               });
               continue;
             }
@@ -758,28 +817,43 @@ export class PushTokenService {
             platformCounts[token.platform]++;
 
             // Check cache first
-            const cachedValidation = await this.cacheService.getCachedValidationResult(tokenId);
+            const cachedValidation =
+              await this.cacheService.getCachedValidationResult(tokenId);
             if (cachedValidation) {
-              this.observabilityService.recordCacheOperation('hit', 'validation');
+              this.observabilityService.recordCacheOperation(
+                "hit",
+                "validation",
+              );
               results.push({
                 tokenId,
                 result: cachedValidation.result,
                 responseCode: cachedValidation.responseCode,
                 message: cachedValidation.message,
-                validatedAt: cachedValidation.validatedAt
+                validatedAt: cachedValidation.validatedAt,
               });
               continue;
             }
 
-            this.observabilityService.recordCacheOperation('miss', 'validation');
+            this.observabilityService.recordCacheOperation(
+              "miss",
+              "validation",
+            );
 
             // Simulate platform validation (in real implementation, call FCM/APNs APIs)
-            const validationResult = await this.validateTokenWithPlatform(token);
+            const validationResult =
+              await this.validateTokenWithPlatform(token);
 
             // Update token based on validation result
-            if (validationResult.result === 'invalid' || validationResult.result === 'expired') {
-              await this.markTokenAsInvalid(token.id, validationResult.message || 'Validation failed', correlationId);
-            } else if (validationResult.result === 'valid') {
+            if (
+              validationResult.result === "invalid" ||
+              validationResult.result === "expired"
+            ) {
+              await this.markTokenAsInvalid(
+                token.id,
+                validationResult.message || "Validation failed",
+                correlationId,
+              );
+            } else if (validationResult.result === "valid") {
               await this.markTokenAsValid(token.id, correlationId);
             }
 
@@ -788,7 +862,7 @@ export class PushTokenService {
               result: validationResult.result,
               validatedAt: new Date().toISOString(),
               responseCode: validationResult.responseCode,
-              message: validationResult.message
+              message: validationResult.message,
             });
 
             // Save validation record
@@ -796,11 +870,12 @@ export class PushTokenService {
               tokenId: token.id,
               validationType,
               validationResult: validationResult.result,
-              validationSource: token.tokenType === PushTokenType.FCM ? 'fcm_api' : 'apns_api',
+              validationSource:
+                token.tokenType === PushTokenType.FCM ? "fcm_api" : "apns_api",
               responseCode: validationResult.responseCode,
               responseMessage: validationResult.message,
               correlationId,
-              tenantId: token.tenantId
+              tenantId: token.tenantId,
             });
 
             results.push({
@@ -808,17 +883,21 @@ export class PushTokenService {
               result: validationResult.result,
               responseCode: validationResult.responseCode,
               message: validationResult.message,
-              validatedAt: new Date().toISOString()
+              validatedAt: new Date().toISOString(),
             });
-
           } catch (error) {
-            this.observabilityService.logError('token_validation', error, correlationId, { tokenId });
+            this.observabilityService.logError(
+              "token_validation",
+              error,
+              correlationId,
+              { tokenId },
+            );
 
             results.push({
               tokenId,
-              result: 'error',
+              result: "error",
               message: error.message,
-              validatedAt: new Date().toISOString()
+              validatedAt: new Date().toISOString(),
             });
           }
         }
@@ -829,54 +908,68 @@ export class PushTokenService {
         for (const [platform, count] of Object.entries(platformCounts)) {
           if (count > 0) {
             const platformResults = results.filter((_, index) => index < count);
-            const validCount = platformResults.filter(r => r.result === 'valid').length;
-            const invalidCount = platformResults.filter(r => r.result === 'invalid').length;
-            const errorCount = platformResults.filter(r => r.result === 'error').length;
+            const validCount = platformResults.filter(
+              (r) => r.result === "valid",
+            ).length;
+            const invalidCount = platformResults.filter(
+              (r) => r.result === "invalid",
+            ).length;
+            const errorCount = platformResults.filter(
+              (r) => r.result === "error",
+            ).length;
 
             await this.observabilityService.recordTokenValidation(
               platform as PushPlatform,
               validationType,
-              validCount > invalidCount ? 'valid' : (errorCount > 0 ? 'error' : 'invalid'),
+              validCount > invalidCount
+                ? "valid"
+                : errorCount > 0
+                  ? "error"
+                  : "invalid",
               processingTime / count, // Average time per token
               correlationId,
-              count
+              count,
             );
           }
         }
 
         this.logger.log({
-          message: 'Token validation completed',
+          message: "Token validation completed",
           totalTokens: tokenIds.length,
-          validTokens: results.filter(r => r.result === 'valid').length,
-          invalidTokens: results.filter(r => r.result === 'invalid').length,
+          validTokens: results.filter((r) => r.result === "valid").length,
+          invalidTokens: results.filter((r) => r.result === "invalid").length,
           processingTimeMs: processingTime,
-          correlationId
+          correlationId,
         });
 
         return results;
       },
       {
-        'push.validation_type': validationType,
-        'push.token_count': tokenIds.length,
-        'push.correlation_id': correlationId
-      }
+        "push.validation_type": validationType,
+        "push.token_count": tokenIds.length,
+        "push.correlation_id": correlationId,
+      },
     );
   }
 
   async recordSuccess(
     tokenId: string,
-    options?: { correlationId?: string; notificationType?: string; latencyMs?: number }
+    options?: {
+      correlationId?: string;
+      notificationType?: string;
+      latencyMs?: number;
+    },
   ): Promise<void> {
     const correlationId = options?.correlationId ?? randomUUID();
     const token = await this.pushTokenRepository.findOne({
-      where: { id: tokenId, deletedAt: undefined }
+      where: { id: tokenId, deletedAt: undefined },
     });
 
     if (!token) {
       this.logger.warn({
-        message: 'Attempted to record success for missing token',
+        message: "Attempted to record success for missing token",
         tokenId,
-        correlationId
+        correlationId,
       });
       return;
     }
@@ -888,18 +981,18 @@ export class PushTokenService {
       failureReason: null,
       lastValidatedAt: now,
       updatedAt: now,
-      active: true
+      active: true,
     });
 
-  await this.cacheService.invalidateTokenCache(tokenId, token.userId);
-  await this.cacheService.invalidateUserCache(token.userId);
+    await this.cacheService.invalidateTokenCache(tokenId, token.userId);
+    await this.cacheService.invalidateUserCache(token.userId);
     await this.cacheService.invalidateUserCache(token.userId);
 
     this.observabilityService.recordDeliverySuccess(
       token.platform,
       options?.latencyMs ?? 0,
       correlationId,
-      options?.notificationType
+      options?.notificationType,
     );
 
     await this.auditLogger.logDeliverySuccess({
@@ -915,30 +1008,40 @@ export class PushTokenService {
     tokenId: string,
     errorCode: string,
     attemptNumber: number = 1,
-    options?: { correlationId?: string; latencyMs?: number }
-  ): Promise<{ deactivated: boolean; failureCount: number; nextRetryMs: number | null; errorCode: string }> {
+    options?: { correlationId?: string; latencyMs?: number },
+  ): Promise<{
+    deactivated: boolean;
+    failureCount: number;
+    nextRetryMs: number | null;
+    errorCode: string;
+  }> {
     const correlationId = options?.correlationId ?? randomUUID();
     const normalizedCode = this.normalizeErrorCode(errorCode);
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
-    let deactivatedReason: 'hard_error' | 'failure_threshold' | undefined;
+    let deactivatedReason: "hard_error" | "failure_threshold" | undefined;
 
     try {
       const token = await queryRunner.manager.findOne(PushToken, {
-        where: { id: tokenId }
+        where: { id: tokenId },
       });
 
       if (!token) {
         this.logger.warn({
-          message: 'Attempted to record failure for missing token',
+          message: "Attempted to record failure for missing token",
           tokenId,
           errorCode: normalizedCode,
-          correlationId
+          correlationId,
         });
         await queryRunner.rollbackTransaction();
-        return { deactivated: false, failureCount: 0, nextRetryMs: null, errorCode: normalizedCode };
+        return {
+          deactivated: false,
+          failureCount: 0,
+          nextRetryMs: null,
+          errorCode: normalizedCode,
+        };
       }
 
       const now = new Date();
@@ -948,7 +1051,10 @@ export class PushTokenService {
       token.updatedAt = now;
 
       if (!isTransient) {
-        if (token.lastFailureAt && now.getTime() - token.lastFailureAt.getTime() > this.failureWindowMs) {
+        if (
+          token.lastFailureAt &&
+          now.getTime() - token.lastFailureAt.getTime() > this.failureWindowMs
+        ) {
           token.failureCount = 0;
         }
 
@@ -959,25 +1065,28 @@ export class PushTokenService {
 
       if (isHard) {
         token.active = false;
-        deactivatedReason = 'hard_error';
+        deactivatedReason = "hard_error";
       } else if (!isTransient && token.failureCount >= this.failureThreshold) {
         token.active = false;
-        deactivatedReason = 'failure_threshold';
+        deactivatedReason = "failure_threshold";
       }
 
       await queryRunner.manager.save(token);
       await queryRunner.commitTransaction();
 
-  await this.cacheService.invalidateTokenCache(tokenId, token.userId);
+      await this.cacheService.invalidateTokenCache(tokenId, token.userId);
 
-      const nextRetryMs = !token.active || isTransient ? null : this.getRetryDelayMs(token.failureCount);
+      const nextRetryMs =
+        !token.active || isTransient
+          ? null
+          : this.getRetryDelayMs(token.failureCount);
 
       this.observabilityService.recordDeliveryFailure(
         token.platform,
         normalizedCode,
         attemptNumber,
         correlationId,
-        options?.latencyMs
+        options?.latencyMs,
       );
 
       await this.auditLogger.logDeliveryFailure({
@@ -1000,7 +1109,10 @@ export class PushTokenService {
           errorCode: normalizedCode,
         });
 
-        this.observabilityService.recordTokenInvalidated(token.platform, deactivatedReason);
+        this.observabilityService.recordTokenInvalidated(
+          token.platform,
+          deactivatedReason,
+        );
         await this.cacheService.invalidateTokenCache(tokenId, token.userId);
         await this.cacheService.invalidateUserCache(token.userId);
       }
@@ -1011,15 +1123,14 @@ export class PushTokenService {
         nextRetryMs,
         errorCode: normalizedCode,
       };
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
       this.logger.error({
-        message: 'Failed to record delivery failure',
+        message: "Failed to record delivery failure",
         tokenId,
         error: (error as Error).message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -1028,26 +1139,29 @@ export class PushTokenService {
     }
   }
 
-  async handleDeliveryFeedback(feedback: NotificationDeliveryFeedbackDto): Promise<void> {
+  async handleDeliveryFeedback(
+    feedback: NotificationDeliveryFeedbackDto,
+  ): Promise<void> {
     if (!feedback.tokenId) {
       this.logger.warn({
-        message: 'Received delivery feedback without token ID',
+        message: "Received delivery feedback without token ID",
       });
       return;
     }
 
     const correlationId = feedback.correlationId ?? randomUUID();
-    const attemptNumber = feedback.attemptNumber && feedback.attemptNumber > 0
-      ? feedback.attemptNumber
-      : 1;
+    const attemptNumber =
+      feedback.attemptNumber && feedback.attemptNumber > 0
+        ? feedback.attemptNumber
+        : 1;
     const status = feedback.status.toLowerCase() as DeliveryStatus;
 
     this.logger.log({
-      message: 'Processing notification delivery feedback',
+      message: "Processing notification delivery feedback",
       tokenId: feedback.tokenId,
       status,
       attemptNumber,
-      correlationId
+      correlationId,
     });
 
     let platform = feedback.platform;
@@ -1055,17 +1169,19 @@ export class PushTokenService {
 
     if (!platform || !tenantId) {
       try {
-        const token = await this.pushTokenRepository.findOne({ where: { id: feedback.tokenId } });
+        const token = await this.pushTokenRepository.findOne({
+          where: { id: feedback.tokenId },
+        });
         if (token) {
           platform = platform ?? token.platform;
           tenantId = tenantId ?? token.tenantId;
         }
       } catch (error) {
         this.logger.warn({
-          message: 'Failed to resolve token metadata for delivery feedback',
+          message: "Failed to resolve token metadata for delivery feedback",
           tokenId: feedback.tokenId,
           correlationId,
-          error: (error as Error).message
+          error: (error as Error).message,
         });
       }
     }
@@ -1080,17 +1196,18 @@ export class PushTokenService {
           skipOutcomeMetrics: true,
           errorCode: feedback.errorCode,
           latencyMs: feedback.latencyMs,
-          attemptNumber
-        }
+          attemptNumber,
+        },
       );
     }
 
-    if (status === 'sent' || status === 'queued') {
+    if (status === "sent" || status === "queued") {
       this.logger.debug({
-        message: 'Received non-terminal delivery status, awaiting final outcome',
+        message:
+          "Received non-terminal delivery status, awaiting final outcome",
         tokenId: feedback.tokenId,
         status,
-        correlationId
+        correlationId,
       });
       return;
     }
@@ -1098,9 +1215,9 @@ export class PushTokenService {
     try {
       await this.validationRepository.save({
         tokenId: feedback.tokenId,
-        validationType: 'delivery',
+        validationType: "delivery",
         validationResult: this.mapFeedbackStatusToValidationResult(status),
-        validationSource: 'delivery_feedback',
+        validationSource: "delivery_feedback",
         responseCode: feedback.providerResponseCode,
         responseMessage: feedback.errorCode,
         responseData: {
@@ -1108,26 +1225,26 @@ export class PushTokenService {
           provider: feedback.provider,
           metadata: feedback.metadata,
           status,
-          attemptNumber
+          attemptNumber,
         },
         validatedAt: new Date(),
         correlationId,
-        tenantId: tenantId ?? 'default'
+        tenantId: tenantId ?? "default",
       });
     } catch (error) {
       this.logger.warn({
-        message: 'Failed to persist delivery feedback validation record',
+        message: "Failed to persist delivery feedback validation record",
         tokenId: feedback.tokenId,
         correlationId,
-        error: (error as Error).message
+        error: (error as Error).message,
       });
     }
 
-    if (status === 'delivered') {
+    if (status === "delivered") {
       await this.recordSuccess(feedback.tokenId, {
         correlationId,
         notificationType: feedback.notificationType,
-        latencyMs: feedback.latencyMs
+        latencyMs: feedback.latencyMs,
       });
       return;
     }
@@ -1139,16 +1256,16 @@ export class PushTokenService {
 
       await this.recordFailure(feedback.tokenId, failureCode, attemptNumber, {
         correlationId,
-        latencyMs: feedback.latencyMs
+        latencyMs: feedback.latencyMs,
       });
       return;
     }
 
     this.logger.debug({
-      message: 'Received non-terminal notification feedback status',
+      message: "Received non-terminal notification feedback status",
       tokenId: feedback.tokenId,
       status,
-      correlationId
+      correlationId,
     });
   }
 
@@ -1163,32 +1280,32 @@ export class PushTokenService {
     const graceBoundary = new Date(Date.now() - gracePeriodMs);
 
     this.logger.log({
-      message: 'Starting duplicate token cleanup run',
+      message: "Starting duplicate token cleanup run",
       correlationId,
       gracePeriodMinutes: gracePeriodMs / (60 * 1000),
-      batchSize
+      batchSize,
     });
 
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
-  const tokensToDeactivate: PushToken[] = [];
-  const userIdsToInvalidate = new Set<string>();
-  const platformTenantTouched = new Map<PushPlatform, Set<string>>();
+    const tokensToDeactivate: PushToken[] = [];
+    const userIdsToInvalidate = new Set<string>();
+    const platformTenantTouched = new Map<PushPlatform, Set<string>>();
     let scanned = 0;
 
     try {
       const duplicateGroups = await this.pushTokenRepository
-        .createQueryBuilder('token')
-        .select('token.userId', 'userId')
-        .addSelect('token.platform', 'platform')
-        .addSelect('COUNT(*)', 'count')
-        .where('token.active = :active', { active: true })
-        .andWhere('token.deletedAt IS NULL')
-        .groupBy('token.userId')
-        .addGroupBy('token.platform')
-        .having('COUNT(*) > 1')
+        .createQueryBuilder("token")
+        .select("token.userId", "userId")
+        .addSelect("token.platform", "platform")
+        .addSelect("COUNT(*)", "count")
+        .where("token.active = :active", { active: true })
+        .andWhere("token.deletedAt IS NULL")
+        .groupBy("token.userId")
+        .addGroupBy("token.platform")
+        .having("COUNT(*) > 1")
         .limit(batchSize)
         .getRawMany();
 
@@ -1196,18 +1313,19 @@ export class PushTokenService {
         scanned += Number(group.count);
 
         const activeTokens = await queryRunner.manager
-          .createQueryBuilder(PushToken, 'token')
-          .where('token.userId = :userId', { userId: group.userId })
-          .andWhere('token.platform = :platform', { platform: group.platform })
-          .andWhere('token.active = :active', { active: true })
-          .andWhere('token.deletedAt IS NULL')
-          .orderBy('token.updatedAt', 'DESC')
+          .createQueryBuilder(PushToken, "token")
+          .where("token.userId = :userId", { userId: group.userId })
+          .andWhere("token.platform = :platform", { platform: group.platform })
+          .andWhere("token.active = :active", { active: true })
+          .andWhere("token.deletedAt IS NULL")
+          .orderBy("token.updatedAt", "DESC")
           .getMany();
 
         const groupedByDevice = new Map<string, PushToken[]>();
 
         for (const token of activeTokens) {
-          const key = this.extractDeviceId(token.deviceMetadata) ?? '__no_device__';
+          const key =
+            this.extractDeviceId(token.deviceMetadata) ?? "__no_device__";
           if (!groupedByDevice.has(key)) {
             groupedByDevice.set(key, []);
           }
@@ -1238,7 +1356,7 @@ export class PushTokenService {
       }
 
       const now = new Date();
-      const ids = tokensToDeactivate.map(token => token.id);
+      const ids = tokensToDeactivate.map((token) => token.id);
 
       await queryRunner.manager
         .createQueryBuilder()
@@ -1246,10 +1364,10 @@ export class PushTokenService {
         .set({
           active: false,
           updatedAt: now,
-          failureReason: 'cleanup_job:duplicate_refresh',
-          lastFailureAt: now
+          failureReason: "cleanup_job:duplicate_refresh",
+          lastFailureAt: now,
         })
-        .where('id IN (:...ids)', { ids })
+        .where("id IN (:...ids)", { ids })
         .execute();
 
       await queryRunner.commitTransaction();
@@ -1262,11 +1380,14 @@ export class PushTokenService {
           platform: token.platform,
           tenantId: token.tenantId,
           correlationId,
-          reason: 'cleanup_job',
-          errorCode: 'DUPLICATE_REFRESH',
+          reason: "cleanup_job",
+          errorCode: "DUPLICATE_REFRESH",
         });
 
-        this.observabilityService.recordTokenInvalidated(token.platform, 'cleanup_job');
+        this.observabilityService.recordTokenInvalidated(
+          token.platform,
+          "cleanup_job",
+        );
       }
 
       for (const userId of userIdsToInvalidate) {
@@ -1274,10 +1395,10 @@ export class PushTokenService {
       }
 
       this.logger.log({
-        message: 'Duplicate token cleanup run completed',
+        message: "Duplicate token cleanup run completed",
         correlationId,
         deactivated: tokensToDeactivate.length,
-        scanned
+        scanned,
       });
 
       for (const [platform, tenantIds] of platformTenantTouched.entries()) {
@@ -1287,23 +1408,26 @@ export class PushTokenService {
               platform,
               tenantId,
               active: true,
-              deletedAt: undefined
-            }
+              deletedAt: undefined,
+            },
           });
 
-          await this.observabilityService.updateActiveTokenCount(platform, tenantId, activeCount);
+          await this.observabilityService.updateActiveTokenCount(
+            platform,
+            tenantId,
+            activeCount,
+          );
         }
       }
 
       return { scanned, deactivated: tokensToDeactivate.length };
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
 
       this.logger.error({
-        message: 'Duplicate token cleanup run failed',
+        message: "Duplicate token cleanup run failed",
         error: (error as Error).message,
-        correlationId
+        correlationId,
       });
 
       throw error;
@@ -1312,14 +1436,14 @@ export class PushTokenService {
     }
   }
 
-  @Cron('0 * * * *', { name: 'push-token-duplicate-cleanup', timeZone: 'UTC' })
+  @Cron("0 * * * *", { name: "push-token-duplicate-cleanup", timeZone: "UTC" })
   async handleDuplicateCleanupCron(): Promise<void> {
     try {
       await this.cleanupDuplicateTokens({ correlationId: randomUUID() });
     } catch (error) {
       this.logger.error({
-        message: 'Scheduled duplicate cleanup failed',
-        error: (error as Error).message
+        message: "Scheduled duplicate cleanup failed",
+        error: (error as Error).message,
       });
     }
   }
@@ -1331,14 +1455,14 @@ export class PushTokenService {
     maxFailureCount: number = 5,
     failureWindowDays: number = 7,
     inactivityDays: number = 30,
-    correlationId: string
+    correlationId: string,
   ): Promise<{ markedForCleanup: number; deleted: number }> {
     this.logger.log({
-      message: 'Starting token cleanup',
+      message: "Starting token cleanup",
       maxFailureCount,
       failureWindowDays,
       inactivityDays,
-      correlationId
+      correlationId,
     });
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -1353,13 +1477,15 @@ export class PushTokenService {
         .set({
           active: false,
           deletedAt: new Date(),
-          failureReason: 'Exceeded failure threshold',
-          updatedAt: new Date()
+          failureReason: "Exceeded failure threshold",
+          updatedAt: new Date(),
         })
-        .where('active = true')
-        .andWhere('failureCount >= :maxFailureCount', { maxFailureCount })
-        .andWhere('lastFailureAt > :failureWindow', {
-          failureWindow: new Date(Date.now() - failureWindowDays * 24 * 60 * 60 * 1000)
+        .where("active = true")
+        .andWhere("failureCount >= :maxFailureCount", { maxFailureCount })
+        .andWhere("lastFailureAt > :failureWindow", {
+          failureWindow: new Date(
+            Date.now() - failureWindowDays * 24 * 60 * 60 * 1000,
+          ),
         })
         .execute();
 
@@ -1370,41 +1496,44 @@ export class PushTokenService {
         .set({
           active: false,
           deletedAt: new Date(),
-          failureReason: 'Token inactive for extended period',
-          updatedAt: new Date()
+          failureReason: "Token inactive for extended period",
+          updatedAt: new Date(),
         })
-        .where('active = true')
-        .andWhere('lastUsedAt < :inactivityThreshold', {
-          inactivityThreshold: new Date(Date.now() - inactivityDays * 24 * 60 * 60 * 1000)
+        .where("active = true")
+        .andWhere("lastUsedAt < :inactivityThreshold", {
+          inactivityThreshold: new Date(
+            Date.now() - inactivityDays * 24 * 60 * 60 * 1000,
+          ),
         })
         .execute();
 
-      const totalMarkedForCleanup = (failureCleanupResult.affected || 0) + (inactivityCleanupResult.affected || 0);
+      const totalMarkedForCleanup =
+        (failureCleanupResult.affected || 0) +
+        (inactivityCleanupResult.affected || 0);
 
       await queryRunner.commitTransaction();
 
       this.logger.log({
-        message: 'Token cleanup completed',
+        message: "Token cleanup completed",
         markedForCleanup: totalMarkedForCleanup,
         failureCleanup: failureCleanupResult.affected || 0,
         inactivityCleanup: inactivityCleanupResult.affected || 0,
-        correlationId
+        correlationId,
       });
 
       return {
         markedForCleanup: totalMarkedForCleanup,
-        deleted: totalMarkedForCleanup // In this implementation, soft delete = cleanup
+        deleted: totalMarkedForCleanup, // In this implementation, soft delete = cleanup
       };
-
     } catch (error) {
       await queryRunner.rollbackTransaction();
-      
+
       this.logger.error({
-        message: 'Token cleanup failed',
+        message: "Token cleanup failed",
         error: error.message,
-        correlationId
+        correlationId,
       });
-      
+
       throw error;
     } finally {
       await queryRunner.release();
@@ -1414,82 +1543,94 @@ export class PushTokenService {
   /**
    * Private helper methods
    */
-  
+
   private async validateTokenWithPlatform(token: PushToken): Promise<{
-    result: 'valid' | 'invalid' | 'expired' | 'unregistered';
+    result: "valid" | "invalid" | "expired" | "unregistered";
     responseCode?: number;
     message?: string;
   }> {
     // In a real implementation, this would call FCM or APNs APIs
     // For now, simulate validation based on token format and age
-    
-    const isFormatValid = token.tokenType === PushTokenType.FCM 
-      ? TokenValidationUtils.isValidFcmToken(token.token)
-      : TokenValidationUtils.isValidApnsToken(token.token);
+
+    const isFormatValid =
+      token.tokenType === PushTokenType.FCM
+        ? TokenValidationUtils.isValidFcmToken(token.token)
+        : TokenValidationUtils.isValidApnsToken(token.token);
 
     if (!isFormatValid) {
       return {
-        result: 'invalid',
+        result: "invalid",
         responseCode: 400,
-        message: 'Invalid token format'
+        message: "Invalid token format",
       };
     }
 
     // Simulate some tokens being expired (older than 60 days)
     const tokenAge = Date.now() - token.createdAt.getTime();
     const sixtyDaysMs = 60 * 24 * 60 * 60 * 1000;
-    
-    if (tokenAge > sixtyDaysMs && Math.random() < 0.1) { // 10% chance of expiry for old tokens
+
+    if (tokenAge > sixtyDaysMs && Math.random() < 0.1) {
+      // 10% chance of expiry for old tokens
       return {
-        result: 'expired',
+        result: "expired",
         responseCode: 410,
-        message: 'Token expired'
+        message: "Token expired",
       };
     }
 
     return {
-      result: 'valid',
+      result: "valid",
       responseCode: 200,
-      message: 'Token valid'
+      message: "Token valid",
     };
   }
 
-  private async markTokenAsInvalid(tokenId: string, reason: string, correlationId: string): Promise<void> {
+  private async markTokenAsInvalid(
+    tokenId: string,
+    reason: string,
+    correlationId: string,
+  ): Promise<void> {
     await this.pushTokenRepository.update(tokenId, {
-      failureCount: () => 'failure_count + 1',
+      failureCount: () => "failure_count + 1",
       lastFailureAt: new Date(),
       failureReason: reason,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     // Create audit entry
     await this.auditRepository.save({
       tokenId,
-      userId: '', // Would need to fetch from token
-      eventType: 'validation_failed',
+      userId: "", // Would need to fetch from token
+      eventType: "validation_failed",
       eventData: { reason },
       correlationId,
-      createdBy: 'system_validation'
+      createdBy: "system_validation",
     });
   }
 
-  private async markTokenAsValid(tokenId: string, correlationId: string): Promise<void> {
+  private async markTokenAsValid(
+    tokenId: string,
+    correlationId: string,
+  ): Promise<void> {
     await this.pushTokenRepository.update(tokenId, {
       lastValidatedAt: new Date(),
       failureCount: 0,
       lastFailureAt: null,
       failureReason: null,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
   }
 
-  private extractDeviceId(metadata?: Record<string, any> | null): string | undefined {
-    if (!metadata || typeof metadata !== 'object') {
+  private extractDeviceId(
+    metadata?: Record<string, any> | null,
+  ): string | undefined {
+    if (!metadata || typeof metadata !== "object") {
       return undefined;
     }
 
-    const candidate = metadata.deviceId ?? metadata.device_id ?? metadata.deviceID;
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
+    const candidate =
+      metadata.deviceId ?? metadata.device_id ?? metadata.deviceID;
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
       return candidate.trim();
     }
 
@@ -1497,7 +1638,7 @@ export class PushTokenService {
   }
 
   private normalizeErrorCode(errorCode: string): string {
-    return (errorCode || 'UNKNOWN').toString().trim().toUpperCase();
+    return (errorCode || "UNKNOWN").toString().trim().toUpperCase();
   }
 
   private isHardFailure(errorCode: string): boolean {
@@ -1508,16 +1649,18 @@ export class PushTokenService {
     return this.transientFailureCodes.has(this.normalizeErrorCode(errorCode));
   }
 
-  private mapFeedbackStatusToValidationResult(status: DeliveryStatus): 'valid' | 'invalid' | 'expired' | 'unregistered' {
+  private mapFeedbackStatusToValidationResult(
+    status: DeliveryStatus,
+  ): "valid" | "invalid" | "expired" | "unregistered" {
     switch (status) {
-      case 'delivered':
-        return 'valid';
-      case 'expired':
-        return 'expired';
-      case 'unregistered':
-        return 'unregistered';
+      case "delivered":
+        return "valid";
+      case "expired":
+        return "expired";
+      case "unregistered":
+        return "unregistered";
       default:
-        return 'invalid';
+        return "invalid";
     }
   }
 
@@ -1553,7 +1696,7 @@ export class PushTokenService {
       failureCount: token.failureCount,
       lastFailureAt: token.lastFailureAt?.toISOString(),
       failureReason: token.failureReason,
-      tenantId: token.tenantId
+      tenantId: token.tenantId,
     };
   }
 }

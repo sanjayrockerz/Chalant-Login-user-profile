@@ -1,5 +1,8 @@
-import { NotificationPayload } from '../dto/notification.dto';
-import { PushPlatform, PushTokenType } from '../../push-tokens/dto/push-token.dto';
+import { NotificationPayload } from "../dto/notification.dto";
+import {
+  PushPlatform,
+  PushTokenType,
+} from "../../push-tokens/dto/push-token.dto";
 
 export interface NotificationTransportContext {
   tokenId: string;
@@ -20,6 +23,6 @@ export interface NotificationTransport {
   send(
     deviceToken: string,
     payload: NotificationPayload,
-    context: NotificationTransportContext
+    context: NotificationTransportContext,
   ): Promise<NotificationTransportResponse>;
 }

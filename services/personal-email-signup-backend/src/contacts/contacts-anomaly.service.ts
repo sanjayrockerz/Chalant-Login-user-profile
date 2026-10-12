@@ -1,18 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '../config/config.service';
-import { MetricsService } from '../metrics/metrics.service';
-import { RateLimiterService } from '../rate_limiter/rate_limiter.service';
-import { ContactUploadDto } from './dto/contacts.dto';
-import { NormalizationResult, RequestContext } from './contacts.types';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "../config/config.service";
+import { MetricsService } from "../metrics/metrics.service";
+import { RateLimiterService } from "../rate_limiter/rate_limiter.service";
+import { ContactUploadDto } from "./dto/contacts.dto";
+import { NormalizationResult, RequestContext } from "./contacts.types";
 
 export interface AnomalySignal {
   type: string;
-  severity: 'low' | 'medium' | 'high';
+  severity: "low" | "medium" | "high";
   message: string;
 }
 
 export interface AnomalyAssessment {
-  action: 'allow' | 'monitor' | 'challenge' | 'block';
+  action: "allow" | "monitor" | "challenge" | "block";
   signals: AnomalySignal[];
   cooldownSeconds?: number;
 }
@@ -42,8 +42,12 @@ export class ContactsAnomalyService {
   async assess(params: AssessmentParams): Promise<AnomalyAssessment> {
     const signals: AnomalySignal[] = [];
     const contactCount = params.uploadDto.contacts.length;
-    const duplicateRatio = contactCount > 0 ? params.duplicateCount / contactCount : 0;
-    const invalidRatio = contactCount > 0 ? params.normalization.invalidIdentifiers.length / contactCount : 0;
+    const duplicateRatio =
+      contactCount > 0 ? params.duplicateCount / contactCount : 0;
+    const invalidRatio =
+      contactCount > 0
+        ? params.normalization.invalidIdentifiers.length / contactCount
+        : 0;
     const sequentialRatio = this.calculateSequentialRatio(params.normalization);
     const testNumberHits = this.countTestNumbers(params.normalization);
     const newHashesStored = params.newHashes;
@@ -55,9 +59,9 @@ export class ContactsAnomalyService {
 
     if (contactCount > 0 && newHashesStored === 0) {
       signals.push({
-        type: 'no_new_hashes',
-        severity: 'medium',
-        message: 'Upload produced no new contact hashes',
+        type: "no_new_hashes",
+        severity: "medium",
+        message: "Upload produced no new contact hashes",
       });
     }
 
@@ -73,13 +77,18 @@ export class ContactsAnomalyService {
     const action = this.resolveAction(signals);
     let cooldownSeconds: number | undefined = velocitySignal?.cooldownSeconds;
 
-    if (action === 'block' && !cooldownSeconds) {
-      cooldownSeconds = this.resolveNumberConfig('CONTACTS_ANOMALY_VELOCITY_WINDOW_SECONDS', 300);
+    if (action === "block" && !cooldownSeconds) {
+      cooldownSeconds = this.resolveNumberConfig(
+        "CONTACTS_ANOMALY_VELOCITY_WINDOW_SECONDS",
+        300,
+      );
     }
 
     if (signals.length > 0) {
-      signals.forEach((signal) => this.metrics.incrementSuspiciousEvent(signal.type, signal.severity));
-      this.logger.warn('contacts.upload:anomaly_signals', {
+      signals.forEach((signal) =>
+        this.metrics.incrementSuspiciousEvent(signal.type, signal.severity),
+      );
+      this.logger.warn("contacts.upload:anomaly_signals", {
         correlationId: params.context.correlationId,
         tenantId: params.context.tenantId,
         signals,
@@ -94,14 +103,23 @@ export class ContactsAnomalyService {
     return { action, signals, cooldownSeconds };
   }
 
-  private evaluateDuplicateRatio(signals: AnomalySignal[], ratio: number): void {
-    const warnThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_DUPLICATE_RATIO_WARN', 0.5);
-    const blockThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_DUPLICATE_RATIO_BLOCK', 0.9);
+  private evaluateDuplicateRatio(
+    signals: AnomalySignal[],
+    ratio: number,
+  ): void {
+    const warnThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_DUPLICATE_RATIO_WARN",
+      0.5,
+    );
+    const blockThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_DUPLICATE_RATIO_BLOCK",
+      0.9,
+    );
 
     if (ratio >= blockThreshold) {
       signals.push({
-        type: 'duplicate_ratio_high',
-        severity: 'high',
+        type: "duplicate_ratio_high",
+        severity: "high",
         message: `Duplicate ratio ${Math.round(ratio * 100)}% exceeds block threshold`,
       });
       return;
@@ -109,21 +127,27 @@ export class ContactsAnomalyService {
 
     if (ratio >= warnThreshold) {
       signals.push({
-        type: 'duplicate_ratio_elevated',
-        severity: 'medium',
+        type: "duplicate_ratio_elevated",
+        severity: "medium",
         message: `Duplicate ratio ${Math.round(ratio * 100)}% exceeds warning threshold`,
       });
     }
   }
 
   private evaluateInvalidRatio(signals: AnomalySignal[], ratio: number): void {
-    const warnThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_INVALID_RATIO_WARN', 0.4);
-    const blockThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_INVALID_RATIO_BLOCK', 0.75);
+    const warnThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_INVALID_RATIO_WARN",
+      0.4,
+    );
+    const blockThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_INVALID_RATIO_BLOCK",
+      0.75,
+    );
 
     if (ratio >= blockThreshold) {
       signals.push({
-        type: 'invalid_ratio_high',
-        severity: 'high',
+        type: "invalid_ratio_high",
+        severity: "high",
         message: `Invalid ratio ${Math.round(ratio * 100)}% exceeds block threshold`,
       });
       return;
@@ -131,21 +155,30 @@ export class ContactsAnomalyService {
 
     if (ratio >= warnThreshold) {
       signals.push({
-        type: 'invalid_ratio_elevated',
-        severity: 'medium',
+        type: "invalid_ratio_elevated",
+        severity: "medium",
         message: `Invalid ratio ${Math.round(ratio * 100)}% exceeds warning threshold`,
       });
     }
   }
 
-  private evaluateSequentialRatio(signals: AnomalySignal[], ratio: number): void {
-    const warnThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_SEQUENTIAL_RATIO_WARN', 0.35);
-    const blockThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_SEQUENTIAL_RATIO_BLOCK', 0.6);
+  private evaluateSequentialRatio(
+    signals: AnomalySignal[],
+    ratio: number,
+  ): void {
+    const warnThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_SEQUENTIAL_RATIO_WARN",
+      0.35,
+    );
+    const blockThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_SEQUENTIAL_RATIO_BLOCK",
+      0.6,
+    );
 
     if (ratio >= blockThreshold) {
       signals.push({
-        type: 'sequential_pattern_high',
-        severity: 'high',
+        type: "sequential_pattern_high",
+        severity: "high",
         message: `Sequential pattern ratio ${Math.round(ratio * 100)}% exceeds block threshold`,
       });
       return;
@@ -153,45 +186,68 @@ export class ContactsAnomalyService {
 
     if (ratio >= warnThreshold) {
       signals.push({
-        type: 'sequential_pattern_elevated',
-        severity: 'medium',
+        type: "sequential_pattern_elevated",
+        severity: "medium",
         message: `Sequential pattern ratio ${Math.round(ratio * 100)}% exceeds warning threshold`,
       });
     }
   }
 
   private evaluateTestData(signals: AnomalySignal[], hits: number): void {
-    const threshold = this.resolveNumberConfig('CONTACTS_ANOMALY_TEST_NUMBER_THRESHOLD', 5);
+    const threshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_TEST_NUMBER_THRESHOLD",
+      5,
+    );
     if (hits >= threshold && hits < threshold * 2) {
       signals.push({
-        type: 'test_number_detected',
-        severity: 'medium',
+        type: "test_number_detected",
+        severity: "medium",
         message: `${hits} test or placeholder numbers detected`,
       });
     } else if (hits >= threshold * 2) {
       signals.push({
-        type: 'test_number_mass',
-        severity: 'high',
+        type: "test_number_mass",
+        severity: "high",
         message: `${hits} test or placeholder numbers detected`,
       });
     }
   }
 
-  private async evaluateVelocity(signals: AnomalySignal[], params: AssessmentParams) {
-    const windowSeconds = this.resolveNumberConfig('CONTACTS_ANOMALY_VELOCITY_WINDOW_SECONDS', 300);
-    const userThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_USER_VELOCITY_THRESHOLD', 6);
-    const ipThreshold = this.resolveNumberConfig('CONTACTS_ANOMALY_IP_VELOCITY_THRESHOLD', 12);
+  private async evaluateVelocity(
+    signals: AnomalySignal[],
+    params: AssessmentParams,
+  ) {
+    const windowSeconds = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_VELOCITY_WINDOW_SECONDS",
+      300,
+    );
+    const userThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_USER_VELOCITY_THRESHOLD",
+      6,
+    );
+    const ipThreshold = this.resolveNumberConfig(
+      "CONTACTS_ANOMALY_IP_VELOCITY_THRESHOLD",
+      12,
+    );
 
     const [{ count: userCount }, { count: ipCount }] = await Promise.all([
-      this.rateLimiter.incrementWindowCounter('contacts_upload_user_velocity', params.userIdHash, windowSeconds),
-      this.rateLimiter.incrementWindowCounter('contacts_upload_ip_velocity', params.ipHash, windowSeconds),
+      this.rateLimiter.incrementWindowCounter(
+        "contacts_upload_user_velocity",
+        params.userIdHash,
+        windowSeconds,
+      ),
+      this.rateLimiter.incrementWindowCounter(
+        "contacts_upload_ip_velocity",
+        params.ipHash,
+        windowSeconds,
+      ),
     ]);
 
     let cooldownSeconds: number | undefined;
     if (userCount > userThreshold) {
       signals.push({
-        type: 'user_velocity_exceeded',
-        severity: userCount > userThreshold * 2 ? 'high' : 'medium',
+        type: "user_velocity_exceeded",
+        severity: userCount > userThreshold * 2 ? "high" : "medium",
         message: `User performed ${userCount} uploads within ${windowSeconds}s window`,
       });
       cooldownSeconds = windowSeconds;
@@ -199,8 +255,8 @@ export class ContactsAnomalyService {
 
     if (ipCount > ipThreshold) {
       signals.push({
-        type: 'ip_velocity_exceeded',
-        severity: ipCount > ipThreshold * 2 ? 'high' : 'medium',
+        type: "ip_velocity_exceeded",
+        severity: ipCount > ipThreshold * 2 ? "high" : "medium",
         message: `IP observed ${ipCount} uploads within ${windowSeconds}s window`,
       });
       cooldownSeconds = Math.max(cooldownSeconds ?? 0, windowSeconds);
@@ -208,7 +264,11 @@ export class ContactsAnomalyService {
 
     if (cooldownSeconds) {
       return {
-        signal: { type: 'velocity_window', severity: 'medium', message: 'Upload velocity exceeds baseline expectations' },
+        signal: {
+          type: "velocity_window",
+          severity: "medium",
+          message: "Upload velocity exceeds baseline expectations",
+        },
         cooldownSeconds,
       } as const;
     }
@@ -216,23 +276,23 @@ export class ContactsAnomalyService {
     return undefined;
   }
 
-  private resolveAction(signals: AnomalySignal[]): AnomalyAssessment['action'] {
-    let action: AnomalyAssessment['action'] = 'allow';
+  private resolveAction(signals: AnomalySignal[]): AnomalyAssessment["action"] {
+    let action: AnomalyAssessment["action"] = "allow";
     for (const signal of signals) {
-      if (signal.severity === 'high') {
-        action = 'block';
+      if (signal.severity === "high") {
+        action = "block";
         break;
       }
 
-      if (signal.severity === 'medium') {
-        if (action === 'allow' || action === 'monitor') {
-          action = 'challenge';
+      if (signal.severity === "medium") {
+        if (action === "allow" || action === "monitor") {
+          action = "challenge";
         }
         continue;
       }
 
-      if (signal.severity === 'low' && action === 'allow') {
-        action = 'monitor';
+      if (signal.severity === "low" && action === "allow") {
+        action = "monitor";
       }
     }
 
@@ -245,7 +305,7 @@ export class ContactsAnomalyService {
     }
 
     const sequentialMatches = normalization.uniqueContacts.filter((contact) => {
-      const digits = contact.normalizedValue.replace(/\D/g, '');
+      const digits = contact.normalizedValue.replace(/\D/g, "");
       if (digits.length < 6) {
         return false;
       }
@@ -263,7 +323,7 @@ export class ContactsAnomalyService {
     for (let i = 1; i < digits.length; i++) {
       const prev = Number(digits[i - 1]);
       const curr = Number(digits[i]);
-      if (((curr - prev + 10) % 10) !== 1) {
+      if ((curr - prev + 10) % 10 !== 1) {
         increasing = false;
         break;
       }
@@ -274,7 +334,7 @@ export class ContactsAnomalyService {
   private countTestNumbers(normalization: NormalizationResult): number {
     const patterns = [/^12345/, /^555/, /^000+$/, /^999+$/, /^888+$/];
     return normalization.uniqueContacts.filter((contact) => {
-      const digits = contact.normalizedValue.replace(/\D/g, '');
+      const digits = contact.normalizedValue.replace(/\D/g, "");
       if (digits.length < 6) {
         return false;
       }
@@ -284,10 +344,10 @@ export class ContactsAnomalyService {
 
   private resolveNumberConfig(key: string, fallback: number): number {
     const value = this.config.get(key as any) as unknown;
-    if (typeof value === 'number' && !Number.isNaN(value)) {
+    if (typeof value === "number" && !Number.isNaN(value)) {
       return value;
     }
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       const parsed = Number(value);
       if (!Number.isNaN(parsed)) {
         return parsed;

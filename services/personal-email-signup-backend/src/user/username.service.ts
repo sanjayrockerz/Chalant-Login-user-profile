@@ -1,9 +1,9 @@
 // filepath: src/user/username.service.ts
-import { Injectable, Logger, ConflictException } from '@nestjs/common';
-import { PrismaClient, Prisma } from '@prisma/client';
-import { ConfigService } from '@nestjs/config';
-import { MetricsService } from '../metrics/metrics.service';
-import { UsernameValidationService } from './username-validation.service';
+import { Injectable, Logger, ConflictException } from "@nestjs/common";
+import { PrismaClient, Prisma } from "@prisma/client";
+import { ConfigService } from "@nestjs/config";
+import { MetricsService } from "../metrics/metrics.service";
+import { UsernameValidationService } from "./username-validation.service";
 
 export interface UsernameUpdateResult {
   changed_at: Date;
@@ -18,14 +18,17 @@ export class UsernameService {
     private readonly prisma: PrismaClient,
     private readonly configService: ConfigService,
     private readonly validationService: UsernameValidationService,
-    private readonly metricsService?: MetricsService
+    private readonly metricsService?: MetricsService,
   ) {}
 
   /**
    * Check if a username is available for use
    * Uses case-insensitive comparison via normalizedUsername.
    */
-  async isUsernameAvailable(canonical: string, excludeUserId?: string): Promise<boolean> {
+  async isUsernameAvailable(
+    canonical: string,
+    excludeUserId?: string,
+  ): Promise<boolean> {
     try {
       const whereClause: Prisma.UserWhereInput = {
         normalizedUsername: canonical.toLowerCase(),
@@ -38,17 +41,17 @@ export class UsernameService {
 
       const existingUser = await this.prisma.user.findFirst({
         where: whereClause,
-        select: { id: true } // Only select id for efficiency
+        select: { id: true }, // Only select id for efficiency
       });
 
       return !existingUser;
     } catch (error) {
-      this.logger.error('Failed to check username availability', {
+      this.logger.error("Failed to check username availability", {
         error: error.message,
         canonical,
-        excludeUserId
+        excludeUserId,
       });
-      
+
       // In case of database error, assume not available for safety
       return false;
     }
@@ -70,8 +73,8 @@ export class UsernameService {
         id: true,
         username: true,
         normalizedUsername: true,
-        usernameUpdatedAt: true
-      }
+        usernameUpdatedAt: true,
+      },
     });
 
     return user;
@@ -84,17 +87,21 @@ export class UsernameService {
     userId: string,
     newUsername: string,
     canonical: string,
-    correlationId: string
+    correlationId: string,
   ): Promise<UsernameUpdateResult> {
     const start = Date.now();
 
     try {
       // Get current user data
       const currentUser = await this.getUserById(userId);
-      
+
       // Calculate next allowed change time
-      const minDaysBetweenChanges = this.configService.get<number>('USERNAME_MIN_DAYS_BETWEEN_CHANGES') || 30;
-      const nextChangeAllowedAt = new Date(Date.now() + (minDaysBetweenChanges * 24 * 60 * 60 * 1000));
+      const minDaysBetweenChanges =
+        this.configService.get<number>("USERNAME_MIN_DAYS_BETWEEN_CHANGES") ||
+        30;
+      const nextChangeAllowedAt = new Date(
+        Date.now() + minDaysBetweenChanges * 24 * 60 * 60 * 1000,
+      );
 
       // Update username with atomic transaction
       const updatedUser = await this.prisma.user.update({
@@ -103,22 +110,24 @@ export class UsernameService {
           username: newUsername,
           normalizedUsername: canonical,
           usernameUpdatedAt: new Date(),
-          updatedAt: new Date()
+          updatedAt: new Date(),
         },
         select: {
           id: true,
           username: true,
           normalizedUsername: true,
-          usernameUpdatedAt: true
-        }
+          usernameUpdatedAt: true,
+        },
       });
 
-      this.logger.log('Username updated successfully', {
+      this.logger.log("Username updated successfully", {
         user_id: userId,
-        old_username: this.validationService.sanitizeForLogging(currentUser.username),
+        old_username: this.validationService.sanitizeForLogging(
+          currentUser.username,
+        ),
         new_username: this.validationService.sanitizeForLogging(newUsername),
         change_count: currentUser.usernameChangeCount || 0,
-        correlation_id: correlationId
+        correlation_id: correlationId,
       });
 
       // Record metrics
@@ -126,7 +135,9 @@ export class UsernameService {
         const duration = Date.now() - start;
         // Assuming these methods exist or will be added to MetricsService
         try {
-          this.metricsService.errorsTotal?.inc?.({ type: 'username_update_success' });
+          this.metricsService.errorsTotal?.inc?.({
+            type: "username_update_success",
+          });
         } catch (err) {
           // Metrics failures should not break the main flow
         }
@@ -134,32 +145,33 @@ export class UsernameService {
 
       return {
         changed_at: updatedUser.usernameUpdatedAt!,
-        next_change_allowed_at: nextChangeAllowedAt
+        next_change_allowed_at: nextChangeAllowedAt,
       };
-
     } catch (error) {
-      this.logger.error('Username update failed', {
+      this.logger.error("Username update failed", {
         error: error.message,
         user_id: userId,
         new_username: this.validationService.sanitizeForLogging(newUsername),
-        correlation_id: correlationId
+        correlation_id: correlationId,
       });
 
       // Record error metrics
       if (this.metricsService) {
         try {
-          this.metricsService.errorsTotal?.inc?.({ type: 'username_update_error' });
+          this.metricsService.errorsTotal?.inc?.({
+            type: "username_update_error",
+          });
         } catch (err) {
           // Metrics failures should not break the main flow
         }
       }
 
       // Check if it's a uniqueness constraint violation
-      if (error.code === 'P2002' && error.meta?.target?.includes('username')) {
+      if (error.code === "P2002" && error.meta?.target?.includes("username")) {
         throw new ConflictException({
-          error: 'USERNAME_TAKEN',
-          message: 'Username is already taken',
-          correlation_id: correlationId
+          error: "USERNAME_TAKEN",
+          message: "Username is already taken",
+          correlation_id: correlationId,
         });
       }
 
@@ -173,8 +185,8 @@ export class UsernameService {
   async findByCanonicalUsername(canonical: string): Promise<any> {
     return await this.prisma.user.findFirst({
       where: {
-        normalizedUsername: canonical.toLowerCase()
-      }
+        normalizedUsername: canonical.toLowerCase(),
+      },
     });
   }
 
@@ -185,73 +197,73 @@ export class UsernameService {
     total_changes_today: number;
     total_changes_this_week: number;
     users_with_recent_changes: number;
-  most_changed_usernames: Array<{ user_id: string; change_count: number }>;
+    most_changed_usernames: Array<{ user_id: string; change_count: number }>;
   }> {
     const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayStart = new Date(
+      now.getFullYear(),
+      now.getMonth(),
+      now.getDate(),
+    );
     const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
     try {
-      const [
-        todayChanges,
-        weekChanges,
-        recentUsers,
-        topChangers
-      ] = await Promise.all([
-        // Changes today
-        this.prisma.user.count({
-          where: {
-            usernameUpdatedAt: {
-              gte: todayStart
-            }
-          }
-        }),
-        
-        // Changes this week
-        this.prisma.user.count({
-          where: {
-            usernameUpdatedAt: {
-              gte: weekStart
-            }
-          }
-        }),
-        
-        // Users with recent changes
-        this.prisma.user.count({
-          where: {
-            usernameUpdatedAt: {
-              gte: weekStart
-            }
-          }
-        }),
-        
-        // Top username changers
-        this.prisma.user.findMany({
-          where: { usernameUpdatedAt: { not: null } },
-          select: {
-            id: true,
-            usernameUpdatedAt: true
-          },
-          take: 10
-        })
-      ]);
+      const [todayChanges, weekChanges, recentUsers, topChangers] =
+        await Promise.all([
+          // Changes today
+          this.prisma.user.count({
+            where: {
+              usernameUpdatedAt: {
+                gte: todayStart,
+              },
+            },
+          }),
+
+          // Changes this week
+          this.prisma.user.count({
+            where: {
+              usernameUpdatedAt: {
+                gte: weekStart,
+              },
+            },
+          }),
+
+          // Users with recent changes
+          this.prisma.user.count({
+            where: {
+              usernameUpdatedAt: {
+                gte: weekStart,
+              },
+            },
+          }),
+
+          // Top username changers
+          this.prisma.user.findMany({
+            where: { usernameUpdatedAt: { not: null } },
+            select: {
+              id: true,
+              usernameUpdatedAt: true,
+            },
+            take: 10,
+          }),
+        ]);
 
       return {
         total_changes_today: todayChanges,
         total_changes_this_week: weekChanges,
         users_with_recent_changes: recentUsers,
-        most_changed_usernames: topChangers.map(user => ({
+        most_changed_usernames: topChangers.map((user) => ({
           user_id: user.id,
-          change_count: user.usernameUpdatedAt ? 1 : 0
-        }))
+          change_count: user.usernameUpdatedAt ? 1 : 0,
+        })),
       };
     } catch (error) {
-      this.logger.error('Failed to get username change statistics', error);
+      this.logger.error("Failed to get username change statistics", error);
       return {
         total_changes_today: 0,
         total_changes_this_week: 0,
         users_with_recent_changes: 0,
-        most_changed_usernames: []
+        most_changed_usernames: [],
       };
     }
   }
@@ -270,24 +282,23 @@ export class UsernameService {
     let errors = 0;
     let offset = 0;
 
-    this.logger.log(`Starting batch username canonical update with batch size ${batchSize}`);
+    this.logger.log(
+      `Starting batch username canonical update with batch size ${batchSize}`,
+    );
 
     while (true) {
       try {
         // Get batch of users with missing canonical usernames
         const users = await this.prisma.user.findMany({
           where: {
-            OR: [
-              { normalizedUsername: null },
-              { normalizedUsername: '' }
-            ]
+            OR: [{ normalizedUsername: null }, { normalizedUsername: "" }],
           },
           select: {
             id: true,
-            username: true
+            username: true,
           },
           skip: offset,
-          take: batchSize
+          take: batchSize,
         });
 
         if (users.length === 0) {
@@ -297,39 +308,47 @@ export class UsernameService {
         // Process each user in the batch
         for (const user of users) {
           try {
-            const canonical = this.validationService.normalizeUsername(user.username);
-            
+            const canonical = this.validationService.normalizeUsername(
+              user.username,
+            );
+
             await this.prisma.user.update({
               where: { id: user.id },
-              data: { normalizedUsername: canonical }
+              data: { normalizedUsername: canonical },
             });
-            
+
             updated++;
           } catch (error) {
-            this.logger.error(`Failed to update canonical username for user ${user.id}`, {
-              error: error.message,
-              username: user.username
-            });
+            this.logger.error(
+              `Failed to update canonical username for user ${user.id}`,
+              {
+                error: error.message,
+                username: user.username,
+              },
+            );
             errors++;
           }
-          
+
           processed++;
         }
 
         offset += batchSize;
-        
+
         // Log progress
         if (processed % (batchSize * 10) === 0) {
-          this.logger.log(`Batch update progress: ${processed} processed, ${updated} updated, ${errors} errors`);
+          this.logger.log(
+            `Batch update progress: ${processed} processed, ${updated} updated, ${errors} errors`,
+          );
         }
-
       } catch (error) {
-        this.logger.error('Batch update failed', error);
+        this.logger.error("Batch update failed", error);
         break;
       }
     }
 
-    this.logger.log(`Batch username canonical update completed: ${processed} processed, ${updated} updated, ${errors} errors`);
+    this.logger.log(
+      `Batch username canonical update completed: ${processed} processed, ${updated} updated, ${errors} errors`,
+    );
 
     return { processed, updated, errors };
   }

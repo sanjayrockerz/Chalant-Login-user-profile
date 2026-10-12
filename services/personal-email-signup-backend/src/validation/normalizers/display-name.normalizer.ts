@@ -10,34 +10,37 @@ export interface DisplayNameOptions {
 
 function stripControlCharacters(value: string): string {
   try {
-    return value.replace(/\p{C}/gu, '');
+    return value.replace(/\p{C}/gu, "");
   } catch (error) {
-    return value.replace(/[\x00-\x1F\x7F]/g, '');
+    return value.replace(/[\x00-\x1F\x7F]/g, "");
   }
 }
 
 function stripUnsupportedCharacters(value: string): string {
   try {
-    return value.replace(/[^\p{L}\p{M}\p{N} .,'\-]/gu, '');
+    return value.replace(/[^\p{L}\p{M}\p{N} .,'\-]/gu, "");
   } catch (error) {
-    return value.replace(/[^A-Za-z0-9 .,'\-]/g, '');
+    return value.replace(/[^A-Za-z0-9 .,'\-]/g, "");
   }
 }
 
 export function normalizeDisplayName(input: unknown): string {
   if (input === undefined || input === null) {
-    return '';
+    return "";
   }
 
-  let value = String(input).normalize('NFKC');
+  let value = String(input).normalize("NFKC");
   value = stripControlCharacters(value);
   value = stripUnsupportedCharacters(value);
-  value = value.replace(/\s+/g, ' ').trim();
+  value = value.replace(/\s+/g, " ").trim();
 
   return value;
 }
 
-export function isValidDisplayName(value: string, options: DisplayNameOptions = {}): boolean {
+export function isValidDisplayName(
+  value: string,
+  options: DisplayNameOptions = {},
+): boolean {
   const { minLength = 1, maxLength = 80 } = options;
 
   if (!value) {

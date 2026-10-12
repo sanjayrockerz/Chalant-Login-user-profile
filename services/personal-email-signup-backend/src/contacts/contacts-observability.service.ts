@@ -1,14 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import { Counter, Histogram, Gauge, register } from 'prom-client';
-import { Logger } from 'winston';
+import { Injectable } from "@nestjs/common";
+import { Counter, Histogram, Gauge, register } from "prom-client";
+import { Logger } from "winston";
 
 /**
  * Contacts Observability Service
- * 
+ *
  * PII-free telemetry and monitoring for contact discovery features using
  * existing Prometheus/OpenTelemetry infrastructure. Tracks performance,
  * quality, and privacy metrics without exposing sensitive user data.
- * 
+ *
  * Key Features:
  * - Custom Prometheus metrics for contact discovery workflow
  * - Correlation ID tracking for distributed tracing
@@ -30,7 +30,7 @@ interface ContactUploadMetrics {
   validationFailures: number;
   duplicatesFound: number;
   suggestionsGenerated: number;
-  userTier: 'free' | 'premium' | 'enterprise';
+  userTier: "free" | "premium" | "enterprise";
   abTestVariant?: string;
 }
 
@@ -47,7 +47,7 @@ interface SuggestionMetrics {
   avgConfidenceScore: number;
   mutualPercentage: number;
   diversityScore: number;
-  userTier: 'free' | 'premium' | 'enterprise';
+  userTier: "free" | "premium" | "enterprise";
   abTestVariant?: string;
 }
 
@@ -55,17 +55,21 @@ interface PrivacyMetrics {
   userId: string; // Hashed for privacy
   correlationId: string;
   tenantId: string;
-  action: 'opt_out' | 'delete_data' | 'update_settings' | 'view_data';
+  action: "opt_out" | "delete_data" | "update_settings" | "view_data";
   success: boolean;
   deletionReason?: string;
-  userTier: 'free' | 'premium' | 'enterprise';
+  userTier: "free" | "premium" | "enterprise";
 }
 
 interface SecurityMetrics {
   correlationId: string;
   tenantId: string;
-  eventType: 'rate_limit_exceeded' | 'suspicious_upload_pattern' | 'invalid_permissions' | 'abuse_detected';
-  severity: 'low' | 'medium' | 'high' | 'critical';
+  eventType:
+    | "rate_limit_exceeded"
+    | "suspicious_upload_pattern"
+    | "invalid_permissions"
+    | "abuse_detected";
+  severity: "low" | "medium" | "high" | "critical";
   userAgent?: string;
   ipAddress?: string; // Hashed for privacy
   userId?: string; // Hashed for privacy
@@ -74,78 +78,78 @@ interface SecurityMetrics {
 @Injectable()
 export class ContactsObservabilityService {
   private readonly logger: Logger;
-  
+
   // Prometheus Metrics
   private readonly contactUploadCounter = new Counter({
-    name: 'contacts_upload_total',
-    help: 'Total number of contact upload attempts',
-    labelNames: ['status', 'user_tier', 'ab_variant', 'tenant_id'],
+    name: "contacts_upload_total",
+    help: "Total number of contact upload attempts",
+    labelNames: ["status", "user_tier", "ab_variant", "tenant_id"],
     registers: [register],
   });
 
   private readonly contactUploadHistogram = new Histogram({
-    name: 'contacts_upload_duration_seconds',
-    help: 'Contact upload processing duration in seconds',
-    labelNames: ['status', 'user_tier', 'tenant_id'],
+    name: "contacts_upload_duration_seconds",
+    help: "Contact upload processing duration in seconds",
+    labelNames: ["status", "user_tier", "tenant_id"],
     buckets: [0.1, 0.5, 1, 2, 5, 10, 30],
     registers: [register],
   });
 
   private readonly contactUploadSizeHistogram = new Histogram({
-    name: 'contacts_upload_size_total',
-    help: 'Number of contacts uploaded per request',
-    labelNames: ['user_tier', 'tenant_id'],
+    name: "contacts_upload_size_total",
+    help: "Number of contacts uploaded per request",
+    labelNames: ["user_tier", "tenant_id"],
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000],
     registers: [register],
   });
 
   private readonly suggestionRequestCounter = new Counter({
-    name: 'contacts_suggestions_request_total',
-    help: 'Total number of suggestion requests',
-    labelNames: ['status', 'user_tier', 'ab_variant', 'tenant_id'],
+    name: "contacts_suggestions_request_total",
+    help: "Total number of suggestion requests",
+    labelNames: ["status", "user_tier", "ab_variant", "tenant_id"],
     registers: [register],
   });
 
   private readonly suggestionRequestHistogram = new Histogram({
-    name: 'contacts_suggestions_duration_seconds',
-    help: 'Suggestion request processing duration in seconds',
-    labelNames: ['user_tier', 'tenant_id'],
+    name: "contacts_suggestions_duration_seconds",
+    help: "Suggestion request processing duration in seconds",
+    labelNames: ["user_tier", "tenant_id"],
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2],
     registers: [register],
   });
 
   private readonly suggestionQualityGauge = new Gauge({
-    name: 'contacts_suggestion_quality_score',
-    help: 'Average suggestion quality score',
-    labelNames: ['user_tier', 'ab_variant', 'tenant_id'],
+    name: "contacts_suggestion_quality_score",
+    help: "Average suggestion quality score",
+    labelNames: ["user_tier", "ab_variant", "tenant_id"],
     registers: [register],
   });
 
   private readonly privacyActionCounter = new Counter({
-    name: 'contacts_privacy_action_total',
-    help: 'Total privacy-related actions taken by users',
-    labelNames: ['action', 'status', 'user_tier', 'tenant_id'],
+    name: "contacts_privacy_action_total",
+    help: "Total privacy-related actions taken by users",
+    labelNames: ["action", "status", "user_tier", "tenant_id"],
     registers: [register],
   });
 
   private readonly securityEventCounter = new Counter({
-    name: 'contacts_security_event_total',
-    help: 'Security and abuse detection events',
-    labelNames: ['event_type', 'severity', 'tenant_id'],
+    name: "contacts_security_event_total",
+    help: "Security and abuse detection events",
+    labelNames: ["event_type", "severity", "tenant_id"],
     registers: [register],
   });
 
   private readonly activeUsersGauge = new Gauge({
-    name: 'contacts_active_users_total',
-    help: 'Number of users with contact discovery enabled',
-    labelNames: ['user_tier', 'tenant_id'],
+    name: "contacts_active_users_total",
+    help: "Number of users with contact discovery enabled",
+    labelNames: ["user_tier", "tenant_id"],
     registers: [register],
   });
 
   private readonly dataRetentionGauge = new Gauge({
-    name: 'contacts_data_retention_days_remaining',
-    help: 'Average days remaining until automatic data deletion',
-    labelNames: ['tenant_id'],
+    name: "contacts_data_retention_days_remaining",
+    help: "Average days remaining until automatic data deletion",
+    labelNames: ["tenant_id"],
     registers: [register],
   });
 
@@ -158,9 +162,9 @@ export class ContactsObservabilityService {
    */
   trackContactUpload(metrics: ContactUploadMetrics): void {
     const labels = {
-      status: metrics.success ? 'success' : 'failure',
+      status: metrics.success ? "success" : "failure",
       user_tier: metrics.userTier,
-      ab_variant: metrics.abTestVariant || 'default',
+      ab_variant: metrics.abTestVariant || "default",
       tenant_id: metrics.tenantId,
     };
 
@@ -185,7 +189,7 @@ export class ContactsObservabilityService {
       .observe(metrics.contactCount);
 
     // Log structured event for OpenTelemetry
-    this.logger.info('Contact upload completed', {
+    this.logger.info("Contact upload completed", {
       correlationId: metrics.correlationId,
       uploadId: metrics.uploadId,
       userIdHash: this.hashUserId(metrics.userId),
@@ -199,8 +203,8 @@ export class ContactsObservabilityService {
       suggestionsGenerated: metrics.suggestionsGenerated,
       userTier: metrics.userTier,
       abTestVariant: metrics.abTestVariant,
-      eventType: 'contact_upload',
-      component: 'contacts-service',
+      eventType: "contact_upload",
+      component: "contacts-service",
     });
   }
 
@@ -209,9 +213,9 @@ export class ContactsObservabilityService {
    */
   trackSuggestionRequest(metrics: SuggestionMetrics): void {
     const labels = {
-      status: 'success', // Assuming success if metrics are being tracked
+      status: "success", // Assuming success if metrics are being tracked
       user_tier: metrics.userTier,
-      ab_variant: metrics.abTestVariant || 'default',
+      ab_variant: metrics.abTestVariant || "default",
       tenant_id: metrics.tenantId,
     };
 
@@ -236,7 +240,7 @@ export class ContactsObservabilityService {
       .set(metrics.avgConfidenceScore);
 
     // Log structured event
-    this.logger.info('Suggestion request completed', {
+    this.logger.info("Suggestion request completed", {
       correlationId: metrics.correlationId,
       userIdHash: this.hashUserId(metrics.userId),
       tenantId: metrics.tenantId,
@@ -251,8 +255,8 @@ export class ContactsObservabilityService {
       diversityScore: metrics.diversityScore,
       userTier: metrics.userTier,
       abTestVariant: metrics.abTestVariant,
-      eventType: 'suggestion_request',
-      component: 'contacts-service',
+      eventType: "suggestion_request",
+      component: "contacts-service",
     });
   }
 
@@ -262,7 +266,7 @@ export class ContactsObservabilityService {
   trackPrivacyAction(metrics: PrivacyMetrics): void {
     const labels = {
       action: metrics.action,
-      status: metrics.success ? 'success' : 'failure',
+      status: metrics.success ? "success" : "failure",
       user_tier: metrics.userTier,
       tenant_id: metrics.tenantId,
     };
@@ -271,7 +275,7 @@ export class ContactsObservabilityService {
     this.privacyActionCounter.inc(labels);
 
     // Log structured event
-    this.logger.info('Privacy action completed', {
+    this.logger.info("Privacy action completed", {
       correlationId: metrics.correlationId,
       userIdHash: this.hashUserId(metrics.userId),
       tenantId: metrics.tenantId,
@@ -279,8 +283,8 @@ export class ContactsObservabilityService {
       success: metrics.success,
       deletionReason: metrics.deletionReason,
       userTier: metrics.userTier,
-      eventType: 'privacy_action',
-      component: 'contacts-service',
+      eventType: "privacy_action",
+      component: "contacts-service",
     });
   }
 
@@ -299,15 +303,17 @@ export class ContactsObservabilityService {
 
     // Log security event with appropriate severity
     const logLevel = this.getLogLevelForSeverity(metrics.severity);
-    this.logger[logLevel]('Security event detected', {
+    this.logger[logLevel]("Security event detected", {
       correlationId: metrics.correlationId,
       tenantId: metrics.tenantId,
       eventType: metrics.eventType,
       severity: metrics.severity,
       userAgent: metrics.userAgent,
-      ipAddressHash: metrics.ipAddress ? this.hashIpAddress(metrics.ipAddress) : undefined,
+      ipAddressHash: metrics.ipAddress
+        ? this.hashIpAddress(metrics.ipAddress)
+        : undefined,
       userIdHash: metrics.userId ? this.hashUserId(metrics.userId) : undefined,
-      component: 'contacts-service',
+      component: "contacts-service",
       securityEvent: true,
     });
   }
@@ -315,7 +321,11 @@ export class ContactsObservabilityService {
   /**
    * Update active user metrics
    */
-  updateActiveUserMetrics(tenantId: string, userTier: string, count: number): void {
+  updateActiveUserMetrics(
+    tenantId: string,
+    userTier: string,
+    count: number,
+  ): void {
     this.activeUsersGauge
       .labels({
         user_tier: userTier,
@@ -344,17 +354,17 @@ export class ContactsObservabilityService {
     userId: string,
     flagName: string,
     variant: string,
-    context: Record<string, any>
+    context: Record<string, any>,
   ): void {
-    this.logger.info('Feature flag evaluated', {
+    this.logger.info("Feature flag evaluated", {
       correlationId,
       tenantId,
       userIdHash: this.hashUserId(userId),
       flagName,
       variant,
       context,
-      eventType: 'feature_flag_evaluation',
-      component: 'contacts-service',
+      eventType: "feature_flag_evaluation",
+      component: "contacts-service",
     });
   }
 
@@ -368,11 +378,11 @@ export class ContactsObservabilityService {
     method: string,
     statusCode: number,
     responseTimeMs: number,
-    userTier?: string
+    userTier?: string,
   ): void {
     const slaViolation = this.checkSlaViolation(endpoint, responseTimeMs);
-    
-    this.logger.info('API request completed', {
+
+    this.logger.info("API request completed", {
       correlationId,
       tenantId,
       endpoint,
@@ -381,19 +391,19 @@ export class ContactsObservabilityService {
       responseTimeMs,
       userTier,
       slaViolation,
-      eventType: 'api_request',
-      component: 'contacts-service',
+      eventType: "api_request",
+      component: "contacts-service",
     });
 
     if (slaViolation) {
-      this.logger.warn('SLA violation detected', {
+      this.logger.warn("SLA violation detected", {
         correlationId,
         tenantId,
         endpoint,
         responseTimeMs,
         slaThresholdMs: this.getSlaThreshold(endpoint),
-        eventType: 'sla_violation',
-        component: 'contacts-service',
+        eventType: "sla_violation",
+        component: "contacts-service",
       });
     }
   }
@@ -405,25 +415,25 @@ export class ContactsObservabilityService {
     operationName: string,
     correlationId: string,
     tenantId: string,
-    userId?: string
+    userId?: string,
   ): { finish: (success: boolean, metadata?: Record<string, any>) => void } {
     const startTime = Date.now();
-    
-    this.logger.info('Operation started', {
+
+    this.logger.info("Operation started", {
       correlationId,
       tenantId,
       userIdHash: userId ? this.hashUserId(userId) : undefined,
       operationName,
       startTime,
-      eventType: 'operation_start',
-      component: 'contacts-service',
+      eventType: "operation_start",
+      component: "contacts-service",
     });
 
     return {
       finish: (success: boolean, metadata?: Record<string, any>) => {
         const duration = Date.now() - startTime;
-        
-        this.logger.info('Operation completed', {
+
+        this.logger.info("Operation completed", {
           correlationId,
           tenantId,
           userIdHash: userId ? this.hashUserId(userId) : undefined,
@@ -431,8 +441,8 @@ export class ContactsObservabilityService {
           durationMs: duration,
           success,
           metadata,
-          eventType: 'operation_complete',
-          component: 'contacts-service',
+          eventType: "operation_complete",
+          component: "contacts-service",
         });
       },
     };
@@ -475,16 +485,16 @@ export class ContactsObservabilityService {
 
   private getLogLevelForSeverity(severity: string): string {
     switch (severity) {
-      case 'critical':
-        return 'error';
-      case 'high':
-        return 'warn';
-      case 'medium':
-        return 'info';
-      case 'low':
-        return 'debug';
+      case "critical":
+        return "error";
+      case "high":
+        return "warn";
+      case "medium":
+        return "info";
+      case "low":
+        return "debug";
       default:
-        return 'info';
+        return "info";
     }
   }
 
@@ -496,12 +506,12 @@ export class ContactsObservabilityService {
   private getSlaThreshold(endpoint: string): number {
     // SLA thresholds in milliseconds
     const thresholds: Record<string, number> = {
-      '/contacts/upload': 5000,     // 5 seconds for upload
-      '/contacts/suggestions': 200,  // 200ms for suggestions
-      '/contacts': 1000,            // 1 second for deletion
-      '/contacts/privacy': 500,     // 500ms for privacy controls
+      "/contacts/upload": 5000, // 5 seconds for upload
+      "/contacts/suggestions": 200, // 200ms for suggestions
+      "/contacts": 1000, // 1 second for deletion
+      "/contacts/privacy": 500, // 500ms for privacy controls
     };
-    
+
     return thresholds[endpoint] || 1000; // Default 1 second
   }
 }

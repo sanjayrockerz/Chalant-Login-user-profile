@@ -1,19 +1,19 @@
 /**
  * Push Token Cleanup Service
- * 
+ *
  * Automated cleanup of stale push tokens to maintain clean active token lists.
  * Runs daily at 3 AM UTC, processing tokens not validated in 30+ days.
- * 
+ *
  * Features:
  * - Batch processing (1000 records per batch) to avoid long transactions
  * - Observability via metrics and structured logging
  * - Safe execution with correlation IDs for tracing
  */
 
-import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaClient } from '@prisma/client';
-import { randomUUID } from 'crypto';
+import { Injectable, Logger } from "@nestjs/common";
+import { Cron, CronExpression } from "@nestjs/schedule";
+import { PrismaClient } from "@prisma/client";
+import { randomUUID } from "crypto";
 
 interface CleanupResult {
   correlationId: string;
@@ -37,31 +37,29 @@ export class PushTokenCleanupService {
    * Scheduled cleanup job - runs daily at 3 AM UTC
    * Cron: 0 3 * * * (minute=0, hour=3, every day)
    */
-  @Cron('0 3 * * *', {
-    name: 'push-token-cleanup',
-    timeZone: 'UTC',
+  @Cron("0 3 * * *", {
+    name: "push-token-cleanup",
+    timeZone: "UTC",
   })
   async scheduledCleanup(): Promise<void> {
-    this.logger.log('Starting scheduled push token cleanup job');
+    this.logger.log("Starting scheduled push token cleanup job");
     const result = await this.cleanStaleTokens();
-    
+
     if (result.success) {
       this.logger.log(
         `Cleanup job completed successfully: ${result.totalCleaned} tokens cleaned in ${result.batchCount} batches (${result.durationMs}ms)`,
-        { correlationId: result.correlationId }
+        { correlationId: result.correlationId },
       );
     } else {
-      this.logger.error(
-        `Cleanup job failed: ${result.error}`,
-        undefined,
-        { correlationId: result.correlationId }
-      );
+      this.logger.error(`Cleanup job failed: ${result.error}`, undefined, {
+        correlationId: result.correlationId,
+      });
     }
   }
 
   /**
    * Execute stale token cleanup with batch processing
-   * 
+   *
    * @returns CleanupResult with statistics and status
    */
   async cleanStaleTokens(): Promise<CleanupResult> {
@@ -71,11 +69,13 @@ export class PushTokenCleanupService {
     let batchCount = 0;
 
     try {
-      this.logger.log('Cleanup job started', { correlationId });
+      this.logger.log("Cleanup job started", { correlationId });
 
       // Calculate stale threshold timestamp
       const staleThreshold = new Date();
-      staleThreshold.setDate(staleThreshold.getDate() - this.STALE_THRESHOLD_DAYS);
+      staleThreshold.setDate(
+        staleThreshold.getDate() - this.STALE_THRESHOLD_DAYS,
+      );
 
       let processedInBatch = 0;
 
@@ -90,7 +90,7 @@ export class PushTokenCleanupService {
             ],
           },
           select: { id: true },
-          orderBy: { id: 'asc' },
+          orderBy: { id: "asc" },
           take: this.BATCH_SIZE,
         });
 
@@ -98,7 +98,7 @@ export class PushTokenCleanupService {
 
         if (processedInBatch > 0) {
           // Extract IDs for batch update
-          const tokenIds = staleTokens.map(t => t.id);
+          const tokenIds = staleTokens.map((t) => t.id);
 
           // Batch update to mark tokens inactive
           const updateResult = await this.prisma.pushToken.updateMany({
@@ -116,7 +116,7 @@ export class PushTokenCleanupService {
 
           this.logger.debug(
             `Batch ${batchCount}: Marked ${updateResult.count} tokens inactive`,
-            { correlationId, batchCount, processedCount: updateResult.count }
+            { correlationId, batchCount, processedCount: updateResult.count },
           );
 
           // Emit metric for monitoring
@@ -133,7 +133,7 @@ export class PushTokenCleanupService {
 
       this.logger.log(
         `Cleanup completed: ${totalCleaned} stale tokens cleaned in ${batchCount} batches`,
-        { correlationId, totalCleaned, batchCount, durationMs }
+        { correlationId, totalCleaned, batchCount, durationMs },
       );
 
       // Emit final metrics
@@ -149,12 +149,13 @@ export class PushTokenCleanupService {
       };
     } catch (error) {
       const durationMs = Date.now() - startTime;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
 
       this.logger.error(
         `Cleanup job failed after ${batchCount} batches: ${errorMessage}`,
         error instanceof Error ? error.stack : undefined,
-        { correlationId, totalCleaned, batchCount, durationMs }
+        { correlationId, totalCleaned, batchCount, durationMs },
       );
 
       return {
@@ -171,14 +172,18 @@ export class PushTokenCleanupService {
   /**
    * Manual cleanup execution for runbook/debugging
    * Returns preview count before execution
-   * 
+   *
    * @param dryRun - If true, only count tokens without marking inactive
    * @returns CleanupResult or preview count
    */
-  async manualCleanup(dryRun: boolean = false): Promise<CleanupResult | { previewCount: number }> {
+  async manualCleanup(
+    dryRun: boolean = false,
+  ): Promise<CleanupResult | { previewCount: number }> {
     const correlationId = randomUUID();
     const staleThreshold = new Date();
-    staleThreshold.setDate(staleThreshold.getDate() - this.STALE_THRESHOLD_DAYS);
+    staleThreshold.setDate(
+      staleThreshold.getDate() - this.STALE_THRESHOLD_DAYS,
+    );
 
     if (dryRun) {
       // Preview mode: count tokens without modifying
@@ -192,10 +197,11 @@ export class PushTokenCleanupService {
         },
       });
 
-      this.logger.log(
-        `Dry run: Found ${count} stale tokens to clean`,
-        { correlationId, previewCount: count, dryRun: true }
-      );
+      this.logger.log(`Dry run: Found ${count} stale tokens to clean`, {
+        correlationId,
+        previewCount: count,
+        dryRun: true,
+      });
 
       return { previewCount: count };
     }
@@ -208,7 +214,7 @@ export class PushTokenCleanupService {
    * Sleep helper for batch processing delays
    */
   private sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -227,7 +233,9 @@ export class PushTokenCleanupService {
   private emitCleanupDurationMetric(durationMs: number): void {
     // TODO: Integrate with MetricsService
     // this.metricsService.cleanupJobDurationSeconds.observe(durationMs / 1000);
-    this.logger.debug(`Metric: cleanup_job_duration_seconds = ${durationMs / 1000}`);
+    this.logger.debug(
+      `Metric: cleanup_job_duration_seconds = ${durationMs / 1000}`,
+    );
   }
 
   /**
@@ -236,7 +244,7 @@ export class PushTokenCleanupService {
   private async emitActiveTokenCountMetric(): Promise<void> {
     try {
       const counts = await this.prisma.pushToken.groupBy({
-        by: ['platform'],
+        by: ["platform"],
         where: { active: true },
         _count: { id: true },
       });
@@ -245,11 +253,11 @@ export class PushTokenCleanupService {
         // TODO: Integrate with MetricsService
         // this.metricsService.activeTokensCount.set({ platform }, _count.id);
         this.logger.debug(
-          `Metric: active_tokens_count{platform="${platform}"} = ${_count.id}`
+          `Metric: active_tokens_count{platform="${platform}"} = ${_count.id}`,
         );
       }
     } catch (error) {
-      this.logger.warn('Failed to emit active token count metrics', error);
+      this.logger.warn("Failed to emit active token count metrics", error);
     }
   }
 }

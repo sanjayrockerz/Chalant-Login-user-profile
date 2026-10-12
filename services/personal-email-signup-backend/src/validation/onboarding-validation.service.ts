@@ -1,30 +1,30 @@
 // filepath: src/validation/onboarding-validation.service.ts
-import { Injectable, BadRequestException, Logger } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-import { trace } from '@opentelemetry/api';
+import { Injectable, BadRequestException, Logger } from "@nestjs/common";
+import { randomUUID } from "crypto";
+import { trace } from "@opentelemetry/api";
 import {
   normalizeUsername,
   isValidUsernameForm,
   hasConsecutiveSpecials,
   startsOrEndsWithSpecial,
   USERNAME_MIN_LENGTH,
-  USERNAME_MAX_LENGTH
-} from './normalizers/username.normalizer';
+  USERNAME_MAX_LENGTH,
+} from "./normalizers/username.normalizer";
 import {
   normalizeDisplayName,
-  isValidDisplayName
-} from './normalizers/display-name.normalizer';
+  isValidDisplayName,
+} from "./normalizers/display-name.normalizer";
 import {
   normalizePhone,
   PhoneNormalizationOptions,
-  PhoneNormalizationResult
-} from './normalizers/phone.normalizer';
+  PhoneNormalizationResult,
+} from "./normalizers/phone.normalizer";
 import {
   normalizeAge,
   isValidAge,
-  AgeValidationOptions
-} from './normalizers/age.normalizer';
-import { NormalizationError } from '../../../../packages/phone-normalization/src/errors';
+  AgeValidationOptions,
+} from "./normalizers/age.normalizer";
+import { NormalizationError } from "../../../../packages/phone-normalization/src/errors";
 
 export interface ValidationResult<T = any> {
   isValid: boolean;
@@ -98,44 +98,44 @@ export interface NormalizedRegistrationPayload {
 @Injectable()
 export class OnboardingValidationService {
   private readonly logger = new Logger(OnboardingValidationService.name);
-  private readonly tracer = trace.getTracer('onboarding-validation');
+  private readonly tracer = trace.getTracer("onboarding-validation");
 
   // Sensitive field patterns for redaction
   private readonly sensitiveFields = new Set([
-    'password',
-    'confirm_password',
-    'current_password',
-    'new_password',
-    'token',
-    'access_token',
-    'refresh_token',
-    'api_key',
-    'secret',
-    'otp',
-    'verification_code',
-    'sms_code',
-    'email_code',
-    'recovery_code',
-    'backup_code',
-    'credit_card',
-    'ssn',
-    'social_security'
+    "password",
+    "confirm_password",
+    "current_password",
+    "new_password",
+    "token",
+    "access_token",
+    "refresh_token",
+    "api_key",
+    "secret",
+    "otp",
+    "verification_code",
+    "sms_code",
+    "email_code",
+    "recovery_code",
+    "backup_code",
+    "credit_card",
+    "ssn",
+    "social_security",
   ]);
 
   // PII field patterns for careful handling
   private readonly piiFields = new Set([
-    'email',
-    'phone',
-    'phone_number',
-    'first_name',
-    'last_name',
-    'full_name',
-    'date_of_birth',
-    'birth_date',
-    'address',
-    'postal_code',
-    'zip_code',
-    'ip_address'
+    "email",
+    "phone",
+    "phone_number",
+    "first_name",
+    "last_name",
+    "full_name",
+    "date_of_birth",
+    "birth_date",
+    "address",
+    "postal_code",
+    "zip_code",
+    "ip_address",
   ]);
 
   // URL patterns that might contain secrets
@@ -145,18 +145,18 @@ export class OnboardingValidationService {
     /\/invite\/[a-zA-Z0-9-_]+/,
     /token=[a-zA-Z0-9-_]+/,
     /key=[a-zA-Z0-9-_]+/,
-    /secret=[a-zA-Z0-9-_]+/
+    /secret=[a-zA-Z0-9-_]+/,
   ];
 
   /**
    * Validate username input with Instagram rules
    */
   validateUsername(input: any, context: ValidationContext): ValidationResult {
-    return this.tracer.startActiveSpan('validate-username', (span) => {
+    return this.tracer.startActiveSpan("validate-username", (span) => {
       try {
         span.setAttributes({
-          'validation.type': 'username',
-          'correlation.id': context.correlationId
+          "validation.type": "username",
+          "correlation.id": context.correlationId,
         });
 
         const errors: ValidationError[] = [];
@@ -164,9 +164,9 @@ export class OnboardingValidationService {
 
         if (this.isBlank(normalized)) {
           errors.push({
-            field: 'username',
-            code: 'required',
-            message: 'Username is required'
+            field: "username",
+            code: "required",
+            message: "Username is required",
           });
           return this.buildValidationResult(false, null, errors, [], context);
         }
@@ -174,53 +174,69 @@ export class OnboardingValidationService {
         const length = Array.from(normalized).length;
         if (length < USERNAME_MIN_LENGTH || length > USERNAME_MAX_LENGTH) {
           errors.push({
-            field: 'username',
-            code: 'invalid_length',
-            message: `Username must be between ${USERNAME_MIN_LENGTH} and ${USERNAME_MAX_LENGTH} characters`
+            field: "username",
+            code: "invalid_length",
+            message: `Username must be between ${USERNAME_MIN_LENGTH} and ${USERNAME_MAX_LENGTH} characters`,
           });
         }
 
         if (length >= USERNAME_MIN_LENGTH && length <= USERNAME_MAX_LENGTH) {
           if (!isValidUsernameForm(normalized)) {
             errors.push({
-              field: 'username',
-              code: 'invalid_characters',
-              message: 'Username can only contain letters, numbers, periods, and underscores'
+              field: "username",
+              code: "invalid_characters",
+              message:
+                "Username can only contain letters, numbers, periods, and underscores",
             });
           }
 
           if (hasConsecutiveSpecials(normalized)) {
             errors.push({
-              field: 'username',
-              code: 'consecutive_specials',
-              message: 'Username cannot contain consecutive periods or underscores'
+              field: "username",
+              code: "consecutive_specials",
+              message:
+                "Username cannot contain consecutive periods or underscores",
             });
           }
 
           if (startsOrEndsWithSpecial(normalized)) {
             errors.push({
-              field: 'username',
-              code: 'invalid_boundaries',
-              message: 'Username cannot start or end with periods or underscores'
+              field: "username",
+              code: "invalid_boundaries",
+              message:
+                "Username cannot start or end with periods or underscores",
             });
           }
         }
 
         const isValid = errors.length === 0;
-        return this.buildValidationResult(isValid, isValid ? normalized : null, errors, [], context);
-
+        return this.buildValidationResult(
+          isValid,
+          isValid ? normalized : null,
+          errors,
+          [],
+          context,
+        );
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error('Username validation failed', {
+        this.logger.error("Username validation failed", {
           error: error.message,
-          correlation_id: context.correlationId
+          correlation_id: context.correlationId,
         });
-        
-        return this.buildValidationResult(false, null, [{
-          field: 'username',
-          code: 'validation_error',
-          message: 'Username validation failed'
-        }], [], context);
+
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: "username",
+              code: "validation_error",
+              message: "Username validation failed",
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -231,11 +247,11 @@ export class OnboardingValidationService {
    * Validate email with normalization
    */
   validateEmail(input: any, context: ValidationContext): ValidationResult {
-    return this.tracer.startActiveSpan('validate-email', (span) => {
+    return this.tracer.startActiveSpan("validate-email", (span) => {
       try {
         span.setAttributes({
-          'validation.type': 'email',
-          'correlation.id': context.correlationId
+          "validation.type": "email",
+          "correlation.id": context.correlationId,
         });
 
         const errors: ValidationError[] = [];
@@ -243,9 +259,9 @@ export class OnboardingValidationService {
 
         if (!email || email.trim().length === 0) {
           errors.push({
-            field: 'email',
-            code: 'required',
-            message: 'Email is required'
+            field: "email",
+            code: "required",
+            message: "Email is required",
           });
           return this.buildValidationResult(false, null, errors, [], context);
         }
@@ -256,18 +272,18 @@ export class OnboardingValidationService {
         const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
         if (!emailPattern.test(email)) {
           errors.push({
-            field: 'email',
-            code: 'invalid_format',
-            message: 'Invalid email format'
+            field: "email",
+            code: "invalid_format",
+            message: "Invalid email format",
           });
         }
 
         // Length validation
         if (email.length > 254) {
           errors.push({
-            field: 'email',
-            code: 'too_long',
-            message: 'Email address is too long'
+            field: "email",
+            code: "too_long",
+            message: "Email address is too long",
           });
         }
 
@@ -277,33 +293,48 @@ export class OnboardingValidationService {
           /tempmail\./,
           /guerrillamail\./,
           /mailinator\./,
-          /throwaway\./
+          /throwaway\./,
         ];
 
-        const isDisposable = disposablePatterns.some(pattern => pattern.test(email));
+        const isDisposable = disposablePatterns.some((pattern) =>
+          pattern.test(email),
+        );
         if (isDisposable) {
           errors.push({
-            field: 'email',
-            code: 'disposable_email',
-            message: 'Disposable email addresses are not allowed'
+            field: "email",
+            code: "disposable_email",
+            message: "Disposable email addresses are not allowed",
           });
         }
 
         const isValid = errors.length === 0;
-        return this.buildValidationResult(isValid, isValid ? email : null, errors, [], context);
-
+        return this.buildValidationResult(
+          isValid,
+          isValid ? email : null,
+          errors,
+          [],
+          context,
+        );
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error('Email validation failed', {
+        this.logger.error("Email validation failed", {
           error: error.message,
-          correlation_id: context.correlationId
+          correlation_id: context.correlationId,
         });
-        
-        return this.buildValidationResult(false, null, [{
-          field: 'email',
-          code: 'validation_error',
-          message: 'Email validation failed'
-        }], [], context);
+
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: "email",
+              code: "validation_error",
+              message: "Email validation failed",
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -314,40 +345,46 @@ export class OnboardingValidationService {
    * Validate password strength
    */
   validatePassword(input: any, context: ValidationContext): ValidationResult {
-    return this.tracer.startActiveSpan('validate-password', (span) => {
+    return this.tracer.startActiveSpan("validate-password", (span) => {
       try {
         span.setAttributes({
-          'validation.type': 'password',
-          'correlation.id': context.correlationId
+          "validation.type": "password",
+          "correlation.id": context.correlationId,
         });
 
         const errors: ValidationError[] = [];
         const warnings: string[] = [];
         const password = input?.password || input;
 
-        if (!password || typeof password !== 'string') {
+        if (!password || typeof password !== "string") {
           errors.push({
-            field: 'password',
-            code: 'required',
-            message: 'Password is required'
+            field: "password",
+            code: "required",
+            message: "Password is required",
           });
-          return this.buildValidationResult(false, null, errors, warnings, context);
+          return this.buildValidationResult(
+            false,
+            null,
+            errors,
+            warnings,
+            context,
+          );
         }
 
         // Length requirements
         if (password.length < 8) {
           errors.push({
-            field: 'password',
-            code: 'too_short',
-            message: 'Password must be at least 8 characters long'
+            field: "password",
+            code: "too_short",
+            message: "Password must be at least 8 characters long",
           });
         }
 
         if (password.length > 128) {
           errors.push({
-            field: 'password',
-            code: 'too_long',
-            message: 'Password must not exceed 128 characters'
+            field: "password",
+            code: "too_long",
+            message: "Password must not exceed 128 characters",
           });
         }
 
@@ -355,65 +392,91 @@ export class OnboardingValidationService {
         const hasLowercase = /[a-z]/.test(password);
         const hasUppercase = /[A-Z]/.test(password);
         const hasDigits = /\d/.test(password);
-        const hasSpecialChars = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password);
+        const hasSpecialChars = /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(
+          password,
+        );
 
         if (!hasLowercase) {
           errors.push({
-            field: 'password',
-            code: 'missing_lowercase',
-            message: 'Password must contain at least one lowercase letter'
+            field: "password",
+            code: "missing_lowercase",
+            message: "Password must contain at least one lowercase letter",
           });
         }
 
         if (!hasUppercase) {
           errors.push({
-            field: 'password',
-            code: 'missing_uppercase',
-            message: 'Password must contain at least one uppercase letter'
+            field: "password",
+            code: "missing_uppercase",
+            message: "Password must contain at least one uppercase letter",
           });
         }
 
         if (!hasDigits) {
           errors.push({
-            field: 'password',
-            code: 'missing_digits',
-            message: 'Password must contain at least one number'
+            field: "password",
+            code: "missing_digits",
+            message: "Password must contain at least one number",
           });
         }
 
         if (!hasSpecialChars) {
-          warnings.push('Consider adding special characters for stronger security');
+          warnings.push(
+            "Consider adding special characters for stronger security",
+          );
         }
 
         // Common password checks
         const commonPasswords = [
-          'password', 'password123', '123456', 'qwerty', 'admin', 'letmein',
-          'welcome', 'monkey', '1234567890', 'iloveyou'
+          "password",
+          "password123",
+          "123456",
+          "qwerty",
+          "admin",
+          "letmein",
+          "welcome",
+          "monkey",
+          "1234567890",
+          "iloveyou",
         ];
 
         if (commonPasswords.includes(password.toLowerCase())) {
           errors.push({
-            field: 'password',
-            code: 'too_common',
-            message: 'Password is too common. Please choose a stronger password'
+            field: "password",
+            code: "too_common",
+            message:
+              "Password is too common. Please choose a stronger password",
           });
         }
 
         const isValid = errors.length === 0;
-        return this.buildValidationResult(isValid, isValid ? password : null, errors, warnings, context);
-
+        return this.buildValidationResult(
+          isValid,
+          isValid ? password : null,
+          errors,
+          warnings,
+          context,
+        );
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error('Password validation failed', {
+        this.logger.error("Password validation failed", {
           error: error.message,
-          correlation_id: context.correlationId
+          correlation_id: context.correlationId,
         });
-        
-        return this.buildValidationResult(false, null, [{
-          field: 'password',
-          code: 'validation_error',
-          message: 'Password validation failed'
-        }], [], context);
+
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: "password",
+              code: "validation_error",
+              message: "Password validation failed",
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -424,13 +487,13 @@ export class OnboardingValidationService {
     value: any,
     fieldName: string,
     context: ValidationContext,
-    options: DisplayNameValidationOptions = {}
+    options: DisplayNameValidationOptions = {},
   ): ValidationResult<string | null> {
     return this.tracer.startActiveSpan(`validate-${fieldName}`, (span) => {
       try {
         span.setAttributes({
-          'validation.type': fieldName,
-          'correlation.id': context.correlationId
+          "validation.type": fieldName,
+          "correlation.id": context.correlationId,
         });
 
         const optional = options.optional !== false;
@@ -444,8 +507,8 @@ export class OnboardingValidationService {
 
           errors.push({
             field: fieldName,
-            code: 'required',
-            message: `${this.humanizeField(fieldName)} is required`
+            code: "required",
+            message: `${this.humanizeField(fieldName)} is required`,
           });
           return this.buildValidationResult(false, null, errors, [], context);
         }
@@ -456,25 +519,42 @@ export class OnboardingValidationService {
         if (!isValidDisplayName(normalized, { minLength, maxLength })) {
           errors.push({
             field: fieldName,
-            code: 'invalid_length',
-            message: `${this.humanizeField(fieldName)} must be between ${minLength} and ${maxLength} characters`
+            code: "invalid_length",
+            message: `${this.humanizeField(fieldName)} must be between ${minLength} and ${maxLength} characters`,
           });
         }
 
         const isValid = errors.length === 0;
-        return this.buildValidationResult(isValid, isValid ? normalized : null, errors, [], context);
+        return this.buildValidationResult(
+          isValid,
+          isValid ? normalized : null,
+          errors,
+          [],
+          context,
+        );
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error(`${this.humanizeField(fieldName)} validation failed`, {
-          error: (error as Error).message,
-          correlation_id: context.correlationId
-        });
+        this.logger.error(
+          `${this.humanizeField(fieldName)} validation failed`,
+          {
+            error: (error as Error).message,
+            correlation_id: context.correlationId,
+          },
+        );
 
-        return this.buildValidationResult(false, null, [{
-          field: fieldName,
-          code: 'validation_error',
-          message: `${this.humanizeField(fieldName)} validation failed`
-        }], [], context);
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: fieldName,
+              code: "validation_error",
+              message: `${this.humanizeField(fieldName)} validation failed`,
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -485,13 +565,13 @@ export class OnboardingValidationService {
     value: any,
     fieldName: string,
     context: ValidationContext,
-    options: PhoneValidationOptions = {}
+    options: PhoneValidationOptions = {},
   ): ValidationResult<PhoneNormalizationResult | null> {
     return this.tracer.startActiveSpan(`validate-${fieldName}`, (span) => {
       try {
         span.setAttributes({
-          'validation.type': fieldName,
-          'correlation.id': context.correlationId
+          "validation.type": fieldName,
+          "correlation.id": context.correlationId,
         });
 
         const required = options.required === true;
@@ -504,8 +584,8 @@ export class OnboardingValidationService {
 
           errors.push({
             field: fieldName,
-            code: 'required',
-            message: `${this.humanizeField(fieldName)} is required`
+            code: "required",
+            message: `${this.humanizeField(fieldName)} is required`,
           });
           return this.buildValidationResult(false, null, errors, [], context);
         }
@@ -513,13 +593,19 @@ export class OnboardingValidationService {
         try {
           const { required: _required, ...normalizeOptions } = options;
           const normalized = normalizePhone(value, normalizeOptions);
-          return this.buildValidationResult(true, normalized, errors, [], context);
+          return this.buildValidationResult(
+            true,
+            normalized,
+            errors,
+            [],
+            context,
+          );
         } catch (error) {
           if (error instanceof NormalizationError) {
             errors.push({
               field: fieldName,
               code: error.code.toLowerCase(),
-              message: error.message
+              message: error.message,
             });
             return this.buildValidationResult(false, null, errors, [], context);
           }
@@ -527,16 +613,27 @@ export class OnboardingValidationService {
         }
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error(`${this.humanizeField(fieldName)} validation failed`, {
-          error: (error as Error).message,
-          correlation_id: context.correlationId
-        });
+        this.logger.error(
+          `${this.humanizeField(fieldName)} validation failed`,
+          {
+            error: (error as Error).message,
+            correlation_id: context.correlationId,
+          },
+        );
 
-        return this.buildValidationResult(false, null, [{
-          field: fieldName,
-          code: 'validation_error',
-          message: `${this.humanizeField(fieldName)} validation failed`
-        }], [], context);
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: fieldName,
+              code: "validation_error",
+              message: `${this.humanizeField(fieldName)} validation failed`,
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -547,13 +644,13 @@ export class OnboardingValidationService {
     value: any,
     fieldName: string,
     context: ValidationContext,
-    options: DeclaredAgeValidationOptions = {}
+    options: DeclaredAgeValidationOptions = {},
   ): ValidationResult<number | null> {
     return this.tracer.startActiveSpan(`validate-${fieldName}`, (span) => {
       try {
         span.setAttributes({
-          'validation.type': fieldName,
-          'correlation.id': context.correlationId
+          "validation.type": fieldName,
+          "correlation.id": context.correlationId,
         });
 
         const required = options.required === true;
@@ -566,8 +663,8 @@ export class OnboardingValidationService {
 
           errors.push({
             field: fieldName,
-            code: 'required',
-            message: `${this.humanizeField(fieldName)} is required`
+            code: "required",
+            message: `${this.humanizeField(fieldName)} is required`,
           });
           return this.buildValidationResult(false, null, errors, [], context);
         }
@@ -576,8 +673,8 @@ export class OnboardingValidationService {
         if (normalized === null || Number.isNaN(normalized)) {
           errors.push({
             field: fieldName,
-            code: 'invalid_type',
-            message: `${this.humanizeField(fieldName)} must be an integer`
+            code: "invalid_type",
+            message: `${this.humanizeField(fieldName)} must be an integer`,
           });
           return this.buildValidationResult(false, null, errors, [], context);
         }
@@ -589,32 +686,49 @@ export class OnboardingValidationService {
           if (normalized < min) {
             errors.push({
               field: fieldName,
-              code: 'below_minimum',
-              message: `${this.humanizeField(fieldName)} must be at least ${min}`
+              code: "below_minimum",
+              message: `${this.humanizeField(fieldName)} must be at least ${min}`,
             });
           } else if (normalized > max) {
             errors.push({
               field: fieldName,
-              code: 'above_maximum',
-              message: `${this.humanizeField(fieldName)} must be no more than ${max}`
+              code: "above_maximum",
+              message: `${this.humanizeField(fieldName)} must be no more than ${max}`,
             });
           }
         }
 
         const isValid = errors.length === 0;
-        return this.buildValidationResult(isValid, isValid ? normalized : null, errors, [], context);
+        return this.buildValidationResult(
+          isValid,
+          isValid ? normalized : null,
+          errors,
+          [],
+          context,
+        );
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error(`${this.humanizeField(fieldName)} validation failed`, {
-          error: (error as Error).message,
-          correlation_id: context.correlationId
-        });
+        this.logger.error(
+          `${this.humanizeField(fieldName)} validation failed`,
+          {
+            error: (error as Error).message,
+            correlation_id: context.correlationId,
+          },
+        );
 
-        return this.buildValidationResult(false, null, [{
-          field: fieldName,
-          code: 'validation_error',
-          message: `${this.humanizeField(fieldName)} validation failed`
-        }], [], context);
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: fieldName,
+              code: "validation_error",
+              message: `${this.humanizeField(fieldName)} validation failed`,
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -624,141 +738,172 @@ export class OnboardingValidationService {
   validateRegistrationPayload(
     input: any,
     context: ValidationContext,
-    options: RegistrationValidationOptions = {}
+    options: RegistrationValidationOptions = {},
   ): ValidationResult<NormalizedRegistrationPayload> {
-    return this.tracer.startActiveSpan('validate-registration-payload', (span) => {
-      try {
-        span.setAttributes({
-          'validation.type': 'registration',
-          'correlation.id': context.correlationId
-        });
+    return this.tracer.startActiveSpan(
+      "validate-registration-payload",
+      (span) => {
+        try {
+          span.setAttributes({
+            "validation.type": "registration",
+            "correlation.id": context.correlationId,
+          });
 
-        const errors: ValidationError[] = [];
-        const warnings: string[] = [];
+          const errors: ValidationError[] = [];
+          const warnings: string[] = [];
 
-        const normalized: NormalizedRegistrationPayload = {
-          username: '',
-          normalizedUsername: '',
-          email: '',
-          password: '',
-          displayName: null,
-          displayUsername: null,
-          declaredAge: null,
-          phone: null,
-          pronouns: null,
-          termsVersion: null,
-          profileImageUrl: null
-        };
+          const normalized: NormalizedRegistrationPayload = {
+            username: "",
+            normalizedUsername: "",
+            email: "",
+            password: "",
+            displayName: null,
+            displayUsername: null,
+            declaredAge: null,
+            phone: null,
+            pronouns: null,
+            termsVersion: null,
+            profileImageUrl: null,
+          };
 
-        const usernameResult = this.validateUsername({ username: input?.username }, context);
-        errors.push(...usernameResult.errors);
-        warnings.push(...usernameResult.warnings);
-        if (usernameResult.isValid && usernameResult.data) {
-          normalized.username = this.normalizeString(input?.username ?? usernameResult.data);
-          normalized.normalizedUsername = normalizeUsername(usernameResult.data);
+          const usernameResult = this.validateUsername(
+            { username: input?.username },
+            context,
+          );
+          errors.push(...usernameResult.errors);
+          warnings.push(...usernameResult.warnings);
+          if (usernameResult.isValid && usernameResult.data) {
+            normalized.username = this.normalizeString(
+              input?.username ?? usernameResult.data,
+            );
+            normalized.normalizedUsername = normalizeUsername(
+              usernameResult.data,
+            );
+          }
+
+          const emailResult = this.validateEmail(
+            { email: input?.email },
+            context,
+          );
+          errors.push(...emailResult.errors);
+          warnings.push(...emailResult.warnings);
+          if (emailResult.isValid && emailResult.data) {
+            normalized.email = emailResult.data;
+          }
+
+          const passwordResult = this.validatePassword(
+            { password: input?.password },
+            context,
+          );
+          errors.push(...passwordResult.errors);
+          warnings.push(...passwordResult.warnings);
+          if (passwordResult.isValid && passwordResult.data) {
+            normalized.password = passwordResult.data;
+          }
+
+          const displayNameResult = this.validateDisplayName(
+            input?.display_name ?? input?.displayName,
+            "display_name",
+            context,
+            { optional: true, maxLength: 80 },
+          );
+          errors.push(...displayNameResult.errors);
+          warnings.push(...displayNameResult.warnings);
+          if (displayNameResult.isValid) {
+            normalized.displayName = displayNameResult.data;
+          }
+
+          const displayUsernameResult = this.validateDisplayName(
+            input?.displayUsername ?? input?.display_username,
+            "displayUsername",
+            context,
+            { optional: true, maxLength: USERNAME_MAX_LENGTH },
+          );
+          errors.push(...displayUsernameResult.errors);
+          warnings.push(...displayUsernameResult.warnings);
+          if (displayUsernameResult.isValid) {
+            normalized.displayUsername = displayUsernameResult.data;
+          }
+
+          const phoneResult = this.validatePhoneNumber(
+            input?.phone_number ?? input?.phone,
+            "phone_number",
+            context,
+            options.phone ?? {},
+          );
+          errors.push(...phoneResult.errors);
+          warnings.push(...phoneResult.warnings);
+          if (phoneResult.isValid) {
+            normalized.phone = phoneResult.data;
+          }
+
+          const ageResult = this.validateDeclaredAge(
+            input?.declared_age ?? input?.declaredAge,
+            "declared_age",
+            context,
+            options.declaredAge ?? {},
+          );
+          errors.push(...ageResult.errors);
+          warnings.push(...ageResult.warnings);
+          if (ageResult.isValid) {
+            normalized.declaredAge = ageResult.data;
+          }
+
+          normalized.pronouns = this.normalizeOptionalString(input?.pronouns);
+          normalized.termsVersion = this.normalizeOptionalString(
+            input?.terms_version ?? input?.termsVersion,
+          );
+          normalized.profileImageUrl = this.normalizeOptionalString(
+            input?.profile_image_url ?? input?.profileImageUrl,
+          );
+
+          if (!normalized.displayUsername) {
+            normalized.displayUsername = normalized.username || null;
+          }
+
+          const isValid = errors.length === 0;
+          return this.buildValidationResult(
+            isValid,
+            isValid ? normalized : null,
+            errors,
+            warnings,
+            context,
+          );
+        } catch (error) {
+          span.recordException(error as Error);
+          this.logger.error("Registration payload validation failed", {
+            error: (error as Error).message,
+            correlation_id: context.correlationId,
+          });
+
+          return this.buildValidationResult(
+            false,
+            null,
+            [
+              {
+                field: "registration",
+                code: "validation_error",
+                message: "Registration payload validation failed",
+              },
+            ],
+            [],
+            context,
+          );
+        } finally {
+          span.end();
         }
-
-        const emailResult = this.validateEmail({ email: input?.email }, context);
-        errors.push(...emailResult.errors);
-        warnings.push(...emailResult.warnings);
-        if (emailResult.isValid && emailResult.data) {
-          normalized.email = emailResult.data;
-        }
-
-        const passwordResult = this.validatePassword({ password: input?.password }, context);
-        errors.push(...passwordResult.errors);
-        warnings.push(...passwordResult.warnings);
-        if (passwordResult.isValid && passwordResult.data) {
-          normalized.password = passwordResult.data;
-        }
-
-        const displayNameResult = this.validateDisplayName(
-          input?.display_name ?? input?.displayName,
-          'display_name',
-          context,
-          { optional: true, maxLength: 80 }
-        );
-        errors.push(...displayNameResult.errors);
-        warnings.push(...displayNameResult.warnings);
-        if (displayNameResult.isValid) {
-          normalized.displayName = displayNameResult.data;
-        }
-
-        const displayUsernameResult = this.validateDisplayName(
-          input?.displayUsername ?? input?.display_username,
-          'displayUsername',
-          context,
-          { optional: true, maxLength: USERNAME_MAX_LENGTH }
-        );
-        errors.push(...displayUsernameResult.errors);
-        warnings.push(...displayUsernameResult.warnings);
-        if (displayUsernameResult.isValid) {
-          normalized.displayUsername = displayUsernameResult.data;
-        }
-
-        const phoneResult = this.validatePhoneNumber(
-          input?.phone_number ?? input?.phone,
-          'phone_number',
-          context,
-          options.phone ?? {}
-        );
-        errors.push(...phoneResult.errors);
-        warnings.push(...phoneResult.warnings);
-        if (phoneResult.isValid) {
-          normalized.phone = phoneResult.data;
-        }
-
-        const ageResult = this.validateDeclaredAge(
-          input?.declared_age ?? input?.declaredAge,
-          'declared_age',
-          context,
-          options.declaredAge ?? {}
-        );
-        errors.push(...ageResult.errors);
-        warnings.push(...ageResult.warnings);
-        if (ageResult.isValid) {
-          normalized.declaredAge = ageResult.data;
-        }
-
-        normalized.pronouns = this.normalizeOptionalString(input?.pronouns);
-        normalized.termsVersion = this.normalizeOptionalString(input?.terms_version ?? input?.termsVersion);
-        normalized.profileImageUrl = this.normalizeOptionalString(input?.profile_image_url ?? input?.profileImageUrl);
-
-        if (!normalized.displayUsername) {
-          normalized.displayUsername = normalized.username || null;
-        }
-
-        const isValid = errors.length === 0;
-        return this.buildValidationResult(
-          isValid,
-          isValid ? normalized : null,
-          errors,
-          warnings,
-          context
-        );
-      } catch (error) {
-        span.recordException(error as Error);
-        this.logger.error('Registration payload validation failed', {
-          error: (error as Error).message,
-          correlation_id: context.correlationId
-        });
-
-        return this.buildValidationResult(false, null, [{
-          field: 'registration',
-          code: 'validation_error',
-          message: 'Registration payload validation failed'
-        }], [], context);
-      } finally {
-        span.end();
-      }
-    });
+      },
+    );
   }
 
   /**
    * Validate legal acceptance data
    */
-  validateLegalAcceptance(input: any, context: ValidationContext): ValidationResult {
-    return this.tracer.startActiveSpan('validate-legal-acceptance', (span) => {
+  validateLegalAcceptance(
+    input: any,
+    context: ValidationContext,
+  ): ValidationResult {
+    return this.tracer.startActiveSpan("validate-legal-acceptance", (span) => {
       try {
         const errors: ValidationError[] = [];
         const data: any = {};
@@ -766,9 +911,9 @@ export class OnboardingValidationService {
         // Required: terms acceptance
         if (!input?.terms_accepted || input.terms_accepted !== true) {
           errors.push({
-            field: 'terms_accepted',
-            code: 'required',
-            message: 'Terms of service must be accepted'
+            field: "terms_accepted",
+            code: "required",
+            message: "Terms of service must be accepted",
           });
         } else {
           data.terms_accepted = true;
@@ -777,9 +922,9 @@ export class OnboardingValidationService {
         // Required: privacy policy acceptance
         if (!input?.privacy_accepted || input.privacy_accepted !== true) {
           errors.push({
-            field: 'privacy_accepted',
-            code: 'required',
-            message: 'Privacy policy must be accepted'
+            field: "privacy_accepted",
+            code: "required",
+            message: "Privacy policy must be accepted",
           });
         } else {
           data.privacy_accepted = true;
@@ -793,9 +938,9 @@ export class OnboardingValidationService {
           const version = this.normalizeString(input.policy_version);
           if (!/^\d+\.\d+$/.test(version)) {
             errors.push({
-              field: 'policy_version',
-              code: 'invalid_format',
-              message: 'Invalid policy version format'
+              field: "policy_version",
+              code: "invalid_format",
+              message: "Invalid policy version format",
             });
           } else {
             data.policy_version = version;
@@ -804,19 +949,26 @@ export class OnboardingValidationService {
 
         const isValid = errors.length === 0;
         return this.buildValidationResult(isValid, data, errors, [], context);
-
       } catch (error) {
         span.recordException(error as Error);
-        this.logger.error('Legal acceptance validation failed', {
+        this.logger.error("Legal acceptance validation failed", {
           error: error.message,
-          correlation_id: context.correlationId
+          correlation_id: context.correlationId,
         });
-        
-        return this.buildValidationResult(false, null, [{
-          field: 'legal',
-          code: 'validation_error',
-          message: 'Legal acceptance validation failed'
-        }], [], context);
+
+        return this.buildValidationResult(
+          false,
+          null,
+          [
+            {
+              field: "legal",
+              code: "validation_error",
+              message: "Legal acceptance validation failed",
+            },
+          ],
+          [],
+          context,
+        );
       } finally {
         span.end();
       }
@@ -829,31 +981,31 @@ export class OnboardingValidationService {
   sanitizeForLogging(data: any, context?: ValidationContext): any {
     if (!data) return data;
 
-    if (typeof data === 'string') {
+    if (typeof data === "string") {
       return this.redactString(data);
     }
 
     if (Array.isArray(data)) {
-      return data.map(item => this.sanitizeForLogging(item, context));
+      return data.map((item) => this.sanitizeForLogging(item, context));
     }
 
-    if (typeof data === 'object') {
+    if (typeof data === "object") {
       const sanitized: any = {};
-      
+
       for (const [key, value] of Object.entries(data)) {
         const lowerKey = key.toLowerCase();
-        
+
         if (this.sensitiveFields.has(lowerKey)) {
-          sanitized[key] = '[REDACTED]';
+          sanitized[key] = "[REDACTED]";
         } else if (this.piiFields.has(lowerKey)) {
           sanitized[key] = this.hashForLogging(String(value));
-        } else if (typeof value === 'string' && this.containsSecretUrl(value)) {
+        } else if (typeof value === "string" && this.containsSecretUrl(value)) {
           sanitized[key] = this.redactSecretUrls(value);
         } else {
           sanitized[key] = this.sanitizeForLogging(value, context);
         }
       }
-      
+
       return sanitized;
     }
 
@@ -869,7 +1021,7 @@ export class OnboardingValidationService {
     statusCode: number,
     correlationId: string,
     path: string,
-    details?: any
+    details?: any,
   ): OnboardingErrorResponse {
     return {
       error,
@@ -878,7 +1030,7 @@ export class OnboardingValidationService {
       correlation_id: correlationId,
       timestamp: new Date().toISOString(),
       path,
-      details: details ? this.sanitizeForLogging(details) : undefined
+      details: details ? this.sanitizeForLogging(details) : undefined,
     };
   }
 
@@ -888,17 +1040,17 @@ export class OnboardingValidationService {
   throwValidationError(
     errors: ValidationError[],
     correlationId: string,
-    path: string
+    path: string,
   ): never {
     throw new BadRequestException(
       this.createErrorResponse(
-        'validation_failed',
-        'Input validation failed',
+        "validation_failed",
+        "Input validation failed",
         400,
         correlationId,
         path,
-        { field_errors: errors }
-      )
+        { field_errors: errors },
+      ),
     );
   }
 
@@ -907,7 +1059,7 @@ export class OnboardingValidationService {
       return true;
     }
 
-    if (typeof value === 'string') {
+    if (typeof value === "string") {
       return value.trim().length === 0;
     }
 
@@ -916,12 +1068,12 @@ export class OnboardingValidationService {
 
   private humanizeField(fieldName: string): string {
     if (!fieldName) {
-      return '';
+      return "";
     }
 
     const spaced = fieldName
-      .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-      .replace(/[_-]+/g, ' ')
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
       .toLowerCase();
 
     return spaced.replace(/(^|\s)\w/g, (match) => match.toUpperCase()).trim();
@@ -937,8 +1089,8 @@ export class OnboardingValidationService {
   }
 
   private normalizeString(value: any): string {
-    if (typeof value !== 'string') {
-      return String(value || '');
+    if (typeof value !== "string") {
+      return String(value || "");
     }
     return value.trim();
   }
@@ -948,14 +1100,14 @@ export class OnboardingValidationService {
     data: T | null,
     errors: ValidationError[],
     warnings: string[],
-    context: ValidationContext
+    context: ValidationContext,
   ): ValidationResult<T> {
     return {
       isValid,
       data,
       errors,
       warnings,
-      sanitized: this.sanitizeForLogging(data, context)
+      sanitized: this.sanitizeForLogging(data, context),
     };
   }
 
@@ -964,17 +1116,17 @@ export class OnboardingValidationService {
     if (value.length > 20) {
       return `${value.substring(0, 4)}***${value.substring(value.length - 4)}`;
     }
-    return '[REDACTED]';
+    return "[REDACTED]";
   }
 
   private containsSecretUrl(value: string): boolean {
-    return this.secretUrlPatterns.some(pattern => pattern.test(value));
+    return this.secretUrlPatterns.some((pattern) => pattern.test(value));
   }
 
   private redactSecretUrls(value: string): string {
     let redacted = value;
-    this.secretUrlPatterns.forEach(pattern => {
-      redacted = redacted.replace(pattern, '[URL_WITH_SECRET_REDACTED]');
+    this.secretUrlPatterns.forEach((pattern) => {
+      redacted = redacted.replace(pattern, "[URL_WITH_SECRET_REDACTED]");
     });
     return redacted;
   }
@@ -984,7 +1136,7 @@ export class OnboardingValidationService {
     let hash = 0;
     for (let i = 0; i < value.length; i++) {
       const char = value.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
+      hash = (hash << 5) - hash + char;
       hash = hash & hash;
     }
     return `[HASH:${hash.toString(16)}]`;

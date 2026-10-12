@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export interface NotificationPayload {
   title: string;
@@ -6,7 +6,7 @@ export interface NotificationPayload {
   data?: Record<string, string>;
   notificationType?: string;
   correlationId?: string;
-  priority?: 'normal' | 'high';
+  priority?: "normal" | "high";
 }
 
 export const notificationPayloadSchema = z.object({
@@ -15,5 +15,5 @@ export const notificationPayloadSchema = z.object({
   data: z.record(z.string(), z.string()).optional(),
   notificationType: z.string().optional(),
   correlationId: z.string().uuid().optional(),
-  priority: z.enum(['normal', 'high']).optional()
+  priority: z.enum(["normal", "high"]).optional(),
 });

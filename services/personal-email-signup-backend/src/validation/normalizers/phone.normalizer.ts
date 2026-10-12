@@ -6,16 +6,19 @@ import {
   normalizePhoneNumber,
   NormalizationError,
   NormalizeOptions,
-  NormalizedPhoneNumber
-} from '../../../../../packages/phone-normalization/src';
+  NormalizedPhoneNumber,
+} from "../../../../../packages/phone-normalization/src";
 
 export interface PhoneNormalizationResult extends NormalizedPhoneNumber {}
 
 export type PhoneNormalizationOptions = NormalizeOptions;
 
-export function normalizePhone(input: unknown, options: PhoneNormalizationOptions = {}): PhoneNormalizationResult {
+export function normalizePhone(
+  input: unknown,
+  options: PhoneNormalizationOptions = {},
+): PhoneNormalizationResult {
   if (input === undefined || input === null) {
-    throw new NormalizationError('INVALID_INPUT', 'Phone number is required');
+    throw new NormalizationError("INVALID_INPUT", "Phone number is required");
   }
 
   const value = String(input).trim();

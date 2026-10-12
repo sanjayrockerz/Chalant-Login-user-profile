@@ -1,6 +1,6 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
-import { RedisService } from '../redis/redis.service';
+import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import { PrismaClient } from "@prisma/client";
+import { RedisService } from "../redis/redis.service";
 
 export interface LocalUser {
   id: string;
@@ -35,13 +35,13 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
     private readonly redisService: RedisService,
   ) {}
   onModuleDestroy() {
-    throw new Error('Method not implemented.');
+    throw new Error("Method not implemented.");
   }
 
   async onModuleInit() {
-    console.log('Initializing Prisma Client...');
+    console.log("Initializing Prisma Client...");
     await this.prisma.$connect();
-    console.log('Prisma Client Initialized');
+    console.log("Prisma Client Initialized");
   }
 
   async close() {
@@ -55,18 +55,24 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       const user = await this.prisma.user.findUnique({ where: { username } });
       return user ? this.mapPrismaUserToLocalUser(user) : null;
     } catch (error) {
-      console.error('Error finding user by username:', error);
-      throw new Error('Database error while finding user by username');
+      console.error("Error finding user by username:", error);
+      throw new Error("Database error while finding user by username");
     }
   }
 
-  async findByNormalizedUsername(normalized: string): Promise<LocalUser | null> {
+  async findByNormalizedUsername(
+    normalized: string,
+  ): Promise<LocalUser | null> {
     try {
-      const user = await this.prisma.user.findUnique({ where: { normalizedUsername: normalized } as any });
+      const user = await this.prisma.user.findUnique({
+        where: { normalizedUsername: normalized } as any,
+      });
       return user ? this.mapPrismaUserToLocalUser(user) : null;
     } catch (error) {
-      console.error('Error finding user by normalized username:', error);
-      throw new Error('Database error while finding user by normalized username');
+      console.error("Error finding user by normalized username:", error);
+      throw new Error(
+        "Database error while finding user by normalized username",
+      );
     }
   }
 
@@ -75,13 +81,15 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       const user = await this.prisma.user.findUnique({ where: { email } });
       return user ? this.mapPrismaUserToLocalUser(user) : null;
     } catch (error) {
-      console.error('Error finding user by email:', error);
-      throw new Error('Database error while finding user by email');
+      console.error("Error finding user by email:", error);
+      throw new Error("Database error while finding user by email");
     }
   }
 
   async findByVerificationToken(token: string): Promise<LocalUser | null> {
-    const userId = await this.redisService.get<string>(`legacy:email-verification:${token}`);
+    const userId = await this.redisService.get<string>(
+      `legacy:email-verification:${token}`,
+    );
     return userId ? this.findById(userId) : null;
   }
 
@@ -103,12 +111,15 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       });
       return this.mapPrismaUserToLocalUser(createdUser);
     } catch (error) {
-      console.error('Error creating user:', error);
-      throw new Error('Database error while creating user');
+      console.error("Error creating user:", error);
+      throw new Error("Database error while creating user");
     }
   }
 
-  async updateUser(id: string, updatedData: Partial<LocalUser>): Promise<LocalUser> {
+  async updateUser(
+    id: string,
+    updatedData: Partial<LocalUser>,
+  ): Promise<LocalUser> {
     try {
       const updatedUser = await this.prisma.user.update({
         where: { id },
@@ -116,30 +127,32 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       });
       return this.mapPrismaUserToLocalUser(updatedUser);
     } catch (error) {
-      console.error('Error updating user:', error);
-      throw new Error('Database error while updating user');
+      console.error("Error updating user:", error);
+      throw new Error("Database error while updating user");
     }
   }
 
   async saveVerificationToken(userId: string, token: string): Promise<void> {
-    await this.redisService.set(`legacy:email-verification:${token}`, userId, { ttl: 24 * 60 * 60 });
+    await this.redisService.set(`legacy:email-verification:${token}`, userId, {
+      ttl: 24 * 60 * 60,
+    });
   }
 
   async markVerified(userId: string): Promise<LocalUser> {
     try {
       const updatedUser = await this.prisma.user.update({
         where: { id: userId },
-        data: { 
+        data: {
           isVerified: true,
           updatedAt: new Date(),
         },
       });
-      
-      console.log('User marked as verified:', userId);
+
+      console.log("User marked as verified:", userId);
       return this.mapPrismaUserToLocalUser(updatedUser);
     } catch (error) {
-      console.error('Error marking user as verified:', error);
-      throw new Error('Database error while marking user as verified');
+      console.error("Error marking user as verified:", error);
+      throw new Error("Database error while marking user as verified");
     }
   }
 
@@ -148,8 +161,8 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       const user = await this.prisma.user.findUnique({ where: { id } });
       return user ? this.mapPrismaUserToLocalUser(user) : null;
     } catch (error) {
-      console.error('Error finding user by ID:', error);
-      throw new Error('Database error while finding user by ID');
+      console.error("Error finding user by ID:", error);
+      throw new Error("Database error while finding user by ID");
     }
   }
 
@@ -160,8 +173,8 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
         data: { password: newPassword },
       });
     } catch (error) {
-      console.error('Error updating user password:', error);
-      throw new Error('Database error while updating password');
+      console.error("Error updating user password:", error);
+      throw new Error("Database error while updating password");
     }
   }
 
@@ -171,8 +184,8 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
         where: { id: userId },
       });
     } catch (error) {
-      console.error('Error deleting user:', error);
-      throw new Error('Database error while deleting user');
+      console.error("Error deleting user:", error);
+      throw new Error("Database error while deleting user");
     }
   }
 
@@ -185,9 +198,9 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
       isVerified: user.isVerified,
       termsVersion: user.termsVersion || null,
       termsAcceptedAt: user.termsAcceptedAt || null,
-  phone: (user as any).phone || null,
-  phoneVerifiedAt: (user as any).phoneVerifiedAt || null,
-  hashedPhone: (user as any).hashedPhone || null,
+      phone: (user as any).phone || null,
+      phoneVerifiedAt: (user as any).phoneVerifiedAt || null,
+      hashedPhone: (user as any).hashedPhone || null,
       displayName: user.displayName || null,
       declaredAge: user.declaredAge || null,
       profileImageUrl: user.profileImageUrl || null,
@@ -200,4 +213,3 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
     };
   }
 }
-

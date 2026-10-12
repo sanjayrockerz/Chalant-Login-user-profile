@@ -1,6 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { NotificationTransport, NotificationTransportContext, NotificationTransportResponse } from '../interfaces/notification-transport.interface';
-import { NotificationPayload } from '../dto/notification.dto';
+import { Injectable, Logger } from "@nestjs/common";
+import {
+  NotificationTransport,
+  NotificationTransportContext,
+  NotificationTransportResponse,
+} from "../interfaces/notification-transport.interface";
+import { NotificationPayload } from "../dto/notification.dto";
 
 @Injectable()
 export class FcmTransportService implements NotificationTransport {
@@ -9,18 +13,18 @@ export class FcmTransportService implements NotificationTransport {
   async send(
     deviceToken: string,
     payload: NotificationPayload,
-    context: NotificationTransportContext
+    context: NotificationTransportContext,
   ): Promise<NotificationTransportResponse> {
     this.logger.warn({
-      message: 'FCM transport not yet implemented',
+      message: "FCM transport not yet implemented",
       tokenId: context.tokenId,
-      correlationId: context.correlationId
+      correlationId: context.correlationId,
     });
 
     return {
       success: false,
-      errorCode: 'FCM_NOT_IMPLEMENTED',
-      retryable: false
+      errorCode: "FCM_NOT_IMPLEMENTED",
+      retryable: false,
     };
   }
 }

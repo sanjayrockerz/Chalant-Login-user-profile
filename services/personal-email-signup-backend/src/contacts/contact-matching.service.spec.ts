@@ -1,15 +1,15 @@
-import { Prisma } from '@prisma/client';
-import { register } from 'prom-client';
-import { ContactMatchingService } from './contact-matching.service';
-import { ContactIdentifierType, MatchType } from './dto/contacts.dto';
-import { PersistedContactRecord, RequestContext } from './contacts.types';
+import { Prisma } from "@prisma/client";
+import { register } from "prom-client";
+import { ContactMatchingService } from "./contact-matching.service";
+import { ContactIdentifierType, MatchType } from "./dto/contacts.dto";
+import { PersistedContactRecord, RequestContext } from "./contacts.types";
 
-describe('ContactMatchingService', () => {
+describe("ContactMatchingService", () => {
   let service: ContactMatchingService;
   let context: RequestContext;
-  const uploaderId = 'f47ac10b-58cc-4372-a567-0e02b2c3d479';
-  const mutualCandidateId = 'd2719d39-19f6-4c87-9fbf-2ad2c2c12b40';
-  const oneSidedCandidateId = '4b7adbb4-88ac-4df9-9122-6c94aa3e015a';
+  const uploaderId = "f47ac10b-58cc-4372-a567-0e02b2c3d479";
+  const mutualCandidateId = "d2719d39-19f6-4c87-9fbf-2ad2c2c12b40";
+  const oneSidedCandidateId = "4b7adbb4-88ac-4df9-9122-6c94aa3e015a";
   let txMock: {
     user: {
       findUnique: jest.Mock;
@@ -27,21 +27,21 @@ describe('ContactMatchingService', () => {
   const contacts: PersistedContactRecord[] = [
     {
       userId: uploaderId,
-      hash: 'hash-1',
+      hash: "hash-1",
       type: ContactIdentifierType.PHONE,
-      normalizedValue: '+15550001',
-      firstSeenAt: new Date('2025-01-01T00:00:00Z'),
-      lastSeenAt: new Date('2025-01-01T00:00:00Z'),
-      expiresAt: new Date('2025-02-01T00:00:00Z'),
+      normalizedValue: "+15550001",
+      firstSeenAt: new Date("2025-01-01T00:00:00Z"),
+      lastSeenAt: new Date("2025-01-01T00:00:00Z"),
+      expiresAt: new Date("2025-02-01T00:00:00Z"),
     },
     {
       userId: uploaderId,
-      hash: 'hash-2',
+      hash: "hash-2",
       type: ContactIdentifierType.PHONE,
-      normalizedValue: '+15550002',
-      firstSeenAt: new Date('2025-01-01T00:00:00Z'),
-      lastSeenAt: new Date('2025-01-01T00:00:00Z'),
-      expiresAt: new Date('2025-02-01T00:00:00Z'),
+      normalizedValue: "+15550002",
+      firstSeenAt: new Date("2025-01-01T00:00:00Z"),
+      lastSeenAt: new Date("2025-01-01T00:00:00Z"),
+      expiresAt: new Date("2025-02-01T00:00:00Z"),
     },
   ];
 
@@ -49,13 +49,13 @@ describe('ContactMatchingService', () => {
     register.resetMetrics();
     service = new ContactMatchingService();
     context = {
-      correlationId: 'corr-123',
-      tenantId: 'tenant-1',
+      correlationId: "corr-123",
+      tenantId: "tenant-1",
     };
 
     txMock = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ hashedPhone: 'owner-hash' }),
+        findUnique: jest.fn().mockResolvedValue({ hashedPhone: "owner-hash" }),
         findMany: jest.fn().mockResolvedValue([]),
       },
       hashedContact: {
@@ -69,9 +69,9 @@ describe('ContactMatchingService', () => {
     tx = txMock as unknown as Prisma.TransactionClient;
   });
 
-  it('returns empty array when no contacts are provided', async () => {
+  it("returns empty array when no contacts are provided", async () => {
     const results = await service.matchContacts(tx, {
-  userId: uploaderId,
+      userId: uploaderId,
       contacts: [],
       context,
     });
@@ -80,20 +80,20 @@ describe('ContactMatchingService', () => {
     expect(txMock.user.findMany).not.toHaveBeenCalled();
   });
 
-  it('identifies mutual and one-sided matches with privacy filters applied', async () => {
+  it("identifies mutual and one-sided matches with privacy filters applied", async () => {
     txMock.user.findMany.mockResolvedValueOnce([
       {
         id: mutualCandidateId,
-        displayName: 'Mutual User',
+        displayName: "Mutual User",
         profileImageUrl: null,
-        hashedPhone: 'hash-1',
+        hashedPhone: "hash-1",
         allowContactDiscovery: true,
       },
       {
         id: oneSidedCandidateId,
-        displayName: 'One Sided User',
+        displayName: "One Sided User",
         profileImageUrl: null,
-        hashedPhone: 'hash-2',
+        hashedPhone: "hash-2",
         allowContactDiscovery: true,
       },
     ]);
@@ -110,8 +110,12 @@ describe('ContactMatchingService', () => {
 
     expect(results).toHaveLength(2);
 
-    const mutual = results.find((match) => match.candidateUserId === mutualCandidateId);
-    const oneSided = results.find((match) => match.candidateUserId === oneSidedCandidateId);
+    const mutual = results.find(
+      (match) => match.candidateUserId === mutualCandidateId,
+    );
+    const oneSided = results.find(
+      (match) => match.candidateUserId === oneSidedCandidateId,
+    );
 
     expect(mutual?.matchType).toBe(MatchType.MUTUAL);
     expect(mutual?.confidenceScore).toBe(1.0);
@@ -121,31 +125,37 @@ describe('ContactMatchingService', () => {
     expect(txMock.block.findMany).toHaveBeenCalled();
   });
 
-  it('filters out blocked relationships in either direction', async () => {
+  it("filters out blocked relationships in either direction", async () => {
     txMock.user.findMany.mockResolvedValueOnce([
       {
-        id: 'd2719d39-19f6-4c87-9fbf-2ad2c2c12b40',
-        displayName: 'Blocked By Uploader',
+        id: "d2719d39-19f6-4c87-9fbf-2ad2c2c12b40",
+        displayName: "Blocked By Uploader",
         profileImageUrl: null,
-        hashedPhone: 'hash-1',
+        hashedPhone: "hash-1",
         allowContactDiscovery: true,
       },
       {
-        id: '4b7adbb4-88ac-4df9-9122-6c94aa3e015a',
-        displayName: 'Blocks Uploader',
+        id: "4b7adbb4-88ac-4df9-9122-6c94aa3e015a",
+        displayName: "Blocks Uploader",
         profileImageUrl: null,
-        hashedPhone: 'hash-2',
+        hashedPhone: "hash-2",
         allowContactDiscovery: true,
       },
     ]);
 
     txMock.block.findMany.mockResolvedValueOnce([
-      { blockerId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479', blockedId: 'd2719d39-19f6-4c87-9fbf-2ad2c2c12b40' },
-      { blockerId: '4b7adbb4-88ac-4df9-9122-6c94aa3e015a', blockedId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479' },
+      {
+        blockerId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+        blockedId: "d2719d39-19f6-4c87-9fbf-2ad2c2c12b40",
+      },
+      {
+        blockerId: "4b7adbb4-88ac-4df9-9122-6c94aa3e015a",
+        blockedId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      },
     ]);
 
     const results = await service.matchContacts(tx, {
-      userId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      userId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
       contacts,
       context,
     });
@@ -153,20 +163,20 @@ describe('ContactMatchingService', () => {
     expect(results).toHaveLength(0);
   });
 
-  it('treats all matches as one-sided when uploader hashed phone is missing', async () => {
+  it("treats all matches as one-sided when uploader hashed phone is missing", async () => {
     txMock.user.findUnique.mockResolvedValueOnce({ hashedPhone: null });
     txMock.user.findMany.mockResolvedValueOnce([
       {
-        id: 'd2719d39-19f6-4c87-9fbf-2ad2c2c12b40',
-        displayName: 'Candidate',
+        id: "d2719d39-19f6-4c87-9fbf-2ad2c2c12b40",
+        displayName: "Candidate",
         profileImageUrl: null,
-        hashedPhone: 'hash-1',
+        hashedPhone: "hash-1",
         allowContactDiscovery: true,
       },
     ]);
 
     const results = await service.matchContacts(tx, {
-      userId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      userId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
       contacts: [contacts[0]],
       context,
     });
@@ -176,31 +186,31 @@ describe('ContactMatchingService', () => {
     expect(txMock.hashedContact.findMany).not.toHaveBeenCalled();
   });
 
-  it('ignores users who opted out of contact discovery', async () => {
+  it("ignores users who opted out of contact discovery", async () => {
     txMock.user.findMany.mockResolvedValueOnce([
       {
-        id: 'd2719d39-19f6-4c87-9fbf-2ad2c2c12b40',
-        displayName: 'Opted Out User',
+        id: "d2719d39-19f6-4c87-9fbf-2ad2c2c12b40",
+        displayName: "Opted Out User",
         profileImageUrl: null,
-        hashedPhone: 'hash-1',
+        hashedPhone: "hash-1",
         allowContactDiscovery: false,
       },
       {
-        id: '4b7adbb4-88ac-4df9-9122-6c94aa3e015a',
-        displayName: 'Eligible User',
+        id: "4b7adbb4-88ac-4df9-9122-6c94aa3e015a",
+        displayName: "Eligible User",
         profileImageUrl: null,
-        hashedPhone: 'hash-2',
+        hashedPhone: "hash-2",
         allowContactDiscovery: true,
       },
     ]);
 
     const results = await service.matchContacts(tx, {
-      userId: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
+      userId: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
       contacts,
       context,
     });
 
-  expect(results).toHaveLength(1);
-  expect(results[0].candidateUserId).toBe(oneSidedCandidateId);
+    expect(results).toHaveLength(1);
+    expect(results[0].candidateUserId).toBe(oneSidedCandidateId);
   });
 });

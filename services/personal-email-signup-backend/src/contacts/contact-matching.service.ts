@@ -1,8 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { Counter, Histogram, register } from 'prom-client';
-import { ContactIdentifierType, MatchType } from './dto/contacts.dto';
-import { MatchCandidate, PersistedContactRecord, PrismaTransactionClient, RequestContext } from './contacts.types';
+import { Injectable, Logger } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { Counter, Histogram, register } from "prom-client";
+import { ContactIdentifierType, MatchType } from "./dto/contacts.dto";
+import {
+  MatchCandidate,
+  PersistedContactRecord,
+  PrismaTransactionClient,
+  RequestContext,
+} from "./contacts.types";
 
 interface MatchContactsInput {
   userId: string;
@@ -30,35 +35,40 @@ type BlockRecord = {
   blockedId: string;
 };
 
-const MATCH_TYPE_LABELS: Record<MatchType.MUTUAL | MatchType.ONE_SIDED, string> = {
-  [MatchType.MUTUAL]: 'mutual',
-  [MatchType.ONE_SIDED]: 'one_sided',
+const MATCH_TYPE_LABELS: Record<
+  MatchType.MUTUAL | MatchType.ONE_SIDED,
+  string
+> = {
+  [MatchType.MUTUAL]: "mutual",
+  [MatchType.ONE_SIDED]: "one_sided",
 };
 
-const matchesCounter: Counter<'match_type' | 'tenant_id'> = (() => {
-  const existing = register.getSingleMetric('contacts_matches_found_total');
+const matchesCounter: Counter<"match_type" | "tenant_id"> = (() => {
+  const existing = register.getSingleMetric("contacts_matches_found_total");
   if (existing) {
-    return existing as Counter<'match_type' | 'tenant_id'>;
+    return existing as Counter<"match_type" | "tenant_id">;
   }
 
-  return new Counter<'match_type' | 'tenant_id'>({
-    name: 'contacts_matches_found_total',
-    help: 'Count of contact matches discovered during uploads',
-    labelNames: ['match_type', 'tenant_id'],
+  return new Counter<"match_type" | "tenant_id">({
+    name: "contacts_matches_found_total",
+    help: "Count of contact matches discovered during uploads",
+    labelNames: ["match_type", "tenant_id"],
     registers: [register],
   });
 })();
 
-const matchingDurationHistogram: Histogram<'tenant_id'> = (() => {
-  const existing = register.getSingleMetric('contacts_matching_duration_seconds');
+const matchingDurationHistogram: Histogram<"tenant_id"> = (() => {
+  const existing = register.getSingleMetric(
+    "contacts_matching_duration_seconds",
+  );
   if (existing) {
-    return existing as Histogram<'tenant_id'>;
+    return existing as Histogram<"tenant_id">;
   }
 
-  return new Histogram<'tenant_id'>({
-    name: 'contacts_matching_duration_seconds',
-    help: 'Latency histogram for contact matching execution',
-    labelNames: ['tenant_id'],
+  return new Histogram<"tenant_id">({
+    name: "contacts_matching_duration_seconds",
+    help: "Latency histogram for contact matching execution",
+    labelNames: ["tenant_id"],
     buckets: [0.01, 0.05, 0.1, 0.2, 0.5, 1, 2],
     registers: [register],
   });
@@ -102,7 +112,7 @@ export class ContactMatchingService {
     }
 
     const start = process.hrtime.bigint();
-    const tenantId = context.tenantId ?? 'unknown';
+    const tenantId = context.tenantId ?? "unknown";
     const uploader = await tx.user.findUnique({
       where: { id: uploaderId },
       select: { hashedPhone: true },
@@ -110,7 +120,11 @@ export class ContactMatchingService {
 
     const uploaderHashedPhone = uploader?.hashedPhone ?? null;
 
-    const matchedUsers = await this.fetchEligibleUsers(tx, uploadedHashes, uploaderId);
+    const matchedUsers = await this.fetchEligibleUsers(
+      tx,
+      uploadedHashes,
+      uploaderId,
+    );
 
     if (matchedUsers.length === 0) {
       this.recordMetrics(start, tenantId, 0, 0);
@@ -121,9 +135,19 @@ export class ContactMatchingService {
       return [];
     }
 
-  const mutualIds = await this.computeMutualMatches(tx, matchedUsers, uploaderHashedPhone);
-  const blockedPairs = await this.fetchBlockedPairs(tx, uploaderId, matchedUsers);
-  const blockedSet = new Set(blockedPairs.map((pair) => `${pair.blockerId}:${pair.blockedId}`));
+    const mutualIds = await this.computeMutualMatches(
+      tx,
+      matchedUsers,
+      uploaderHashedPhone,
+    );
+    const blockedPairs = await this.fetchBlockedPairs(
+      tx,
+      uploaderId,
+      matchedUsers,
+    );
+    const blockedSet = new Set(
+      blockedPairs.map((pair) => `${pair.blockerId}:${pair.blockedId}`),
+    );
 
     const matches: MatchCandidate[] = [];
     let mutualCount = 0;
@@ -143,17 +167,19 @@ export class ContactMatchingService {
         continue;
       }
 
-      const contactRecord = user.hashedPhone ? contactLookup.get(user.hashedPhone) : undefined;
+      const contactRecord = user.hashedPhone
+        ? contactLookup.get(user.hashedPhone)
+        : undefined;
       if (!contactRecord) {
         continue;
       }
 
-  const isMutual = mutualIds.has(candidateId);
+      const isMutual = mutualIds.has(candidateId);
       const confidence = isMutual ? 1.0 : 0.7;
 
       matches.push({
         candidateUserId: String(candidateId),
-        displayName: user.displayName ?? 'Friend',
+        displayName: user.displayName ?? "Friend",
         matchType: isMutual ? MatchType.MUTUAL : MatchType.ONE_SIDED,
         matchSource: contactRecord.type ?? ContactIdentifierType.PHONE,
         confidenceScore: confidence,
@@ -227,8 +253,8 @@ export class ContactMatchingService {
       return new Set();
     }
 
-  const userIds = matchedUsers.map((user) => user.id);
-  const mutualIds = new Set<string>();
+    const userIds = matchedUsers.map((user) => user.id);
+    const mutualIds = new Set<string>();
 
     for (const chunk of this.chunk(userIds, this.hashChunkSize)) {
       if (chunk.length === 0) {
@@ -307,20 +333,34 @@ export class ContactMatchingService {
     return chunks;
   }
 
-  private recordMetrics(start: bigint, tenantId: string, mutualCount: number, oneSidedCount: number): void {
+  private recordMetrics(
+    start: bigint,
+    tenantId: string,
+    mutualCount: number,
+    oneSidedCount: number,
+  ): void {
     const end = process.hrtime.bigint();
     const elapsedMs = Number(end - start) / 1_000_000;
-    matchingDurationHistogram.labels({ tenant_id: tenantId }).observe(elapsedMs / 1000);
+    matchingDurationHistogram
+      .labels({ tenant_id: tenantId })
+      .observe(elapsedMs / 1000);
 
     if (mutualCount > 0) {
-      matchesCounter.labels({ match_type: MATCH_TYPE_LABELS[MatchType.MUTUAL], tenant_id: tenantId }).inc(mutualCount);
+      matchesCounter
+        .labels({
+          match_type: MATCH_TYPE_LABELS[MatchType.MUTUAL],
+          tenant_id: tenantId,
+        })
+        .inc(mutualCount);
     }
 
     if (oneSidedCount > 0) {
-      matchesCounter.labels({
-        match_type: MATCH_TYPE_LABELS[MatchType.ONE_SIDED],
-        tenant_id: tenantId,
-      }).inc(oneSidedCount);
+      matchesCounter
+        .labels({
+          match_type: MATCH_TYPE_LABELS[MatchType.ONE_SIDED],
+          tenant_id: tenantId,
+        })
+        .inc(oneSidedCount);
     }
   }
 }

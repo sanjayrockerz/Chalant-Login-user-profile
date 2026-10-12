@@ -1,29 +1,35 @@
 /**
  * Auth Service Stub
- * 
+ *
  * Core authentication service handling login, registration, and token management.
  * This stub enables TypeScript compilation and NestJS DI resolution.
- * 
+ *
  * TODO: Replace with actual authentication implementation
  * - Implement JWT token generation and validation
  * - Add password hashing and verification with bcrypt
  * - Integrate OTP generation and validation
  * - Add login attempt tracking and rate limiting
  * - Implement secure session management
- * 
+ *
  * Consumers: auth.controller.ts, auth.module.ts, guards
  * Priority: Critical (blocks authentication flow)
  */
 
-import { Injectable, Logger, UnauthorizedException, BadRequestException, NotFoundException } from '@nestjs/common';
-import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '../config/config.service';
-import { UserService } from '../user/user.service';
-import { RedisService } from '../redis/redis.service';
-import { EmailService } from '../email/email.service';
-import * as bcrypt from 'bcryptjs';
-import { createHash } from 'crypto';
-import { PasswordPolicyService } from '../security/password-policy/password-policy.service';
+import {
+  Injectable,
+  Logger,
+  UnauthorizedException,
+  BadRequestException,
+  NotFoundException,
+} from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "../config/config.service";
+import { UserService } from "../user/user.service";
+import { RedisService } from "../redis/redis.service";
+import { EmailService } from "../email/email.service";
+import * as bcrypt from "bcryptjs";
+import { createHash } from "crypto";
+import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
 // TODO: Install bcrypt package
 // import * as bcrypt from 'bcrypt';
 
@@ -89,14 +95,15 @@ export class AuthService {
     private readonly emailService: EmailService,
     private readonly passwordPolicy: PasswordPolicyService,
   ) {
-    this.logger.log('AuthService stub initialized');
+    this.logger.log("AuthService stub initialized");
   }
 
   /**
    * Authenticate user with email and password
    */
   async login(loginRequest: LoginRequest): Promise<AuthResponse> {
-    const { email, password, deviceId, correlation_id, tenant_id } = loginRequest;
+    const { email, password, deviceId, correlation_id, tenant_id } =
+      loginRequest;
 
     this.logger.debug(`Login attempt stub for email: ${email}`, {
       correlation_id,
@@ -109,19 +116,19 @@ export class AuthService {
     // - Check account status (active, suspended, etc.)
     // - Track login attempts and rate limiting
     // - Generate and store session tokens
-    
+
     // Stub implementation - always succeeds for compilation
     const user = await this.userService.findByEmail(email);
-    
+
     if (!user) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     // TODO: Verify password with bcrypt
     const isPasswordValid = await this.verifyPassword(password, user.password);
-    
+
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     // Generate tokens
@@ -147,7 +154,8 @@ export class AuthService {
    * Register new user account
    */
   async register(registerRequest: RegisterRequest): Promise<AuthResponse> {
-    const { email, password, username, deviceId, correlation_id, tenant_id } = registerRequest;
+    const { email, password, username, deviceId, correlation_id, tenant_id } =
+      registerRequest;
 
     this.logger.debug(`Registration attempt stub for email: ${email}`, {
       correlation_id,
@@ -162,22 +170,25 @@ export class AuthService {
     // - Hash password with bcrypt
     // - Create user record
     // - Send welcome email
-    
+
     // Check if user already exists
     const existingUser = await this.userService.findByEmail(email);
-    
+
     if (existingUser) {
-      throw new BadRequestException('User already exists');
+      throw new BadRequestException("User already exists");
     }
 
     // Hash password
     const policyEvaluation = await this.passwordPolicy.evaluate(password, {
-      userInputs: [email, username].filter((value): value is string => typeof value === 'string' && value.length > 0),
+      userInputs: [email, username].filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      ),
     });
 
     if (!policyEvaluation.compliant || !policyEvaluation.hash) {
       throw new BadRequestException({
-        message: 'Password does not meet security requirements',
+        message: "Password does not meet security requirements",
         violations: policyEvaluation.violations,
         warnings: policyEvaluation.warnings,
         score: policyEvaluation.score,
@@ -230,9 +241,9 @@ export class AuthService {
     // - Store OTP in Redis with expiration
     // - Send OTP via email
     // - Track OTP generation attempts
-    
+
     const otp = this.generateRandomOTP();
-    
+
     // Store OTP in Redis (stub)
     await this.redisService.storeOTP(`otp:${email}`, otp, 600);
 
@@ -268,7 +279,7 @@ export class AuthService {
     // - Check expiration
     // - Remove OTP after successful validation
     // - Track validation attempts
-    
+
     const isValid = await this.redisService.verifyOTP(`otp:${email}`, otp);
 
     if (isValid) {
@@ -292,65 +303,72 @@ export class AuthService {
    * Refresh access token using refresh token
    */
   async refreshToken(refreshToken: string): Promise<{ access_token: string }> {
-    this.logger.debug('Token refresh stub');
+    this.logger.debug("Token refresh stub");
 
     // TODO: Implement actual token refresh logic
     // - Validate refresh token
     // - Extract user information
     // - Generate new access token
     // - Optionally rotate refresh token
-    
+
     try {
       const payload = this.jwtService.verify(refreshToken);
       const newAccessToken = this.jwtService.sign(
         { sub: payload.sub, email: payload.email },
-        { expiresIn: this.configService.get('JWT_EXPIRES_IN') }
+        { expiresIn: this.configService.get("JWT_EXPIRES_IN") },
       );
 
       this.logger.log(`Token refreshed stub for user: ${payload.sub}`);
 
       return { access_token: newAccessToken };
     } catch (error) {
-      this.logger.error('Token refresh failed stub', error);
-      throw new UnauthorizedException('Invalid refresh token');
+      this.logger.error("Token refresh failed stub", error);
+      throw new UnauthorizedException("Invalid refresh token");
     }
   }
 
   /**
    * Complete password reset using a previously issued token
    */
-  async resetPasswordWithToken(request: CompletePasswordResetRequest): Promise<{ success: boolean }> {
+  async resetPasswordWithToken(
+    request: CompletePasswordResetRequest,
+  ): Promise<{ success: boolean }> {
     const { token, newPassword, correlation_id, tenant_id } = request;
 
-    this.logger.debug('Processing password reset via token', {
+    this.logger.debug("Processing password reset via token", {
       correlation_id,
       tenant_id,
     });
 
-    if (!token || typeof token !== 'string' || token.trim().length === 0) {
-      throw new BadRequestException('Reset token is required');
+    if (!token || typeof token !== "string" || token.trim().length === 0) {
+      throw new BadRequestException("Reset token is required");
     }
 
     const tokenKey = `password-reset:${token}`;
-    const tokenPayload = await this.redisService.get<{ userId: string }>(tokenKey);
+    const tokenPayload = await this.redisService.get<{ userId: string }>(
+      tokenKey,
+    );
 
     if (!tokenPayload?.userId) {
-      throw new BadRequestException('Invalid or expired password reset token');
+      throw new BadRequestException("Invalid or expired password reset token");
     }
 
     const user = await this.userService.findById(tokenPayload.userId);
 
     if (!user) {
-      throw new NotFoundException('User not found for provided reset token');
+      throw new NotFoundException("User not found for provided reset token");
     }
 
     const policyEvaluation = await this.passwordPolicy.evaluate(newPassword, {
-      userInputs: [user.email, user.username].filter((value): value is string => typeof value === 'string' && value.length > 0),
+      userInputs: [user.email, user.username].filter(
+        (value): value is string =>
+          typeof value === "string" && value.length > 0,
+      ),
     });
 
     if (!policyEvaluation.compliant || !policyEvaluation.hash) {
       throw new BadRequestException({
-        message: 'Password does not meet security requirements',
+        message: "Password does not meet security requirements",
         violations: policyEvaluation.violations,
         warnings: policyEvaluation.warnings,
         score: policyEvaluation.score,
@@ -361,7 +379,7 @@ export class AuthService {
     await this.userService.updatePassword(user.id, policyEvaluation.hash);
     await this.redisService.del(tokenKey);
 
-    this.logger.log('Password reset completed successfully', {
+    this.logger.log("Password reset completed successfully", {
       correlation_id,
       tenant_id,
       user_id: user.id,
@@ -373,18 +391,21 @@ export class AuthService {
   /**
    * Generate access and refresh tokens
    */
-  private async generateTokens(userId: string, email: string): Promise<{
+  private async generateTokens(
+    userId: string,
+    email: string,
+  ): Promise<{
     access_token: string;
     refresh_token: string;
   }> {
     const payload = { sub: userId, email };
 
     const access_token = this.jwtService.sign(payload, {
-      expiresIn: this.configService.get('JWT_EXPIRES_IN'),
+      expiresIn: this.configService.get("JWT_EXPIRES_IN"),
     });
 
     const refresh_token = this.jwtService.sign(payload, {
-      expiresIn: '7d', // TODO: Make configurable
+      expiresIn: "7d", // TODO: Make configurable
     });
 
     return { access_token, refresh_token };
@@ -394,24 +415,31 @@ export class AuthService {
    * Hash password using crypto (stub implementation)
    */
   private async hashPassword(password: string): Promise<string> {
-  const cost = Number(process.env.PASSWORD_BCRYPT_COST ?? 12);
+    const cost = Number(process.env.PASSWORD_BCRYPT_COST ?? 12);
     return bcrypt.hash(password, cost);
   }
 
   /**
    * Verify password against hash (stub implementation)
    */
-  private async verifyPassword(password: string, hash: string): Promise<boolean> {
+  private async verifyPassword(
+    password: string,
+    hash: string,
+  ): Promise<boolean> {
     if (!hash) {
       return false;
     }
 
-    if (hash.startsWith('$2a$') || hash.startsWith('$2b$') || hash.startsWith('$2y$')) {
+    if (
+      hash.startsWith("$2a$") ||
+      hash.startsWith("$2b$") ||
+      hash.startsWith("$2y$")
+    ) {
       return bcrypt.compare(password, hash);
     }
 
     // Backwards compatibility for legacy SHA-256 hashes until they are rotated.
-    const legacyHash = createHash('sha256').update(password).digest('hex');
+    const legacyHash = createHash("sha256").update(password).digest("hex");
     return legacyHash === hash;
   }
 
@@ -419,7 +447,9 @@ export class AuthService {
    * Generate random OTP code
    */
   private generateRandomOTP(): string {
-    const length = this.configService.get('OTP_LENGTH') || 6;
-    return Math.random().toString().slice(2, 2 + length);
+    const length = this.configService.get("OTP_LENGTH") || 6;
+    return Math.random()
+      .toString()
+      .slice(2, 2 + length);
   }
 }

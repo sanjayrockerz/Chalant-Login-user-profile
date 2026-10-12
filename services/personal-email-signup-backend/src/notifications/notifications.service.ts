@@ -1,17 +1,17 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-import { PushTokenService } from '../push-tokens/services/push-token.service';
-import { PushToken } from '../push-tokens/entities/push-token.entity';
-import { PushPlatform, PushTokenType } from '../push-tokens/dto/push-token.dto';
-import { NotificationPayload } from './dto/notification.dto';
-import { NotificationTransport } from './interfaces/notification-transport.interface';
-import { APNS_TRANSPORT, FCM_TRANSPORT } from './notification.constants';
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { randomUUID } from "crypto";
+import { PushTokenService } from "../push-tokens/services/push-token.service";
+import { PushToken } from "../push-tokens/entities/push-token.entity";
+import { PushPlatform, PushTokenType } from "../push-tokens/dto/push-token.dto";
+import { NotificationPayload } from "./dto/notification.dto";
+import { NotificationTransport } from "./interfaces/notification-transport.interface";
+import { APNS_TRANSPORT, FCM_TRANSPORT } from "./notification.constants";
 
 export interface TokenDeliveryResult {
   tokenId: string;
   platform?: PushPlatform;
   tokenType?: PushTokenType;
-  status: 'success' | 'failed' | 'skipped';
+  status: "success" | "failed" | "skipped";
   errorCode?: string;
 }
 
@@ -31,18 +31,22 @@ export class NotificationsService {
   constructor(
     private readonly pushTokenService: PushTokenService,
     @Inject(FCM_TRANSPORT) private readonly fcmTransport: NotificationTransport,
-    @Inject(APNS_TRANSPORT) private readonly apnsTransport: NotificationTransport
+    @Inject(APNS_TRANSPORT)
+    private readonly apnsTransport: NotificationTransport,
   ) {}
 
-  async sendToUser(userId: string, notification: NotificationPayload): Promise<UserDeliveryResult> {
+  async sendToUser(
+    userId: string,
+    notification: NotificationPayload,
+  ): Promise<UserDeliveryResult> {
     const correlationId = notification.correlationId ?? randomUUID();
     const tokens = await this.pushTokenService.findActiveTokensForUser(userId);
 
     if (!tokens.length) {
       this.logger.warn({
-        message: 'No active tokens for user',
+        message: "No active tokens for user",
         userId,
-        correlationId
+        correlationId,
       });
 
       return {
@@ -51,17 +55,25 @@ export class NotificationsService {
         attempted: 0,
         succeeded: 0,
         failed: 0,
-        results: []
+        results: [],
       };
     }
 
     const results = await Promise.all(
-      tokens.map(token => this.deliverToToken(token, notification, correlationId))
+      tokens.map((token) =>
+        this.deliverToToken(token, notification, correlationId),
+      ),
     );
 
-    const succeeded = results.filter(result => result.status === 'success').length;
-    const failed = results.filter(result => result.status === 'failed').length;
-    const attempted = results.filter(result => result.status !== 'skipped').length;
+    const succeeded = results.filter(
+      (result) => result.status === "success",
+    ).length;
+    const failed = results.filter(
+      (result) => result.status === "failed",
+    ).length;
+    const attempted = results.filter(
+      (result) => result.status !== "skipped",
+    ).length;
 
     return {
       userId,
@@ -69,33 +81,39 @@ export class NotificationsService {
       attempted,
       succeeded,
       failed,
-      results
+      results,
     };
   }
 
-  async sendToToken(tokenId: string, notification: NotificationPayload): Promise<TokenDeliveryResult> {
+  async sendToToken(
+    tokenId: string,
+    notification: NotificationPayload,
+  ): Promise<TokenDeliveryResult> {
     const correlationId = notification.correlationId ?? randomUUID();
     const token = await this.pushTokenService.getActiveTokenById(tokenId);
 
     if (!token) {
       this.logger.warn({
-        message: 'Token not found for notification send',
+        message: "Token not found for notification send",
         tokenId,
-        correlationId
+        correlationId,
       });
 
       return {
         tokenId,
-        status: 'skipped'
+        status: "skipped",
       };
     }
 
     return this.deliverToToken(token, notification, correlationId);
   }
 
-  async sendBulk(userIds: string[], notification: NotificationPayload): Promise<UserDeliveryResult[]> {
+  async sendBulk(
+    userIds: string[],
+    notification: NotificationPayload,
+  ): Promise<UserDeliveryResult[]> {
     const results = await Promise.all(
-      userIds.map(userId => this.sendToUser(userId, notification))
+      userIds.map((userId) => this.sendToUser(userId, notification)),
     );
 
     return results;
@@ -104,20 +122,20 @@ export class NotificationsService {
   private async deliverToToken(
     token: PushToken,
     notification: NotificationPayload,
-    correlationId: string
+    correlationId: string,
   ): Promise<TokenDeliveryResult> {
     if (!token.active) {
       this.logger.debug({
-        message: 'Skipping inactive token',
+        message: "Skipping inactive token",
         tokenId: token.id,
-        correlationId
+        correlationId,
       });
 
       return {
         tokenId: token.id,
         platform: token.platform,
         tokenType: token.tokenType,
-        status: 'skipped'
+        status: "skipped",
       };
     }
 
@@ -125,23 +143,28 @@ export class NotificationsService {
 
     if (!transport) {
       this.logger.error({
-        message: 'No transport available for token',
+        message: "No transport available for token",
         tokenId: token.id,
         platform: token.platform,
         tokenType: token.tokenType,
-        correlationId
+        correlationId,
       });
 
-      await this.pushTokenService.recordFailure(token.id, 'UNSUPPORTED_PLATFORM', 1, {
-        correlationId
-      });
+      await this.pushTokenService.recordFailure(
+        token.id,
+        "UNSUPPORTED_PLATFORM",
+        1,
+        {
+          correlationId,
+        },
+      );
 
       return {
         tokenId: token.id,
         platform: token.platform,
         tokenType: token.tokenType,
-        status: 'failed',
-        errorCode: 'UNSUPPORTED_PLATFORM'
+        status: "failed",
+        errorCode: "UNSUPPORTED_PLATFORM",
       };
     }
 
@@ -152,63 +175,63 @@ export class NotificationsService {
         platform: token.platform,
         tokenType: token.tokenType,
         correlationId,
-        notificationType: notification.notificationType
+        notificationType: notification.notificationType,
       });
 
       if (response.success) {
         await this.pushTokenService.recordSuccess(token.id, {
           correlationId,
-          notificationType: notification.notificationType
+          notificationType: notification.notificationType,
         });
 
         return {
           tokenId: token.id,
           platform: token.platform,
           tokenType: token.tokenType,
-          status: 'success'
+          status: "success",
         };
       }
 
-      const errorCode = response.errorCode ?? 'UNKNOWN_DELIVERY_ERROR';
+      const errorCode = response.errorCode ?? "UNKNOWN_DELIVERY_ERROR";
 
       await this.pushTokenService.recordFailure(token.id, errorCode, 1, {
-        correlationId
+        correlationId,
       });
 
       return {
         tokenId: token.id,
         platform: token.platform,
         tokenType: token.tokenType,
-        status: 'failed',
-        errorCode
+        status: "failed",
+        errorCode,
       };
     } catch (error) {
-      const errorCode = (error as Error)?.message || 'NOTIFICATION_SEND_ERROR';
+      const errorCode = (error as Error)?.message || "NOTIFICATION_SEND_ERROR";
 
       await this.pushTokenService.recordFailure(token.id, errorCode, 1, {
-        correlationId
+        correlationId,
       });
 
       this.logger.error({
-        message: 'Notification send threw exception',
+        message: "Notification send threw exception",
         tokenId: token.id,
         error: errorCode,
-        correlationId
+        correlationId,
       });
 
       return {
         tokenId: token.id,
         platform: token.platform,
         tokenType: token.tokenType,
-        status: 'failed',
-        errorCode
+        status: "failed",
+        errorCode,
       };
     }
   }
 
   private resolveTransport(
     platform: PushPlatform,
-    tokenType: PushTokenType
+    tokenType: PushTokenType,
   ): NotificationTransport | null {
     if (platform === PushPlatform.ANDROID && tokenType === PushTokenType.FCM) {
       return this.fcmTransport;

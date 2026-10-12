@@ -1,15 +1,15 @@
 /**
  * Local Audit Emitter Stub
- * 
+ *
  * Cross-service audit event logging and emission functionality.
  * This is a local copy to resolve cross-service dependencies.
- * 
+ *
  * TODO: Replace with actual audit implementation
  * - Implement proper audit event schema
  * - Add audit event persistence
  * - Integrate with centralized audit system
  * - Add correlation tracking
- * 
+ *
  * Consumers: Controllers requiring audit logging
  * Priority: Medium (audit and compliance)
  */
@@ -31,7 +31,7 @@ export interface AuditEventContext {
 export interface AuditEvent {
   id: string;
   action: string;
-  result: 'success' | 'failure' | 'warning';
+  result: "success" | "failure" | "warning";
   timestamp: string;
   context: AuditEventContext;
   metadata?: {
@@ -48,8 +48,8 @@ export interface AuditEvent {
 export function buildAuditEvent(
   context: AuditEventContext,
   action: string,
-  result: 'success' | 'failure' | 'warning',
-  metadata?: { tenant_id?: string; correlation_id?: string }
+  result: "success" | "failure" | "warning",
+  metadata?: { tenant_id?: string; correlation_id?: string },
 ): AuditEvent {
   // Sanitize sensitive data from headers and body
   const sanitizedHeaders = sanitizeHeaders(context.headers || {});
@@ -67,8 +67,8 @@ export function buildAuditEvent(
     },
     metadata: {
       ...metadata,
-      service: 'personal-email-signup-backend',
-      version: '1.0.0-stub',
+      service: "personal-email-signup-backend",
+      version: "1.0.0-stub",
     },
   };
 }
@@ -83,7 +83,7 @@ export async function emitAudit(event: AuditEvent): Promise<void> {
     // - Store in audit database
     // - Send to monitoring systems
     // - Handle retries and failures
-    
+
     // Stub implementation - log to console
     console.log(`[AUDIT] ${event.action} - ${event.result}`, {
       id: event.id,
@@ -92,10 +92,9 @@ export async function emitAudit(event: AuditEvent): Promise<void> {
       correlation_id: event.metadata?.correlation_id,
       tenant_id: event.metadata?.tenant_id,
     });
-
   } catch (error) {
     // Never let audit failures break the main flow
-    console.error('[AUDIT ERROR] Failed to emit audit event:', error);
+    console.error("[AUDIT ERROR] Failed to emit audit event:", error);
   }
 }
 
@@ -104,17 +103,22 @@ export async function emitAudit(event: AuditEvent): Promise<void> {
  */
 function sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
   const sensitiveHeaders = [
-    'authorization', 'cookie', 'x-api-key', 'x-auth-token', 
-    'x-access-token', 'x-refresh-token', 'x-session-id'
+    "authorization",
+    "cookie",
+    "x-api-key",
+    "x-auth-token",
+    "x-access-token",
+    "x-refresh-token",
+    "x-session-id",
   ];
 
   const sanitized: Record<string, any> = {};
 
   for (const [key, value] of Object.entries(headers)) {
     const lowerKey = key.toLowerCase();
-    
+
     if (sensitiveHeaders.includes(lowerKey)) {
-      sanitized[key] = '[REDACTED]';
+      sanitized[key] = "[REDACTED]";
     } else {
       sanitized[key] = value;
     }
@@ -128,18 +132,26 @@ function sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
  */
 function sanitizeBody(body: Record<string, any>): Record<string, any> {
   const sensitiveFields = [
-    'password', 'token', 'secret', 'key', 'otp', 'pin',
-    'ssn', 'social_security_number', 'credit_card', 'cvv'
+    "password",
+    "token",
+    "secret",
+    "key",
+    "otp",
+    "pin",
+    "ssn",
+    "social_security_number",
+    "credit_card",
+    "cvv",
   ];
 
   const sanitized: Record<string, any> = {};
 
   for (const [key, value] of Object.entries(body)) {
     const lowerKey = key.toLowerCase();
-    
-    if (sensitiveFields.some(field => lowerKey.includes(field))) {
-      sanitized[key] = '[REDACTED]';
-    } else if (typeof value === 'object' && value !== null) {
+
+    if (sensitiveFields.some((field) => lowerKey.includes(field))) {
+      sanitized[key] = "[REDACTED]";
+    } else if (typeof value === "object" && value !== null) {
       sanitized[key] = sanitizeBody(value);
     } else {
       sanitized[key] = value;
