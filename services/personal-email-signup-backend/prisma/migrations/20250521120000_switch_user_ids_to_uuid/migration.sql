@@ -146,6 +146,18 @@ CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens (user_id);
 -- integer FK must be detached before replacing User.id.
 ALTER TABLE "EmailVerificationToken"
   DROP CONSTRAINT IF EXISTS "EmailVerificationToken_userId_fkey";
+DO $$
+DECLARE
+  fk RECORD;
+BEGIN
+  FOR fk IN
+    SELECT conrelid::regclass AS table_name, conname
+    FROM pg_constraint
+    WHERE confrelid = '"User"'::regclass
+  LOOP
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', fk.table_name, fk.conname);
+  END LOOP;
+END $$;
 ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_pkey";
 ALTER TABLE "User" DROP COLUMN IF EXISTS "id";
 ALTER TABLE "User" RENAME COLUMN "id_uuid" TO "id";
