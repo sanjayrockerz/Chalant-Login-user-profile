@@ -317,7 +317,9 @@ export class AuthService {
       const newAccessToken = this.jwtService.sign(
         { sub: payload.sub, email: payload.email },
         {
-          expiresIn: this.configService.get("JWT_EXPIRES_IN") as SignOptions["expiresIn"],
+          expiresIn: this.configService.get(
+            "JWT_EXPIRES_IN",
+          ) as SignOptions["expiresIn"],
         },
       );
 
@@ -404,7 +406,9 @@ export class AuthService {
     const payload = { sub: userId, email };
 
     const access_token = this.jwtService.sign(payload, {
-      expiresIn: this.configService.get("JWT_EXPIRES_IN") as SignOptions["expiresIn"],
+      expiresIn: this.configService.get(
+        "JWT_EXPIRES_IN",
+      ) as SignOptions["expiresIn"],
     });
 
     const refresh_token = this.jwtService.sign(payload, {

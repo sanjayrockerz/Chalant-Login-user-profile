@@ -240,7 +240,7 @@ export class UsernameController {
       }
 
       this.metricsService.requestLatencySeconds.observe(
-          { route: "username.set" },
+        { route: "username.set" },
         (Date.now() - start) / 1000,
       );
       if (span) span.end();
@@ -262,7 +262,7 @@ export class UsernameController {
 
       this.metricsService.usernameConflictsTotal.inc();
       this.metricsService.requestLatencySeconds.observe(
-          { route: "username.set" },
+        { route: "username.set" },
         (Date.now() - start) / 1000,
       );
 

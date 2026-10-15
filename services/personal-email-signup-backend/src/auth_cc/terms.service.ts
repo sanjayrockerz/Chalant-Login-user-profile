@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  Logger,
-  BadRequestException,
-} from "@nestjs/common";
+import { Injectable, Logger, BadRequestException } from "@nestjs/common";
 import { ConfigService } from "../config/config.service";
 import { UserService } from "../user/user.service";
 import { MetricsService } from "../metrics/metrics.service";
