@@ -209,7 +209,7 @@ jobs:
       - name: Check environment files
         run: |
           echo "🔍 Checking tracked environment files..."
-          tracked_env=$(git ls-files | grep -E '(^|/)\.env($|\.|/)' || true)
+          tracked_env=$(git ls-files | grep -E '(^|/)\.env($|\.|/)' | grep -Ev '(^|/)\.env\.(example|sample|template)$' || true)
           if [[ -n "$tracked_env" ]]; then
             echo "Tracked environment files detected:"
             echo "$tracked_env" | sed -E 's#=.*##'

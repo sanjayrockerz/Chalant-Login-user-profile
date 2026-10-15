@@ -72,13 +72,16 @@ jobs:
           key: personal-email-signup-backend-${{ runner.os }}-node-${{ matrix.node-version }}-${{ hashFiles('services/personal-email-signup-backend/package-lock.json') }}
           restore-keys: |
             personal-email-signup-backend-${{ runner.os }}-node-${{ matrix.node-version }}-
+      - name: Install shared phone-normalization dependencies
+        working-directory: packages/phone-normalization
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build shared phone-normalization package
+        working-directory: packages/phone-normalization
+        run: npm run build
       - name: Install dependencies
         run: npm ci
         env:
           HUSKY: '0'
-      - name: Install shared phone-normalization dependencies
-        working-directory: packages/phone-normalization
-        run: npm ci --ignore-scripts --no-audit --no-fund
       - name: Lint
         run: npm run lint --if-present
       - name: Build

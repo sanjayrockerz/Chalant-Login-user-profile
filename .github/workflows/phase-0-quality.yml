@@ -32,10 +32,13 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: services/personal-email-signup-backend/package-lock.json
-      - run: npm ci --ignore-scripts --legacy-peer-deps
       - name: Install shared phone-normalization dependencies
         working-directory: packages/phone-normalization
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build shared phone-normalization package
+        working-directory: packages/phone-normalization
+        run: npm run build
+      - run: npm ci --ignore-scripts --legacy-peer-deps
       - run: npm run build
       - run: npm run typecheck
       - run: npm test -- --runInBand
@@ -80,10 +83,13 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: services/personal-email-signup-backend/package-lock.json
-      - run: npm ci --ignore-scripts --legacy-peer-deps
       - name: Install shared phone-normalization dependencies
         working-directory: packages/phone-normalization
         run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Build shared phone-normalization package
+        working-directory: packages/phone-normalization
+        run: npm run build
+      - run: npm ci --ignore-scripts --legacy-peer-deps
       - name: Verify Redis service
         run: node -e "const Redis=require('ioredis'); const r=new Redis(process.env.REDIS_URL); r.ping().then(v=>{console.log(v); return r.quit()}).catch(e=>{console.error(e); process.exit(1)})"
       - run: npx prisma generate --schema=prisma/auth.schema.prisma
