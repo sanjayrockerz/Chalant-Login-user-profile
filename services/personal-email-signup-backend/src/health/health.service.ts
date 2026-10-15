@@ -15,6 +15,9 @@
  */
 
 import { Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "../../prisma/prisma.module";
+import { RedisService } from "../redis/redis.service";
+import { EmailService } from "../email/email.service";
 
 export interface HealthStatus {
   status: "ok" | "error";
@@ -37,8 +40,12 @@ export class HealthService {
   private readonly logger = new Logger(HealthService.name);
   private readonly startTime = Date.now();
 
-  constructor() {
-    this.logger.log("HealthService stub initialized");
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+    private readonly email: EmailService,
+  ) {
+    this.logger.log("HealthService initialized");
   }
 
   /**
@@ -57,7 +64,7 @@ export class HealthService {
       status: "ok",
       timestamp: new Date().toISOString(),
       uptime: Date.now() - this.startTime,
-      version: "1.0.0-stub",
+      version: process.env.APP_VERSION || "1.0.0",
       environment: process.env.NODE_ENV || "development",
       checks: {
         database: await this.checkDatabase(),
@@ -87,7 +94,7 @@ export class HealthService {
       // - Test query execution
       // - Check connection pool status
 
-      this.logger.debug("Database health check stub: OK");
+      await this.prisma.$queryRaw`SELECT 1`;
       return "ok";
     } catch (error) {
       this.logger.error("Database health check failed", error);
@@ -105,8 +112,7 @@ export class HealthService {
       // - Test ping command
       // - Check memory usage
 
-      this.logger.debug("Redis health check stub: OK");
-      return "ok";
+      return (await this.redis.ping()) === "PONG" ? "ok" : "error";
     } catch (error) {
       this.logger.error("Redis health check failed", error);
       return "error";
@@ -123,8 +129,8 @@ export class HealthService {
       // - Test API connectivity for SES/SendGrid
       // - Check quota limits
 
-      this.logger.debug("Email service health check stub: OK");
-      return "ok";
+      const result = await this.email.healthCheck();
+      return result.status === "unhealthy" ? "error" : "ok";
     } catch (error) {
       this.logger.error("Email service health check failed", error);
       return "error";

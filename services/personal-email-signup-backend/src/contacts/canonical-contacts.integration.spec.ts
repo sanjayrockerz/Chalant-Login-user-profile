@@ -10,7 +10,7 @@ import { PrismaService } from "../../prisma/prisma.module";
 import { CanonicalAuthModule } from "../canonical-auth/canonical-auth.module";
 import { RedisService } from "../redis/redis.service";
 import { ContactsModule } from "./contacts.module";
-import { hash } from "../security/phone-hash/phone-hash.util";
+import { hashWithKey } from "../security/phone-hash/phone-hash.util";
 
 const databaseUrl = process.env.PHASE4_DATABASE_URL;
 const describeDatabase = databaseUrl ? describe : describe.skip;
@@ -164,7 +164,13 @@ describeDatabase("canonical contact discovery HTTP contract", () => {
       where: { email: candidateEmail },
       data: {
         phone: "+14155552671",
-        hashedPhone: hash("+14155552671"),
+        hashedPhone: hashWithKey(
+          "+14155552671",
+          process.env.CONTACT_HMAC_KEY ??
+            (() => {
+              throw new Error("CONTACT_HMAC_KEY is required for this suite");
+            })(),
+        ),
         allowContactDiscovery: true,
       },
     });

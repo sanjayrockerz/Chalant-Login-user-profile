@@ -14,7 +14,7 @@
  */
 
 import { Module, Global } from "@nestjs/common";
-import { PrismaClient } from "../node_modules/.prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 /**
  * Prisma service providing database access

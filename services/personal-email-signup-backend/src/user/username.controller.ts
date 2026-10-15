@@ -35,6 +35,8 @@ import {
 import { emitAudit, buildAuditEvent } from "../events/audit-emitter";
 import { randomUUID } from "crypto";
 import { Request } from "express";
+import { RequestWithPrincipal } from "../canonical-auth/canonical-auth.types";
+import { CanonicalProfileService } from "./canonical-profile.service";
 
 // Optional tracer
 let tracer: any = null;
@@ -66,6 +68,7 @@ export class UsernameController {
     private readonly configService: ConfigService,
     private readonly metricsService: MetricsService,
     private readonly velocitySignals: VelocitySignalsService,
+    private readonly canonicalProfile: CanonicalProfileService,
   ) {}
 
   @Get("available")
@@ -87,7 +90,7 @@ export class UsernameController {
 
       if (!isValidUsernameForm(username)) {
         this.metricsService.requestLatencySeconds.observe(
-          { endpoint: "username.available" },
+          { route: "username.available" },
           (Date.now() - start) / 1000,
         );
         if (span) span.setAttribute("error", true);
@@ -106,7 +109,7 @@ export class UsernameController {
 
       if (enforceDenylist && RESERVED_USERNAMES.has(normalized)) {
         this.metricsService.requestLatencySeconds.observe(
-          { endpoint: "username.available" },
+          { route: "username.available" },
           (Date.now() - start) / 1000,
         );
         if (span) span.end();
@@ -123,7 +126,7 @@ export class UsernameController {
         : await this.userService.findByUsername(lookupKey);
 
       this.metricsService.requestLatencySeconds.observe(
-        { endpoint: "username.available" },
+        { route: "username.available" },
         (Date.now() - start) / 1000,
       );
       if (span) span.end();
@@ -165,6 +168,7 @@ export class UsernameController {
   })
   async set(
     @Body() body: SetUsernameDto,
+    @Req() req: RequestWithPrincipal,
   ): Promise<{ ok: boolean; correlation_id: string }> {
     const start = Date.now();
     const correlationId = randomUUID();
@@ -175,7 +179,7 @@ export class UsernameController {
 
       if (!username || !isValidUsernameForm(username)) {
         this.metricsService.requestLatencySeconds.observe(
-          { endpoint: "username.set" },
+          { route: "username.set" },
           (Date.now() - start) / 1000,
         );
         if (span) span.setAttribute("error", true);
@@ -195,7 +199,7 @@ export class UsernameController {
       if (enforceDenylist && RESERVED_USERNAMES.has(normalized)) {
         this.metricsService.usernameConflictsTotal.inc();
         this.metricsService.requestLatencySeconds.observe(
-          { endpoint: "username.set" },
+          { route: "username.set" },
           (Date.now() - start) / 1000,
         );
         if (span) span.setAttribute("error", true);
@@ -207,31 +211,14 @@ export class UsernameController {
         });
       }
 
-      const enforceNormalization = this.configService.get(
-        "REQUIRE_USERNAME_NORMALIZATION",
-      );
-      const lookupKey = enforceNormalization ? normalized : username;
-      const conflict = enforceNormalization
-        ? await this.userService.findByNormalizedUsername(lookupKey)
-        : await this.userService.findByUsername(lookupKey);
-
-      if (conflict) {
-        this.metricsService.usernameConflictsTotal.inc();
-        this.metricsService.requestLatencySeconds.observe(
-          { endpoint: "username.set" },
-          (Date.now() - start) / 1000,
-        );
-        if (span) span.setAttribute("error", true);
-        if (span) span.end();
-
-        throw new ConflictException({
-          error: "conflict",
-          correlation_id: correlationId,
-        });
+      if (!req.user?.subject) {
+        throw new BadRequestException("Canonical authentication required");
       }
 
-      // In a real implementation, you'd get user from JWT token and check rate limits
-      // For now, just simulate success
+      await this.canonicalProfile.updateProfile(req.user.subject, {
+        username: normalized,
+      });
+
       try {
         await emitAudit(
           buildAuditEvent(
@@ -253,7 +240,7 @@ export class UsernameController {
       }
 
       this.metricsService.requestLatencySeconds.observe(
-        { endpoint: "username.set" },
+          { route: "username.set" },
         (Date.now() - start) / 1000,
       );
       if (span) span.end();
@@ -275,7 +262,7 @@ export class UsernameController {
 
       this.metricsService.usernameConflictsTotal.inc();
       this.metricsService.requestLatencySeconds.observe(
-        { endpoint: "username.set" },
+          { route: "username.set" },
         (Date.now() - start) / 1000,
       );
 

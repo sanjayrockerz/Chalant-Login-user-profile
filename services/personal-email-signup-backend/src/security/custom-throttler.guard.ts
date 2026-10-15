@@ -1,4 +1,10 @@
-import { Injectable, Logger, HttpException, HttpStatus } from "@nestjs/common";
+import {
+  Injectable,
+  Logger,
+  HttpException,
+  HttpStatus,
+  Inject,
+} from "@nestjs/common";
 import { createHash } from "crypto";
 import { ThrottlerGuard } from "@nestjs/throttler";
 import { ExecutionContext } from "@nestjs/common/interfaces";
@@ -8,9 +14,10 @@ import { RedisThrottlerStorageService } from "./redis-throttler.storage";
 
 @Injectable()
 export class CustomThrottlerGuard extends ThrottlerGuard {
-  private readonly logger = new Logger(CustomThrottlerGuard.name);
+  protected readonly logger = new Logger(CustomThrottlerGuard.name);
 
   constructor(
+    @Inject(ConfigService)
     private readonly configService: ConfigService,
     storageService: RedisThrottlerStorageService,
     reflector: Reflector,

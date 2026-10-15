@@ -5,9 +5,8 @@ import {
   HttpStatus,
 } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
-import { createHash } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import { Request, Response } from "express";
-import { v4 as uuidv4 } from "uuid";
 import { RateLimiterService } from "../rate_limiter/rate_limiter.service";
 import { ConfigService } from "../config/config.service";
 import { MetricsService } from "../metrics/metrics.service";
@@ -44,7 +43,7 @@ export class MultiDimThrottleGuard implements CanActivate {
 
     const tenantId = req.headers["x-tenant-id"] as string | undefined;
     const correlationId =
-      (req.headers["x-correlation-id"] as string) || uuidv4();
+      (req.headers["x-correlation-id"] as string) || randomUUID();
     res.setHeader("x-correlation-id", correlationId);
 
     const ip = this.hashIdentifier(

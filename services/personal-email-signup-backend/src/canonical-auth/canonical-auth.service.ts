@@ -13,6 +13,8 @@ import { verify as verifyArgon2 } from "@node-rs/argon2";
 import { compare as compareBcrypt } from "bcryptjs";
 import { PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
+import { EmailService } from "../email/email.service";
+import { RedisService } from "../redis/redis.service";
 import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
 import { toCanonicalUserId } from "../identity/identity.types";
 import { CanonicalPrincipal } from "../identity/identity.types";
@@ -58,6 +60,8 @@ export class CanonicalAuthService {
     private readonly jwt: JwtService,
     private readonly config: ConfigService,
     private readonly passwordPolicy: PasswordPolicyService,
+    private readonly email: EmailService,
+    private readonly redis: RedisService,
   ) {}
 
   async register(
@@ -92,6 +96,16 @@ export class CanonicalAuthService {
           select: this.userSelect,
         });
       });
+      const verificationToken = randomBytes(32).toString("base64url");
+      await this.redis.set(
+        this.emailVerificationKey(verificationToken),
+        user.id,
+        this.config.get("EMAIL_VERIFICATION_TOKEN_TTL_SECONDS"),
+      );
+      if (this.config.get("EMAIL_DELIVERY_ENABLED")) {
+        await this.email.sendVerificationEmail(email, verificationToken);
+      }
+
       return {
         status: "verification_required",
         user: this.toPrincipal(user),
@@ -133,6 +147,22 @@ export class CanonicalAuthService {
     const principal = this.toPrincipal(user);
     const tokens = await this.issueSession(principal);
     return { ...tokens, user: principal };
+  }
+
+  async verifyEmail(token: string) {
+    const raw = this.requireText(token, "token");
+    const userId = await this.redis.getAndDelete<string>(
+      this.emailVerificationKey(raw),
+    );
+    if (!userId)
+      throw new UnauthorizedException("Invalid email verification token");
+
+    const user = await this.prisma.user.update({
+      where: { id: toCanonicalUserId(userId) },
+      data: { isVerified: true },
+      select: this.userSelect,
+    });
+    return { status: "verified", user: this.toPrincipal(user) };
   }
 
   async refresh(refreshToken: string): Promise<AuthenticatedResponse> {
@@ -425,6 +455,12 @@ export class CanonicalAuthService {
       );
       return false;
     }
+  }
+
+  private emailVerificationKey(token: string): string {
+    return `canonical:email-verification:${createHash("sha256")
+      .update(token)
+      .digest("hex")}`;
   }
 
   private readonly userSelect = {

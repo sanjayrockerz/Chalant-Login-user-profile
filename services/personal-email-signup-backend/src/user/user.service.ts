@@ -1,5 +1,5 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import { PrismaService } from "../../prisma/prisma.module";
 import { RedisService } from "../redis/redis.service";
 
 export interface LocalUser {
@@ -31,11 +31,11 @@ export interface LocalUser {
 @Injectable()
 export class UserService implements OnModuleInit, OnModuleDestroy {
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
   ) {}
   onModuleDestroy() {
-    throw new Error("Method not implemented.");
+    // PrismaService owns the shared client lifecycle for the application.
   }
 
   async onModuleInit() {

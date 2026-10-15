@@ -7,7 +7,7 @@ import {
   NormalizationError,
   NormalizeOptions,
   NormalizedPhoneNumber,
-} from "../../../../../packages/phone-normalization/src";
+} from "@auth/phone-normalization";
 
 export interface PhoneNormalizationResult extends NormalizedPhoneNumber {}
 

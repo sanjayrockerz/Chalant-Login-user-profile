@@ -38,6 +38,9 @@ describe("Security Hardening", () => {
         {
           trackUsernameEnumeration: jest.fn().mockResolvedValue(undefined),
         } as any,
+        {
+          updateProfile: jest.fn().mockResolvedValue({}),
+        } as any,
       );
 
       const request = { ip: "203.0.113.1", headers: {} } as any;

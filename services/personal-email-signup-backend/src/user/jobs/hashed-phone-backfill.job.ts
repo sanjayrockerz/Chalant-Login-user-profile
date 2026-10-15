@@ -1,9 +1,9 @@
 import { Injectable, Logger } from "@nestjs/common";
-import { PrismaClient } from "@prisma/client";
+import { PrismaService } from "../../../prisma/prisma.module";
 import {
   normalizePhoneNumber,
   NormalizationError,
-} from "../../../../../packages/phone-normalization/src";
+} from "@auth/phone-normalization";
 import { hash, verify } from "../../security/phone-hash/phone-hash.util";
 import { ConfigService } from "../../config/config.service";
 
@@ -26,7 +26,7 @@ export class HashedPhoneBackfillJob {
   private readonly logger = new Logger(HashedPhoneBackfillJob.name);
 
   constructor(
-    private readonly prisma: PrismaClient,
+    private readonly prisma: PrismaService,
     private readonly config: ConfigService,
   ) {}
 

@@ -2,11 +2,11 @@ import {
   Injectable,
   Logger,
   BadRequestException,
-  ConflictException,
 } from "@nestjs/common";
 import { ConfigService } from "../config/config.service";
 import { UserService } from "../user/user.service";
 import { MetricsService } from "../metrics/metrics.service";
+import { CanonicalPolicyService } from "../policies/canonical-policy.service";
 import {
   AcceptTermsDto,
   TermsAcceptanceResponse,
@@ -26,6 +26,7 @@ export class TermsService {
   constructor(
     private readonly configService: ConfigService,
     private readonly userService: UserService,
+    private readonly canonicalPolicy: CanonicalPolicyService,
     private readonly metricsService?: MetricsService,
   ) {}
 
@@ -85,7 +86,7 @@ export class TermsService {
       // Increment invalid version metric
       try {
         this.metricsService?.errorsTotal.inc({ type: "invalid_terms_version" });
-      } catch (err) {
+      } catch {
         // Ignore metrics failures
       }
 
@@ -98,36 +99,10 @@ export class TermsService {
       });
     }
 
-    const user = await this.userService.findById(userId);
-    if (!user) {
-      throw new BadRequestException("User not found");
-    }
-
-    // Check if already accepted (idempotent behavior)
-    if (user.termsVersion === currentVersion && user.termsAcceptedAt) {
-      this.logger.debug(
-        `User ${userId} already accepted terms version ${currentVersion}`,
-        {
-          correlationId,
-          userId: userId.toString(),
-          version: currentVersion,
-        },
-      );
-
-      return {
-        message: "Terms acceptance already recorded",
-        accepted_version: currentVersion,
-        accepted_at: user.termsAcceptedAt,
-        correlation_id: correlationId,
-      };
-    }
-
-    // Record acceptance
-    const acceptedAt = new Date();
-    await this.userService.updateUser(userId, {
-      termsVersion: currentVersion,
-      termsAcceptedAt: acceptedAt,
+    const result = await this.canonicalPolicy.accept(userId, {
+      policyVersion: currentVersion,
     });
+    const acceptedAt = result.acceptedAt;
 
     // Update metrics
     try {
@@ -135,7 +110,7 @@ export class TermsService {
       this.metricsService?.termsAcceptanceLatency.observe(
         (Date.now() - start) / 1000,
       );
-    } catch (err) {
+    } catch {
       // Ignore metrics failures
     }
 

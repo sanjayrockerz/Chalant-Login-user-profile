@@ -33,13 +33,52 @@ jest.mock("../src/config/config.service", () => {
     CORS_ORIGINS: "http://localhost:3000,http://localhost:3001",
     THROTTLE_TTL: 60,
     THROTTLE_LIMIT: 100,
-    REDIS_URL: process.env.REDIS_URL,
-    DATABASE_URL: process.env.DATABASE_URL,
+    REDIS_URL: process.env.REDIS_URL || "redis://127.0.0.1:6379",
+    DATABASE_URL:
+      process.env.DATABASE_URL_AUTH ||
+      process.env.DATABASE_URL ||
+      "postgresql://test:test@127.0.0.1:5432/test",
+    COOKIE_SECRET: "test-cookie-secret",
+    EMAIL_DELIVERY_ENABLED: false,
+    EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: 86400,
+    RATE_LIMIT_GLOBAL_LIMIT: 1000,
+    RATE_LIMIT_GLOBAL_TTL: 60,
+    RATE_LIMIT_GLOBAL_BLOCK_SECONDS: 120,
+    RATE_LIMIT_IP_LIMIT: 60,
+    RATE_LIMIT_IP_TTL: 3600,
+    RATE_LIMIT_IP_BLOCK_SECONDS: 300,
+    RATE_LIMIT_DEVICE_LIMIT: 20,
+    RATE_LIMIT_DEVICE_TTL: 3600,
+    RATE_LIMIT_DEVICE_BLOCK_SECONDS: 300,
+    RATE_LIMIT_USER_LIMIT: 100,
+    RATE_LIMIT_USER_TTL: 3600,
+    RATE_LIMIT_USER_BLOCK_SECONDS: 300,
   };
 
   return {
     ConfigService: jest.fn().mockImplementation(() => ({
-      get: jest.fn((key: string) => mockConfig[key as keyof typeof mockConfig]),
+      get: jest.fn((key: string) => {
+        if (key === "ACTIVE_POLICY_VERSION") {
+          return process.env.ACTIVE_POLICY_VERSION || "v2025-10-07-1";
+        }
+        if (key === "CONTACT_HASH_MODE") {
+          return process.env.CONTACT_HASH_MODE || "sha256-v1";
+        }
+        if (key === "CONTACT_HMAC_KEY") {
+          return process.env.CONTACT_HMAC_KEY;
+        }
+        if (key === "REDIS_URL") {
+          return process.env.REDIS_URL || mockConfig.REDIS_URL;
+        }
+        if (key === "DATABASE_URL") {
+          return (
+            process.env.DATABASE_URL_AUTH ||
+            process.env.DATABASE_URL ||
+            mockConfig.DATABASE_URL
+          );
+        }
+        return mockConfig[key as keyof typeof mockConfig];
+      }),
       getAll: jest.fn(() => mockConfig),
     })),
   };
@@ -60,14 +99,19 @@ if (process.env.USE_REAL_EMAIL !== "true") {
 if (process.env.USE_REAL_REDIS !== "true") {
   jest.mock("ioredis", () => {
     const mockRedis = {
+      on: jest.fn().mockReturnThis(),
       set: jest.fn().mockResolvedValue("OK"),
       get: jest.fn().mockResolvedValue(null),
       del: jest.fn().mockResolvedValue(1),
+      getdel: jest.fn().mockResolvedValue(null),
       setex: jest.fn().mockResolvedValue("OK"),
       exists: jest.fn().mockResolvedValue(0),
+      ping: jest.fn().mockResolvedValue("PONG"),
       quit: jest.fn().mockResolvedValue("OK"),
+      disconnect: jest.fn(),
     };
-    return jest.fn(() => mockRedis);
+    const MockRedis = jest.fn(() => mockRedis);
+    return { Redis: MockRedis, default: MockRedis };
   });
 }
 

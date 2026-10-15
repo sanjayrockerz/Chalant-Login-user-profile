@@ -26,7 +26,7 @@ import {
   ApiBody,
 } from "@nestjs/swagger";
 import { Request } from "express";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 import {
   IsArray,
   ArrayNotEmpty,
@@ -133,7 +133,7 @@ export class PushTokenController {
     // @GetTenant() tenantId: string // Uncomment when available
   ): Promise<TokenRegistrationResponseDto> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
     const userAgent = request.headers["user-agent"];
     const ipAddress = request.ip || request.connection.remoteAddress;
     const userHeader = request.headers["x-user-id"];
@@ -235,7 +235,7 @@ export class PushTokenController {
     timestamp: string;
   }> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
 
     const results = await this.pushTokenService.validateTokens(
       body.tokenIds,
@@ -269,7 +269,7 @@ export class PushTokenController {
     timestamp: string;
   }> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
 
     const maxFailures = body.maxFailures ?? 3;
     const daysSinceLastValidation = body.daysSinceLastValidation ?? 14;
@@ -344,7 +344,7 @@ export class PushTokenController {
     timestamp: string;
   }> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
     const userHeader = request.headers["x-user-id"];
     const userId =
       typeof userHeader === "string" && userHeader.length > 0
@@ -422,7 +422,7 @@ export class PushTokenController {
     timestamp: string;
   }> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
     const userHeader = request.headers["x-user-id"];
     const userId =
       typeof userHeader === "string" && userHeader.length > 0
@@ -532,7 +532,7 @@ export class PushTokenController {
     timestamp: string;
   }> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
     const userAgent = request.headers["user-agent"];
     const ipAddress = request.ip || request.connection.remoteAddress;
     const userHeader = request.headers["x-user-id"];
@@ -622,7 +622,7 @@ export class PushTokenController {
     timestamp: string;
   }> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
     const userHeader = request.headers["x-user-id"];
     const userId =
       typeof userHeader === "string" && userHeader.length > 0
@@ -704,7 +704,7 @@ export class PushTokenController {
     // @GetUser() user: { id: string } // Uncomment when available
   ): Promise<BulkOperationResultDto> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
     const userHeader = request.headers["x-user-id"];
     const userId =
       typeof userHeader === "string" && userHeader.length > 0
@@ -835,7 +835,7 @@ export class PushTokenController {
   })
   async healthCheck(@Req() request: Request): Promise<any> {
     const correlationId =
-      (request.headers["x-correlation-id"] as string) || uuidv4();
+      (request.headers["x-correlation-id"] as string) || randomUUID();
 
     this.logger.log({
       message: "Health check request received",

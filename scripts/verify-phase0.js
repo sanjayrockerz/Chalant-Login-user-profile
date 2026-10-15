@@ -31,7 +31,15 @@ function ignored(repoRoot, file) {
 
 const appModule = read(path.join(repo, 'services/personal-email-signup-backend/src/app.module.ts'));
 if (!/from ['"]\.\/auth_cc\/auth\.module['"]/.test(appModule)) {
-  fail('R3 signup AppModule does not select auth_cc as the authoritative auth module');
+  fail('R3 signup AppModule is missing the terms compatibility module');
+}
+
+if (!/from ['"]\.\/canonical-auth\/canonical-auth\.module['"]/.test(appModule)) {
+  fail('R3 signup AppModule does not register CanonicalAuthModule');
+}
+
+if (/import\s+\{\s*AuthModule\s*\}\s+from ['"]\.\/auth\//.test(appModule)) {
+  fail('R3 signup AppModule registers the quarantined legacy AuthModule');
 }
 if (appModule.includes("from './auth/auth.module'")) {
   fail('R3 signup AppModule imports the stub auth module');

@@ -24,6 +24,7 @@ import { RedisModule } from "../redis/redis.module";
 import { AuthService } from "./auth.service";
 import { AuthController } from "./auth.controller";
 import { SecurityModule } from "../security/security.module";
+import type { SignOptions } from "jsonwebtoken";
 // TODO: Import actual strategy implementations
 // import { JwtStrategy } from './strategies/jwt.strategy';
 // import { LocalStrategy } from './strategies/local.strategy';
@@ -40,7 +41,7 @@ import { SecurityModule } from "../security/security.module";
       useFactory: async (configService: ConfigService) => ({
         secret: configService.get("JWT_SECRET"),
         signOptions: {
-          expiresIn: configService.get("JWT_EXPIRES_IN"),
+          expiresIn: configService.get("JWT_EXPIRES_IN") as SignOptions["expiresIn"],
         },
       }),
       inject: [ConfigService],

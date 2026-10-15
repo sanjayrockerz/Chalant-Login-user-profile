@@ -14,7 +14,7 @@
  * Priority: Medium (health monitoring)
  */
 
-import { Controller, Get, Logger } from "@nestjs/common";
+import { Controller, Get, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { HealthService, HealthStatus } from "./health.service";
 
 /**
@@ -64,8 +64,9 @@ export class HealthController {
 
     const healthStatus = await this.healthService.getHealthStatus();
 
-    return {
-      status: healthStatus.status === "ok" ? "ready" : "not_ready",
-    };
+    if (healthStatus.status !== "ok") {
+      throw new ServiceUnavailableException(healthStatus);
+    }
+    return { status: "ready" };
   }
 }

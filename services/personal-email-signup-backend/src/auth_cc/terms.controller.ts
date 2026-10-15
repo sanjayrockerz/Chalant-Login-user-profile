@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Headers,
+  UseGuards,
 } from "@nestjs/common";
 import {
   ApiTags,
@@ -13,13 +14,14 @@ import {
   ApiResponse,
   ApiBearerAuth,
 } from "@nestjs/swagger";
-import { Request } from "express";
 import { TermsService } from "./terms.service";
 import {
   AcceptTermsDto,
   TermsAcceptanceResponse,
 } from "./dto/accept-terms.dto";
 import { MetricsService } from "../metrics/metrics.service";
+import { JwtAuthGuard } from "../auth/jwt-auth.guard";
+import { RequestWithPrincipal } from "../canonical-auth/canonical-auth.types";
 
 const { trace } = require("@opentelemetry/api");
 const tracer = trace.getTracer
@@ -29,6 +31,7 @@ const tracer = trace.getTracer
 @ApiTags("Terms & Privacy")
 @Controller("auth/terms")
 @ApiBearerAuth()
+@UseGuards(JwtAuthGuard)
 export class TermsController {
   constructor(
     private readonly termsService: TermsService,
@@ -71,7 +74,7 @@ export class TermsController {
   })
   async acceptTerms(
     @Body() acceptTermsDto: AcceptTermsDto,
-    @Req() req: Request & { user?: { id: string; username: string } },
+    @Req() req: RequestWithPrincipal,
     @Headers("x-correlation-id") correlationId?: string,
   ): Promise<TermsAcceptanceResponse> {
     const start = Date.now();
@@ -82,19 +85,19 @@ export class TermsController {
 
     try {
       // Validate user is authenticated
-      if (!req.user?.id) {
+      if (!req.user?.subject) {
         throw new Error("Authentication required");
       }
 
       span?.setAttributes({
-        "user.id": req.user.id.toString(),
+        "user.id": req.user.subject,
         "terms.version": acceptTermsDto.terms_version,
         "correlation.id": finalCorrelationId,
       });
 
       // Record terms acceptance
       const result = await this.termsService.acceptTerms(
-        req.user.id,
+        req.user.subject,
         acceptTermsDto,
         finalCorrelationId,
       );
@@ -160,7 +163,7 @@ export class TermsController {
     },
   })
   async getTermsStatus(
-    @Req() req: Request & { user?: { id: string; username: string } },
+    @Req() req: RequestWithPrincipal,
     @Headers("x-correlation-id") correlationId?: string,
   ) {
     const start = Date.now();
@@ -170,17 +173,17 @@ export class TermsController {
       `status_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
     try {
-      if (!req.user?.id) {
+      if (!req.user?.subject) {
         throw new Error("Authentication required");
       }
 
       span?.setAttributes({
-        "user.id": req.user.id.toString(),
+        "user.id": req.user.subject,
         "correlation.id": finalCorrelationId,
       });
 
       const status = await this.termsService.validateUserTermsStatus(
-        req.user.id,
+        req.user.subject,
       );
 
       // Update metrics

@@ -91,10 +91,21 @@ jobs:
       - run: createdb -h 127.0.0.1 -U postgres phase1_fresh
       - run: createdb -h 127.0.0.1 -U postgres phase1_upgrade
       - run: export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"; npm run migration:fresh:init
-      - run: export PHASE2A_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export DATABASE_URL_AUTH="$PHASE2A_DATABASE_URL"; export REDIS_URL='redis://127.0.0.1:6379'; npm run prisma:generate:runtime; npm run test:canonical-auth -- --silent
-      - run: export PHASE2B_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export DATABASE_URL_AUTH="$PHASE2B_DATABASE_URL"; npm run prisma:generate:runtime; npm run test -- src/canonical-auth/google-auth.integration.spec.ts --runInBand --silent
-      - run: export PHASE2C_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export DATABASE_URL_AUTH="$PHASE2C_DATABASE_URL"; npm run prisma:generate:runtime; npm run test -- src/canonical-auth/apple-oidc.client.spec.ts src/canonical-auth/apple-auth.integration.spec.ts --runInBand --silent
-      - run: export PHASE3_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export PHASE4_DATABASE_URL="$PHASE3_DATABASE_URL"; export DATABASE_URL_AUTH="$PHASE3_DATABASE_URL"; export REDIS_URL='redis://127.0.0.1:6379'; npm run test -- src/user/canonical-profile.integration.spec.ts src/contacts/canonical-contacts.integration.spec.ts src/policies/canonical-policy.integration.spec.ts --runInBand --silent
+      - name: Run all real PostgreSQL and Redis integration suites
+        run: >-
+          export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh';
+          export PHASE2A_DATABASE_URL="$PHASE1_DATABASE_URL";
+          export PHASE2B_DATABASE_URL="$PHASE1_DATABASE_URL";
+          export PHASE2C_DATABASE_URL="$PHASE1_DATABASE_URL";
+          export PHASE3_DATABASE_URL="$PHASE1_DATABASE_URL";
+          export PHASE4_DATABASE_URL="$PHASE1_DATABASE_URL";
+          export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL";
+          export DATABASE_URL="$PHASE1_DATABASE_URL";
+          export REDIS_URL='redis://127.0.0.1:6379';
+          export CONTACT_HASH_MODE='hmac-sha256-v2';
+          export CONTACT_HMAC_KEY='ci-only-contact-hmac-key-at-least-32-bytes';
+          export ACTIVE_POLICY_VERSION='v-test-1';
+          npm run test:integration:real -- --silent
       - run: export DATABASE_URL_AUTH='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export REDIS_URL='redis://127.0.0.1:6379'; export CANONICAL_RECOVERY_ENABLED='true'; npm run test -- src/canonical-auth/canonical-recovery.service.spec.ts --runInBand --silent
       - run: export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_upgrade'; export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../scripts/phase1-identity-test-baseline.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261009120000_identity_foundation/migration.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010100000_canonical_onboarding_state/migration.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010120000_canonical_policy_acceptance/migration.sql; npm run migration:upgrade:verify; npm run test:identity:persistence -- --silent
 

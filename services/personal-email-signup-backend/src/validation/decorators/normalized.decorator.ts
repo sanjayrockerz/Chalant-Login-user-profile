@@ -26,7 +26,7 @@ import {
   PhoneNormalizationOptions,
 } from "../normalizers/phone.normalizer";
 import { normalizeAge } from "../normalizers/age.normalizer";
-import { NormalizationError } from "../../../../../packages/phone-normalization/src/errors";
+import { NormalizationError } from "@auth/phone-normalization";
 
 function isEmptyValue(value: unknown): boolean {
   return (

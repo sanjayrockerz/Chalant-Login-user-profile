@@ -6,7 +6,7 @@ import { UsernameController } from "./user/username.controller";
 import { ProfileController } from "./user/profile.controller";
 import { APP_GUARD } from "@nestjs/core";
 import { CustomThrottlerGuard } from "./security/custom-throttler.guard";
-import { AuthModule } from "./auth_cc/auth.module";
+import { TermsModule } from "./auth_cc/auth.module";
 import { EmailModule } from "./email/email.module";
 import { UserModule } from "./user/user.module";
 import { HealthModule } from "./health/health.module";
@@ -32,7 +32,7 @@ import { CanonicalProfileService } from "./user/canonical-profile.service";
     PrismaModule,
     RedisModule,
     UserModule,
-    AuthModule,
+    TermsModule,
     HealthModule,
     SecurityModule,
     MetricsModule,

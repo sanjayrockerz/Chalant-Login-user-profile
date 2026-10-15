@@ -30,6 +30,7 @@ import { EmailService } from "../email/email.service";
 import * as bcrypt from "bcryptjs";
 import { createHash } from "crypto";
 import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
+import type { SignOptions } from "jsonwebtoken";
 // TODO: Install bcrypt package
 // import * as bcrypt from 'bcrypt';
 
@@ -315,7 +316,9 @@ export class AuthService {
       const payload = this.jwtService.verify(refreshToken);
       const newAccessToken = this.jwtService.sign(
         { sub: payload.sub, email: payload.email },
-        { expiresIn: this.configService.get("JWT_EXPIRES_IN") },
+        {
+          expiresIn: this.configService.get("JWT_EXPIRES_IN") as SignOptions["expiresIn"],
+        },
       );
 
       this.logger.log(`Token refreshed stub for user: ${payload.sub}`);
@@ -401,7 +404,7 @@ export class AuthService {
     const payload = { sub: userId, email };
 
     const access_token = this.jwtService.sign(payload, {
-      expiresIn: this.configService.get("JWT_EXPIRES_IN"),
+      expiresIn: this.configService.get("JWT_EXPIRES_IN") as SignOptions["expiresIn"],
     });
 
     const refresh_token = this.jwtService.sign(payload, {

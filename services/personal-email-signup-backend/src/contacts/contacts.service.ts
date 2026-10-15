@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import {
+  Inject,
+  Injectable,
+  Logger,
+  Optional,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { createHash } from "crypto";
 import { Counter, Histogram, register } from "prom-client";
 import { PrismaService } from "../../prisma/prisma.module";
@@ -123,6 +129,7 @@ export class ContactsService {
     dto: ContactUploadDto,
     context: RequestContext,
   ): Promise<ContactUploadResponseDto> {
+    this.assertSecureDiscoveryEnabled();
     const startTime = Date.now();
     this.logger.debug("contacts.upload:start", {
       userId,
@@ -298,6 +305,7 @@ export class ContactsService {
     query: SuggestionQueryDto,
     context: RequestContext,
   ): Promise<ContactSuggestionResponseDto> {
+    this.assertSecureDiscoveryEnabled();
     return this.prisma.$transaction((tx) =>
       this.suggestionService.listSuggestions(tx, {
         userId,
@@ -395,6 +403,14 @@ export class ContactsService {
         privacy_settings: "/settings/privacy",
       },
     };
+  }
+
+  private assertSecureDiscoveryEnabled(): void {
+    if (this.configService.get("CONTACT_HASH_MODE") !== "hmac-sha256-v2") {
+      throw new ServiceUnavailableException(
+        "Contact discovery is unavailable until HMAC contact hashing is provisioned",
+      );
+    }
   }
 
   private emitUploadTelemetry(params: {

@@ -24,7 +24,7 @@ import {
   isValidAge,
   AgeValidationOptions,
 } from "./normalizers/age.normalizer";
-import { NormalizationError } from "../../../../packages/phone-normalization/src/errors";
+import { NormalizationError } from "@auth/phone-normalization";
 
 export interface ValidationResult<T = any> {
   isValid: boolean;

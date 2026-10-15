@@ -109,6 +109,11 @@ export const configSchema = z.object({
   EMAIL_SMTP_PASSWORD: z.string().optional(),
   EMAIL_SMTP_TIMEOUT_MS: z.number().int().positive().default(10000),
   EMAIL_VERIFY_BASE_URL: z.string().url().optional(),
+  EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: z
+    .number()
+    .int()
+    .positive()
+    .default(86400),
   PASSWORD_RESET_BASE_URL: z.string().url().optional(),
   CANONICAL_RECOVERY_ENABLED: z.boolean().default(false),
   RECOVERY_TOKEN_TTL_SECONDS: z.number().int().positive().default(900),

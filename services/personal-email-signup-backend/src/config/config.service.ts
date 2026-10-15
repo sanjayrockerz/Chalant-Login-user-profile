@@ -29,7 +29,11 @@ export class ConfigService {
           process.env.USERNAME_CHANGE_WINDOW_SECONDS || "86400",
           10,
         ),
-        DATABASE_URL: process.env.DATABASE_URL,
+        // PrismaService accepts DATABASE_URL_AUTH as the authoritative
+        // application database variable, while older deployments use
+        // DATABASE_URL. Normalize both names at the configuration boundary
+        // so startup validation and database construction cannot disagree.
+        DATABASE_URL: process.env.DATABASE_URL_AUTH || process.env.DATABASE_URL,
         JWT_SECRET: process.env.JWT_SECRET,
         JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "1h",
         REDIS_URL: process.env.REDIS_URL,
@@ -122,6 +126,10 @@ export class ConfigService {
           10,
         ),
         EMAIL_VERIFY_BASE_URL: process.env.EMAIL_VERIFY_BASE_URL,
+        EMAIL_VERIFICATION_TOKEN_TTL_SECONDS: parseInt(
+          process.env.EMAIL_VERIFICATION_TOKEN_TTL_SECONDS || "86400",
+          10,
+        ),
         PASSWORD_RESET_BASE_URL: process.env.PASSWORD_RESET_BASE_URL,
         CANONICAL_RECOVERY_ENABLED:
           process.env.CANONICAL_RECOVERY_ENABLED === "true",

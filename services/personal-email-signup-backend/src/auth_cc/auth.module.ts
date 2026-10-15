@@ -1,8 +1,8 @@
 /**
- * Auth CC Module Stub
+ * Terms compatibility module.
  *
- * Alternative authentication module (auth_cc version).
- * This stub enables TypeScript compilation and NestJS DI resolution.
+ * This module owns only the legacy terms endpoints. It is deliberately not
+ * an authentication owner; CanonicalAuthModule owns all /auth routes.
  *
  * TODO: Replace with actual auth_cc implementation
  * - Integrate existing auth.service.ts
@@ -10,19 +10,28 @@
  * - Configure authentication strategies
  *
  * Consumers: app.module.ts
- * Priority: Medium (alternative auth system)
  */
 
 import { Module } from "@nestjs/common";
+import { UserModule } from "../user/user.module";
+import { MetricsModule } from "../metrics/metrics.module";
+import { CanonicalPolicyModule } from "../policies/canonical-policy.module";
+import { CanonicalAuthModule } from "../canonical-auth/canonical-auth.module";
 import { TermsController } from "./terms.controller";
 import { TermsService } from "./terms.service";
 
 /**
- * Auth CC module providing alternative authentication
+ * Compatibility module providing terms acceptance only.
  */
 @Module({
+  imports: [
+    UserModule,
+    MetricsModule,
+    CanonicalAuthModule,
+    CanonicalPolicyModule,
+  ],
   controllers: [TermsController],
   providers: [TermsService],
   exports: [TermsService],
 })
-export class AuthModule {}
+export class TermsModule {}

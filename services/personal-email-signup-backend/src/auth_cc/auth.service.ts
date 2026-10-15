@@ -378,24 +378,16 @@ export class AuthService {
       // Legacy token-based verification (deprecated - will be removed in Phase C)
       // TODO: Remove this block when ENABLE_LEGACY_TOKEN_VERIFICATION=false everywhere
       const verificationToken = await this.generateVerificationToken();
-      console.log("Generated verification token:", verificationToken); // Log the token
 
       await this.userService.saveVerificationToken(
         newUser.id,
         verificationToken,
       );
-      console.log(
-        "Token saved to database for user:",
-        newUser.id,
-        "Email:",
-        newUser.email,
-      ); // Log the user ID and email
 
       await this.emailService.sendVerificationEmail(
         newUser.email,
         verificationToken,
       );
-      console.log("Verification email sent to:", newUser.email); // Log email sent
 
       return { message: "Registration successful. Please verify your email." };
     } catch (error) {
@@ -406,19 +398,13 @@ export class AuthService {
   }
 
   async verifyEmail(token: string): Promise<string> {
-    console.log("Received token for verification:", token); // Log the token
-
     const user = await this.userService.findByVerificationToken(token);
     if (!user) {
-      console.error("Token not found in database:", token); // Log if token is not found
       throw new BadRequestException("Email verification failed");
     }
 
-    console.log("User found for token:", user); // Log the user details
-
     user.isVerified = true;
     await this.userService.updateUser(user.id, user);
-    console.log("User marked as verified:", user.id); // Log user verification
 
     return "Email verified successfully";
   }

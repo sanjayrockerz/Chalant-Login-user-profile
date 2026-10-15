@@ -135,8 +135,11 @@ jobs:
           cd ${{ matrix.path }}
           echo "🔍 Running npm audit for ${{ matrix.service }} service..."
 
-          # Run audit and capture results
-          npm audit --audit-level=moderate --json > audit-results.json || true
+          # Production reachability is the blocking gate. Development tooling is
+          # reported separately so Jest/ESLint advisories do not masquerade as
+          # deployed-service exposure.
+          npm audit --omit=dev --audit-level=moderate --json > audit-results.json || true
+          npm audit --include=dev --audit-level=moderate --json > dev-audit-results.json || true
 
           # Display summary
           if [[ -s audit-results.json ]]; then
@@ -181,6 +184,7 @@ jobs:
           name: dependency-scan-${{ matrix.service }}
           path: |
             ${{ matrix.path }}/audit-results.json
+            ${{ matrix.path }}/dev-audit-results.json
             ${{ matrix.path }}/license-report.json
           retention-days: 30
 
@@ -198,55 +202,20 @@ jobs:
           fetch-depth: 0
 
       - name: Run GitLeaks secret scan
-        run: |
-          echo "🕵️ Running secret scanning across the repository..."
-
-          # Install GitLeaks (mock - replace with actual installation)
-          echo "Installing GitLeaks..."
-          # curl -sSfL https://github.com/zricethezav/gitleaks/releases/latest/download/gitleaks_linux_x64.tar.gz | tar -xz
-
-          # Run GitLeaks scan
-          echo "Running GitLeaks scan..."
-          # ./gitleaks detect --report-format sarif --report-path gitleaks-report.sarif --verbose
-
-          # Mock scan results
-          echo "✅ Secret scan completed"
-
-          # Check for specific patterns manually
-          echo "🔍 Manual pattern checking..."
-
-          # Look for common secret patterns
-          if grep -r -i "password.*=" . --include="*.ts" --include="*.js" --include="*.json" --exclude-dir=node_modules | grep -v "PASSWORD_HASH\|password_field\|password_required"; then
-            echo "⚠️ Potential hardcoded passwords found"
-          fi
-
-          if grep -r -E "(api_key|apikey|api-key).*=" . --include="*.ts" --include="*.js" --include="*.json" --exclude-dir=node_modules | grep -v "API_KEY_FIELD\|api_key_required"; then
-            echo "⚠️ Potential API keys found"
-          fi
-
-          if grep -r -E "(secret|token).*=" . --include="*.ts" --include="*.js" --include="*.json" --exclude-dir=node_modules | grep -v "SECRET_FIELD\|token_field\|secret_required"; then
-            echo "⚠️ Potential secrets or tokens found"
-          fi
-
-          echo "✅ Manual pattern check completed"
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Check environment files
         run: |
-          echo "🔍 Checking environment files for sensitive data..."
-
-          # Find all env files
-          find . -name "*.env*" -not -path "./node_modules/*" | while read env_file; do
-            if [[ -f "$env_file" ]]; then
-              echo "Checking $env_file..."
-
-              # Check for actual values (not just templates)
-              if grep -E "=.{10,}" "$env_file" | grep -v "example\|template\|placeholder"; then
-                echo "⚠️ $env_file contains values that might be sensitive"
-              else
-                echo "✅ $env_file appears to be a template"
-              fi
-            fi
-          done
+          echo "🔍 Checking tracked environment files..."
+          tracked_env=$(git ls-files | grep -E '(^|/)\.env($|\.|/)' || true)
+          if [[ -n "$tracked_env" ]]; then
+            echo "Tracked environment files detected:"
+            echo "$tracked_env" | sed -E 's#=.*##'
+            exit 1
+          fi
+          echo "✅ No tracked environment files"
 
       - name: Upload secret scan results
         if: always()

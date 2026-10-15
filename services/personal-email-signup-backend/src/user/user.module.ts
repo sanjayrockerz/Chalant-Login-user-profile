@@ -14,12 +14,11 @@
  * Priority: Critical (blocks user management)
  */
 
-import { Module, forwardRef } from "@nestjs/common";
+import { Module } from "@nestjs/common";
 import { ConfigModule } from "../config/config.module";
 import { PrismaModule } from "../../prisma/prisma.module";
 import { RedisModule } from "../redis/redis.module";
 import { UserService } from "./user.service";
-import { UserController } from "./user.controller";
 import { HashedPhoneBackfillJob } from "./jobs/hashed-phone-backfill.job";
 import { SecurityModule } from "../security/security.module";
 
@@ -35,7 +34,10 @@ import { SecurityModule } from "../security/security.module";
     // Avoid circular dependency with AuthModule
     // forwardRef(() => AuthModule),
   ],
-  controllers: [UserController],
+  // The legacy UserController is intentionally not registered. Its routes
+  // are unfinished and do not enforce canonical ownership. Profile changes
+  // use ProfileController/CanonicalProfileService instead.
+  controllers: [],
   providers: [UserService, HashedPhoneBackfillJob],
   exports: [UserService, HashedPhoneBackfillJob],
 })

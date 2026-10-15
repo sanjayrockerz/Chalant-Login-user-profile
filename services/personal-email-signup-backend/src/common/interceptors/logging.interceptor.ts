@@ -8,7 +8,7 @@ import {
 import { Observable } from "rxjs";
 import { tap, catchError } from "rxjs/operators";
 import { Request, Response } from "express";
-import { v4 as uuidv4 } from "uuid";
+import { randomUUID } from "crypto";
 
 // Extend Express Request to include user and correlationId
 declare module "express" {
@@ -40,7 +40,7 @@ export class LoggingInterceptor implements NestInterceptor {
     const response = ctx.getResponse<Response>();
 
     // Generate correlation ID
-    const correlationId = uuidv4();
+    const correlationId = randomUUID();
 
     // Add correlation ID to request for downstream use
     request.correlationId = correlationId;

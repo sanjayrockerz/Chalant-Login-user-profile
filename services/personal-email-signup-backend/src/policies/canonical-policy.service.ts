@@ -5,14 +5,18 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.module";
+import { ConfigService } from "../config/config.service";
 import { AcceptPolicyDto } from "./canonical-policy.dto";
 
 @Injectable()
 export class CanonicalPolicyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
 
   async accept(userId: string, input: AcceptPolicyDto) {
-    const activeVersion = process.env.ACTIVE_POLICY_VERSION ?? "v2025-10-07-1";
+    const activeVersion = this.config.get("ACTIVE_POLICY_VERSION");
     if (input.policyVersion !== activeVersion) {
       throw new BadRequestException("Unknown policy version");
     }

@@ -35,6 +35,12 @@ export class CanonicalAuthController {
     return this.auth.login(input);
   }
 
+  @Post("verify-email")
+  @HttpCode(HttpStatus.OK)
+  verifyEmail(@Body("token") token: string) {
+    return this.auth.verifyEmail(token);
+  }
+
   @Post("refresh")
   @HttpCode(HttpStatus.OK)
   refresh(@Body("refresh_token") refreshToken: string) {
