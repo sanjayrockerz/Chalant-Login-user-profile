@@ -142,6 +142,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS uniq_push_token_user_token_platform ON push_to
 CREATE INDEX IF NOT EXISTS idx_push_tokens_user ON push_tokens (user_id);
 
 -- 7. Finalize user table changes
+-- EmailVerificationToken is removed by the next migration, but its legacy
+-- integer FK must be detached before replacing User.id.
+ALTER TABLE "EmailVerificationToken"
+  DROP CONSTRAINT IF EXISTS "EmailVerificationToken_userId_fkey";
 ALTER TABLE "User" DROP CONSTRAINT IF EXISTS "User_pkey";
 ALTER TABLE "User" DROP COLUMN IF EXISTS "id";
 ALTER TABLE "User" RENAME COLUMN "id_uuid" TO "id";
