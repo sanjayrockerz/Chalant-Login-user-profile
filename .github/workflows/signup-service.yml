@@ -192,6 +192,7 @@ jobs:
         run: npm run migration:deploy
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/signup_ci
+          DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/signup_ci
 
       - name: Run ${{ matrix.suite }} tests
         run: npm run test:${{ matrix.suite }} -- --coverage --coverageReporters=text-summary --coverageReporters=lcov --coverageDirectory=coverage/${{ matrix.suite }}
