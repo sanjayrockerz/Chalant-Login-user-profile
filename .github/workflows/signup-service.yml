@@ -187,7 +187,10 @@ jobs:
         run: |
           cp .env.example .env.test
           echo "DATABASE_URL=postgresql://test:test@localhost:5432/phase1_signup_ci" >> .env.test
+          echo "DATABASE_URL_AUTH=postgresql://test:test@localhost:5432/phase1_signup_ci" >> .env.test
           echo "REDIS_URL=redis://localhost:6379" >> .env.test
+          echo "EMAIL_VERIFY_BASE_URL=http://127.0.0.1:3000/auth/verify-email" >> .env.test
+          echo "PASSWORD_RESET_BASE_URL=http://127.0.0.1:3000/auth/recovery/reset" >> .env.test
 
       - name: Apply migrations
         run: npm run migration:fresh:init
@@ -202,7 +205,11 @@ jobs:
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/phase1_signup_ci
           REDIS_URL: redis://localhost:6379
+          USE_REAL_REDIS: 'true'
+          EMAIL_VERIFY_BASE_URL: http://127.0.0.1:3000/auth/verify-email
+          PASSWORD_RESET_BASE_URL: http://127.0.0.1:3000/auth/recovery/reset
 
       - name: Upload test artifacts
         if: always()

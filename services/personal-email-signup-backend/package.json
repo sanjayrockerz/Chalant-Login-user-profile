@@ -31,7 +31,7 @@
     "test:identity:persistence": "npm run test:prepare && node ./node_modules/jest/bin/jest.js src/identity/identity.persistence.integration.spec.ts src/identity/identity.module.integration.spec.ts --runInBand",
     "test:canonical-auth": "npm run test:prepare && node ./node_modules/jest/bin/jest.js src/canonical-auth/canonical-auth.integration.spec.ts --runInBand",
     "test:integration:real": "npm run test:prepare && node ./scripts/run-real-integration.js",
-    "test:integration": "npm run test:prepare && node ./node_modules/jest/bin/jest.js --testPathPattern=test/integration/.*\\.spec\\.ts$",
+    "test:integration": "npm run test:prepare && node ./node_modules/jest/bin/jest.js --testPathPattern=.*\\.integration\\.spec\\.ts$",
     "test:contract": "npm run test:prepare && node ./node_modules/jest/bin/jest.js --testPathPattern=test/contract/.*\\.spec\\.ts$",
     "test:load": "npm run test:e2e -- --testNamePattern='load'",
     "test:ci": "npm run test:prepare && node ./node_modules/jest/bin/jest.js --coverage --coverageReporters=text-lcov | coveralls",
