@@ -67,18 +67,18 @@ CREATE TABLE push_tokens (
 );
 
 INSERT INTO "User" (username, email, password) VALUES
-  ('legacy_owner', 'legacy-owner@example.test', 'synthetic-hash'),
+  ('legacy_owner', 'pre-identity@example.test', 'synthetic-hash'),
   ('legacy_target', 'legacy-target@example.test', 'synthetic-hash');
 INSERT INTO "RefreshToken" ("userId", token)
-SELECT id, 'legacy-refresh-token' FROM "User" WHERE email = 'legacy-owner@example.test';
+SELECT id, 'legacy-refresh-token' FROM "User" WHERE email = 'pre-identity@example.test';
 INSERT INTO hashed_contacts (user_id, hashed_phone, expires_at)
 SELECT id, 'legacy-contact-hash', now() + interval '1 day'
-FROM "User" WHERE email = 'legacy-owner@example.test';
+FROM "User" WHERE email = 'pre-identity@example.test';
 INSERT INTO contact_suggestions (user_id, suggested_user_id, match_type, match_strength)
 SELECT owner.id, target.id, 'mutual', 0.900 FROM "User" owner CROSS JOIN "User" target
-WHERE owner.email = 'legacy-owner@example.test' AND target.email = 'legacy-target@example.test';
+WHERE owner.email = 'pre-identity@example.test' AND target.email = 'legacy-target@example.test';
 INSERT INTO blocks (blocker_id, blocked_id)
 SELECT owner.id, target.id FROM "User" owner CROSS JOIN "User" target
-WHERE owner.email = 'legacy-owner@example.test' AND target.email = 'legacy-target@example.test';
+WHERE owner.email = 'pre-identity@example.test' AND target.email = 'legacy-target@example.test';
 INSERT INTO push_tokens (user_id, token, platform, token_type)
-SELECT id, 'legacy-push-token', 'ios', 'apns' FROM "User" WHERE email = 'legacy-owner@example.test';
+SELECT id, 'legacy-push-token', 'ios', 'apns' FROM "User" WHERE email = 'pre-identity@example.test';
