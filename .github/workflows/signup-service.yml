@@ -214,6 +214,8 @@ jobs:
           PHASE4_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
           REDIS_URL: redis://localhost:6379
           USE_REAL_REDIS: 'true'
+          CONTACT_HASH_MODE: hmac-sha256-v2
+          CONTACT_HMAC_KEY: phase1-phase2-ci-only-contact-hmac-key-32-bytes-min
           EMAIL_VERIFY_BASE_URL: http://127.0.0.1:3000/auth/verify-email
           PASSWORD_RESET_BASE_URL: http://127.0.0.1:3000/auth/recovery/reset
 
