@@ -1,0 +1,21 @@
+Phase 1 static gate evidence
+Revision: local main at 9da0f96fa27636951e947db7c83f54635d3963c5
+
+PASS: npm run migration:governance:check
+      MIGRATION_GOVERNANCE_VALID / 20261009160000_canonical_schema
+PASS: npm run test:migration-governance
+      4 passed, 0 failed
+PASS: DATABASE_URL_AUTH=<placeholder> npx prisma validate --schema=prisma/auth.schema.prisma
+PASS: backend npm run typecheck
+PASS: backend npm run build
+PASS: Python YAML parsing for phase-0-quality.yml and signup-service.yml
+PASS: node --check phase1-fresh-init.js and phase1-legacy-upgrade.js
+PASS: git diff --check
+
+BLOCKED: PostgreSQL 16 fresh installation
+BLOCKED: PostgreSQL 16 synthetic legacy upgrade
+BLOCKED: PostgreSQL/Redis integration matrix
+BLOCKED: corrected GitHub Actions execution
+
+Docker Desktop Linux engine was unavailable. The local PostgreSQL 17 service
+was not used because its credentials/disposability were not authorized.

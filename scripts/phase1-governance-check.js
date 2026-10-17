@@ -2,14 +2,14 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 
-const packageRoot = path.resolve(
+const defaultPackageRoot = path.resolve(
   __dirname,
   "..",
   "services",
   "personal-email-signup-backend",
 );
-const baselinePath = path.join(
-  packageRoot,
+const defaultBaselinePath = path.join(
+  defaultPackageRoot,
   "prisma",
   "baseline",
   "20261009160000_canonical_schema.json",
@@ -23,12 +23,12 @@ function sha256(filePath) {
     .digest("hex");
 }
 
-function loadBaseline() {
+function loadBaseline(baselinePath) {
   return JSON.parse(fs.readFileSync(baselinePath, "utf8"));
 }
 
-function verifyGovernance() {
-  const baseline = loadBaseline();
+function verifyGovernance({ packageRoot = defaultPackageRoot, baselinePath = defaultBaselinePath } = {}) {
+  const baseline = loadBaseline(baselinePath);
   const schemaPath = path.join(packageRoot, baseline.schemaPath);
   if (sha256(schemaPath) !== baseline.schemaSha256) {
     throw new Error(
@@ -92,4 +92,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { verifyGovernance };
+module.exports = { sha256, verifyGovernance };
