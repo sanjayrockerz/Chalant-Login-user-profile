@@ -2,66 +2,73 @@
 
 ## Phase 1 — Database migration repair and schema integrity
 
-**Status: BLOCKED — real PostgreSQL acceptance and corrected CI execution are not authorized/available.**
+**Status: PASSED for the authorized disposable fresh-install and synthetic-upgrade scope.**
 
-**Revision tested:** local branch `main` at `9da0f96fa27636951e947db7c83f54635d3963c5`. `origin/main` is two documentation commits ahead (`ff339f4`, `abe21cfa`); the Phase 1 corrections below are uncommitted local changes and have not been tested by GitHub Actions.
+**Tested branch and revision:** `verification/phase1-phase2` at `d6edde1` (`ci: configure disposable contact hmac`). No main merge, deployment, production access, credential rotation, or live data operation occurred. The pre-existing untracked `CHALANT_CURRENT_STATE_AND_TARGET_GAPS.md` remains preserved and unstaged.
 
-### Decisions
+### Migration policy
 
-- The reviewed Prisma schema and `20261009160000_canonical_schema` baseline remain authoritative for fresh installation.
-- Fresh installation uses `npm run migration:fresh:init` only against an explicitly disposable `phase1_*` database. It does not replay historical Prisma migrations.
-- Historical migration SQL is governed by normalized LF SHA-256 checksums. The checksum mismatch was substantive source drift, not CRLF/LF drift: `20241002000001` was changed by `f67a954` and then reduced to a post-bootstrap placeholder by `99437b1`; `20250521120000` was changed by `d139785` and `9da0f96`.
-- The old UUID migration remains legacy evidence and is not used for fresh initialization or the upgrade rehearsal. Existing deployments still require an authorized schema snapshot and owner-approved forward plan.
-- The reconciled hashes are a local, reviewed working-tree baseline, not an approved deployed baseline. No evidence was provided that the changed historical migrations were applied to an existing deployment; therefore they remain unsafe for production upgrade claims until the database owner supplies the migration ledger and schema snapshot.
+- `20261009160000_canonical_schema` and `npm run migration:fresh:init` are authoritative for genuinely empty databases.
+- Historical migrations remain immutable evidence and are not replayed for fresh installation.
+- The checksum mismatch was substantive historical SQL drift, not line-ending drift. The local manifest is a reviewed repository baseline, not proof of compatibility with an unknown deployed database.
+- Existing-deployment upgrades remain separately gated on an authorized sanitized schema snapshot, `_prisma_migrations` ledger, and database-owner-approved forward-only plan.
 
-### Implemented corrections
+### Corrections executed
 
-- Reconciled the governance manifest to the reviewed current migration files, including the intentionally relocated historical repair migration.
-- Added `scripts/phase1-governance-check.test.js` covering valid checksums, substantive SQL tampering, CRLF-equivalent bytes, missing manifest entries, and missing files.
-- Strengthened `phase1-fresh-init.js` to verify actual PostgreSQL UUID column types and all canonical User foreign keys through system catalogs.
-- Changed signup CI and E2E CI from `prisma migrate deploy` to the explicit canonical fresh-install command with disposable `phase1_*` database names.
-- Added an integer-backed synthetic legacy fixture and `scripts/phase1-legacy-uuid-upgrade.sql`/`phase1-legacy-upgrade.js`. The forward-only rehearsal creates the UUID mapping first, drops dependent FKs, converts child keys, swaps `User.id`, then recreates FKs.
-- Updated Phase 0’s upgrade rehearsal to execute the new forward-only path before canonical identity/onboarding/policy migrations.
+- Governed checksum checker and regression tests retained LF-normalized SHA-256 tamper detection: **4 tests passed**.
+- Fresh initialization uses the canonical baseline and verifies PostgreSQL catalog UUID types and canonical foreign keys.
+- Synthetic legacy fixture and forward-only UUID upgrade preserve dependent records before recreating foreign keys.
+- Corrected CI uses PostgreSQL 16/Redis 7 disposable services, canonical fresh initialization, and the legacy rehearsal path.
+- Fixed the synthetic fixture’s quoted PostgreSQL `"userId"` identifier and aligned its owner email with the existing upgrade verifier contract.
 
-### Verification evidence
+### GitHub Actions evidence
+
+- [Phase 0 run 39045832299](https://github.com/sanjayrockerz/Chalant-Login-user-profile/actions/runs/39045832299) — **success**. Governance, PostgreSQL 16 fresh installation, synthetic integer-to-UUID upgrade, canonical identity/onboarding/policy migrations, upgrade verification, Redis checks, and identity persistence all passed.
+- [Earlier Phase 0 run 39045094098](https://github.com/sanjayrockerz/Chalant-Login-user-profile/actions/runs/39045094098) — **success** after the fixture-verifier correction.
+- [Services CI run 39044928607](https://github.com/sanjayrockerz/Chalant-Login-user-profile/actions/runs/39044928607) — **success**.
+
+The successful Phase 0 identity job executed the real PostgreSQL 16 service and reported `LEGACY_UUID_UPGRADE_APPLIED`, then completed the three canonical follow-up migrations, `UPGRADE_FIXTURE_PRESERVED`, and the identity persistence tests. The database was disposable CI infrastructure; no local PostgreSQL 17 instance was used.
+
+## Phase 2 — PostgreSQL/Redis application integration
+
+**Status: FAILED as a workflow gate; functional test matrix passed.**
+
+[Signup Service run 39045832250](https://github.com/sanjayrockerz/Chalant-Login-user-profile/actions/runs/39045832250) executed the real PostgreSQL 16 and Redis 7 matrix with all phase database variables, real Redis enforcement, and a disposable HMAC key.
+
+| Suite | Result |
+|---|---:|
+| Unit suites | 37 passed; 285 tests passed; 0 skipped |
+| PostgreSQL/Redis integration suites | 10 passed; 74 tests passed; 0 skipped |
+| Lint, typecheck, Prisma generation, migration application | Passed |
+| Workflow conclusion | Failed only on Jest coverage thresholds |
+
+The integration run initially found and then resolved a CI environment defect: the contact suite lacked a valid HMAC key. After `CONTACT_HASH_MODE=hmac-sha256-v2` and a disposable 32+ byte key were added, all 74 integration tests passed. No application assertion failed in the final run.
+
+The remaining failure is the existing split-suite Jest coverage policy: unit global coverage was 50.11% statements / 35.82% branches / 49.57% lines / 47.38% functions against 80% thresholds; integration global coverage was 41.34% statements / 25.83% branches / 41.31% lines / 40.39% functions against the same thresholds. Directory thresholds also failed. Thresholds were not lowered or bypassed. This is a workflow/coverage-policy gap requiring a deliberate owner decision or additional coverage work before the Signup workflow can be green.
+
+## Final gate assessment
 
 | Gate | Result | Evidence |
 |---|---|---|
-| Repository preservation | PASSED | No reset, clean, stash, commit, push, deploy, or live credential operation; pre-existing current-state document remains untracked and preserved. |
-| Governance checker | PASSED | `npm run migration:governance:check` → `MIGRATION_GOVERNANCE_VALID`. |
-| Governance regression tests | PASSED | `npm run test:migration-governance` → 4 passed, 0 failed. |
-| JavaScript syntax/typecheck | PASSED | `node --check scripts/phase1-legacy-upgrade.js`; backend `npm run typecheck` passed. |
-| Build | PASSED | Backend `npm run build` passed during this execution. |
-| Prisma schema validation | PASSED | `DATABASE_URL_AUTH=postgresql://test:test@127.0.0.1:5432/phase1_validation npx prisma validate --schema=prisma/auth.schema.prisma` passed. |
-| Workflow YAML/static contract | PASSED | Python YAML parsing passed for `.github/workflows/phase-0-quality.yml` and `.github/workflows/signup-service.yml`; Node 20, fresh-init, legacy-upgrade, provenance, and database URL wiring were inspected. |
-| Static evidence capture | PASSED | Non-secret command summary stored under `artifacts/phase1/`; no credentials, tokens, private connection strings, production data, or generated database output was stored. |
-| PostgreSQL 16 fresh install | BLOCKED | Docker Desktop is unavailable. A local PostgreSQL 17 service accepts connections but its password is not available; no unknown database was used. |
-| PostgreSQL legacy rehearsal | BLOCKED | Same disposable database prerequisite; no database gate is reported as passed without execution. |
-| GitHub Actions rerun | BLOCKED | Requires publishing/dispatching the uncommitted correction; no push or dispatch was authorized. |
+| Repository preservation | PASSED | Isolated branch; reviewed commits only; untracked user document preserved. |
+| Governance and tamper tests | PASSED | Checker valid; 4 regression tests passed. |
+| PostgreSQL 16 canonical fresh install | PASSED | Phase 0 run `39045832299`. |
+| PostgreSQL 16 synthetic legacy upgrade | PASSED | Phase 0 run `39045832299`; records and FKs preserved. |
+| Canonical follow-up migrations | PASSED | Identity, onboarding, and policy SQL executed and verified. |
+| PostgreSQL/Redis integration behavior | PASSED | 10 suites, 74 tests, no skips in final integration run. |
+| Unit regression behavior | PASSED | 37 suites, 285 tests, no skips. |
+| Signup CI workflow | FAILED | Functional tests passed, but mandatory configured coverage thresholds failed. |
+| Existing production-database upgrade | BLOCKED | No authorized deployed schema snapshot or migration ledger. |
 
-### Phase 1 conclusion
+**Phase 1: PASSED** for the authorized disposable fresh-install and synthetic-upgrade scope.
 
-The two reported failure mechanisms are corrected in source and CI contracts, but Phase 1 is **BLOCKED**, not accepted, because the mandatory PostgreSQL 16 fresh-install and synthetic-upgrade gates have not executed. The reconciled checksum manifest is not yet a published or deployment-approved baseline. The historical deployment upgrade path remains separately blocked pending an authorized sanitized schema snapshot and migration ledger.
+**Phase 2: FAILED** as a CI acceptance gate because the workflow’s configured coverage thresholds failed, despite all executed unit and integration assertions passing. It must not be relabeled green by suppressing coverage failure or reducing thresholds without an approved coverage-policy decision.
 
-### Phase 2 entry commands and prerequisites
+## Exact outstanding engineering actions
 
-On a disposable PostgreSQL 16 and Redis 7 CI runner, with Node 20 and dependencies installed:
+1. Decide whether the repository-wide 80–90% Jest thresholds are intended for split unit/integration jobs. If they are, add the required coverage; if not, redesign the coverage job explicitly and preserve functional test gates.
+2. Rerun the Signup workflow after that approved coverage-policy correction and capture a successful run.
+3. For any deployed upgrade, obtain the authorized sanitized schema and migration ledger, rehearse the forward-only upgrade, and obtain database-owner approval.
+4. Keep live Google/Apple provider acceptance, production-compatible SMTP delivery, managed contact-HMAC activation, recovery acceptance, MFA release policy, managed secrets, rollback, and load evidence as separate release gates.
 
-```bash
-cd services/personal-email-signup-backend
-npm ci --ignore-scripts --legacy-peer-deps
-npx prisma generate --schema=prisma/auth.schema.prisma
-npm run migration:governance:check
-npm run test:migration-governance
-createdb -h 127.0.0.1 -U postgres phase1_fresh
-createdb -h 127.0.0.1 -U postgres phase1_upgrade
-export PHASE1_DATABASE_PROVENANCE=ci-service
-export PHASE1_DATABASE_URL=postgresql://postgres:<disposable-password>@127.0.0.1:5432/phase1_fresh
-export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"
-npm run migration:fresh:init
-export PHASE1_DATABASE_URL=postgresql://postgres:<disposable-password>@127.0.0.1:5432/phase1_upgrade
-psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../scripts/phase1-identity-test-baseline.sql
-npm run migration:upgrade:legacy
-```
-
-Then apply the three canonical identity/onboarding/policy migrations from the Phase 0 workflow, run `npm run migration:upgrade:verify`, and execute the complete PostgreSQL/Redis integration matrix. Phase 2 requires the resulting logs and artifacts, not merely a successful schema generation.
+No production deployment is approved by this execution. Phase 2’s next run requires the coverage-policy decision plus the existing Node 20, disposable PostgreSQL 16, and Redis 7 CI services.
