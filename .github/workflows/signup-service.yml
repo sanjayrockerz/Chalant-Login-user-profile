@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - verification/phase1-phase2
     paths:
       - 'services/personal-email-signup-backend/**'
       - 'libs/**'
