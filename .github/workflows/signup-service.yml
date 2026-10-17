@@ -206,6 +206,12 @@ jobs:
           NODE_ENV: test
           DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
           DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE1_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE2A_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE2B_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE2C_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE3_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE4_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
           REDIS_URL: redis://localhost:6379
           USE_REAL_REDIS: 'true'
           EMAIL_VERIFY_BASE_URL: http://127.0.0.1:3000/auth/verify-email
