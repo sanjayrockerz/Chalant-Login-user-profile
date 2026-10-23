@@ -94,6 +94,13 @@ export class PrismaIdentityRepository implements IdentityRepositoryPort {
             passwordCredential: { create: { passwordHash } },
           },
         });
+        await transaction.outboxEvent.create({
+          data: {
+            eventType: "chat.profile.provision.v1",
+            aggregateId: created.id,
+            payload: { authUserId: created.id },
+          },
+        });
         return created;
       });
       return toRecord(user);
@@ -130,6 +137,13 @@ export class PrismaIdentityRepository implements IdentityRepositoryPort {
                 subject: provider.subject,
               },
             },
+          },
+        });
+        await transaction.outboxEvent.create({
+          data: {
+            eventType: "chat.profile.provision.v1",
+            aggregateId: created.id,
+            payload: { authUserId: created.id },
           },
         });
         return created;

@@ -93,6 +93,25 @@ model User {
   @@unique([phone], map: "users_phone_key")
 }
 
+/// Durable cross-service intent to provision a Chat-owned profile after signup.
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  eventType     String    @map("event_type") @db.VarChar(128)
+  aggregateId   String    @map("aggregate_id") @db.Uuid
+  payload       Json
+  attempts      Int       @default(0)
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at")
+  claimedAt     DateTime? @map("claimed_at")
+  claimToken    String?   @map("claim_token") @db.Uuid
+  deliveredAt   DateTime? @map("delivered_at")
+  lastError     String?   @map("last_error")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@unique([eventType, aggregateId], map: "uniq_outbox_event_aggregate")
+  @@index([deliveredAt, nextAttemptAt, claimedAt], map: "idx_outbox_event_pending")
+  @@map("chat_profile_provisioning_outbox")
+}
+
 /// Provider identities are keyed by issuer and stable provider subject, never email.
 model UserIdentity {
   id        String           @id @default(uuid()) @db.Uuid

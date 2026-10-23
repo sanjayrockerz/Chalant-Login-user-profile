@@ -84,7 +84,7 @@ export class CanonicalAuthService {
 
     try {
       const user = await this.prisma.$transaction(async (transaction) => {
-        return transaction.user.create({
+        const created = await transaction.user.create({
           data: {
             email,
             username,
@@ -95,6 +95,14 @@ export class CanonicalAuthService {
           },
           select: this.userSelect,
         });
+        await transaction.outboxEvent.create({
+          data: {
+            eventType: "chat.profile.provision.v1",
+            aggregateId: created.id,
+            payload: { authUserId: created.id },
+          },
+        });
+        return created;
       });
       const verificationToken = randomBytes(32).toString("base64url");
       await this.redis.set(

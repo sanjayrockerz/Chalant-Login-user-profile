@@ -11,6 +11,9 @@ describe("CanonicalAuthService email verification", () => {
   };
 
   function createService() {
+    const createProvisioningEvent = jest.fn().mockResolvedValue({
+      id: "00000000-0000-4000-8000-000000000002",
+    });
     const config = {
       get: jest.fn((key: string) => {
         const values: Record<string, unknown> = {
@@ -25,6 +28,7 @@ describe("CanonicalAuthService email verification", () => {
       $transaction: jest.fn((callback: (tx: any) => unknown) =>
         callback({
           user: { create: jest.fn().mockResolvedValue(user) },
+          outboxEvent: { create: createProvisioningEvent },
         }),
       ),
       user: {
@@ -60,6 +64,7 @@ describe("CanonicalAuthService email verification", () => {
       prisma,
       redis,
       email,
+      createProvisioningEvent,
     };
   }
 
@@ -79,6 +84,25 @@ describe("CanonicalAuthService email verification", () => {
       86400,
     );
     expect(email.sendVerificationEmail).not.toHaveBeenCalled();
+  });
+
+  it("stores Chat profile provisioning intent in the user creation transaction", async () => {
+    const { service, prisma, createProvisioningEvent } = createService();
+
+    await service.register({
+      email: user.email,
+      username: user.username,
+      password: "A sufficiently strong password 2026!",
+    });
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(createProvisioningEvent).toHaveBeenCalledWith({
+      data: {
+        eventType: "chat.profile.provision.v1",
+        aggregateId: user.id,
+        payload: { authUserId: user.id },
+      },
+    });
   });
 
   it("atomically consumes the token and marks the canonical user verified", async () => {

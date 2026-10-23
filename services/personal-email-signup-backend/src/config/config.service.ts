@@ -36,6 +36,10 @@ export class ConfigService {
         DATABASE_URL: process.env.DATABASE_URL_AUTH || process.env.DATABASE_URL,
         JWT_SECRET: process.env.JWT_SECRET,
         JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "1h",
+        CHAT_PROFILE_PROVISIONING_URL:
+          process.env.CHAT_PROFILE_PROVISIONING_URL,
+        CHAT_PROFILE_PROVISIONING_HMAC_SECRET:
+          process.env.CHAT_PROFILE_PROVISIONING_HMAC_SECRET,
         REDIS_URL: process.env.REDIS_URL,
         CONTACT_HASH_MODE:
           (process.env.CONTACT_HASH_MODE as "sha256-v1" | "hmac-sha256-v2") ||

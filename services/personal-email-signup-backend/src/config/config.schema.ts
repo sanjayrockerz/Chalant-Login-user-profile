@@ -19,6 +19,8 @@ export const configSchema = z.object({
   // JWT
   JWT_SECRET: z.string(),
   JWT_EXPIRES_IN: z.string().default("1h"),
+  CHAT_PROFILE_PROVISIONING_URL: z.string().url().optional(),
+  CHAT_PROFILE_PROVISIONING_HMAC_SECRET: z.string().min(32).optional(),
 
   // Redis
   REDIS_URL: z.string(),

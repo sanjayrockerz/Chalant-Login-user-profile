@@ -21,6 +21,7 @@ import { APPLE_OIDC_CLIENT, AppleOidcClient } from "./apple-oidc.types";
 import { CanonicalRecoveryController } from "./canonical-recovery.controller";
 import { CanonicalRecoveryService } from "./canonical-recovery.service";
 import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
+import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
 
 @Module({
   imports: [
@@ -78,6 +79,7 @@ import { PasswordPolicyService } from "../security/password-policy/password-poli
     CanonicalRecoveryService,
     PasswordPolicyService,
     JwtAuthGuard,
+    ChatProfileOutboxWorker,
   ],
   exports: [
     CanonicalAuthService,
