@@ -11,6 +11,7 @@ import { PrismaService } from "../prisma/prisma.module";
 import { RedisService } from "./redis/redis.service";
 import { AppModule } from "./app.module";
 import { ConfigService } from "./config/config.service";
+import { ChatProfileOutboxWorker } from "./canonical-auth/chat-profile-outbox.worker";
 
 describe("AppModule", () => {
   afterEach(() => {
@@ -41,6 +42,44 @@ describe("AppModule", () => {
       .compile();
 
     await moduleRef.close();
+  });
+
+  it("starts the registered Chat provisioning outbox worker with the app", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(ConfigService)
+      .useValue({
+        get: (key: string) =>
+          ({
+            DATABASE_URL: process.env.DATABASE_URL,
+            REDIS_URL: process.env.REDIS_URL,
+            JWT_SECRET: process.env.JWT_SECRET,
+            COOKIE_SECRET: process.env.COOKIE_SECRET,
+            CONTACT_HASH_MODE: "sha256-v1",
+            ACTIVE_POLICY_VERSION: "test-policy",
+            CHAT_PROFILE_PROVISIONING_URL:
+              "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning",
+            CHAT_PROFILE_PROVISIONING_HMAC_SECRET:
+              "a-secret-that-is-long-enough-for-testing",
+          })[key],
+        getAll: () => ({}),
+      })
+      .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .overrideProvider(RedisService)
+      .useValue({})
+      .compile();
+
+    const worker = moduleRef.get(ChatProfileOutboxWorker);
+    const deliverOne = jest
+      .spyOn(worker, "deliverOne")
+      .mockResolvedValue(undefined);
+    const app = moduleRef.createNestApplication();
+
+    await app.init();
+    expect(deliverOne).toHaveBeenCalledTimes(1);
+    await app.close();
   });
 
   it("protects canonical account routes through the real HTTP graph", async () => {
