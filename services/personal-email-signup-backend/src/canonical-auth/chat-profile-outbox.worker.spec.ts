@@ -11,7 +11,7 @@ describe("ChatProfileOutboxWorker", () => {
   const config = {
     get: jest.fn((key: string) =>
       key === "CHAT_PROFILE_PROVISIONING_URL"
-        ? "https://chat.example.test/internal/v1/profiles"
+        ? "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning"
         : "a-secret-that-is-long-enough-for-testing",
     ),
   };
@@ -64,6 +64,12 @@ describe("ChatProfileOutboxWorker", () => {
     await worker.deliverOne();
 
     const request = fetchMock.mock.calls[0]?.[1];
+    const requestUrl = fetchMock.mock.calls[0]?.[0];
+    expect(requestUrl).toBeInstanceOf(URL);
+    if (!(requestUrl instanceof URL)) throw new Error("Endpoint must be a URL");
+    expect(requestUrl.href).toBe(
+      "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning",
+    );
     expect(request?.method).toBe("POST");
     expect(request?.body).toContain(event.payload.authUserId);
     const headers = new Headers(request?.headers);
