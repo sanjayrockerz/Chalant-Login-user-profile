@@ -7,15 +7,15 @@
   "historicalPolicy": "immutable-legacy-migrations",
   "deploymentUpgradePolicy": "requires-authorized-schema-snapshot",
   "legacyMigrationSha256": {
-    "20241002000001_add_performance_indexes": "d56f1e372e1d51412720d515cdad4352a3739321941e81eed449c9b153024665",
-    "20241017_contact_index_refresh": "d80c7e53918f0de76bdd1e8c0c0125a963226edb92528d038e1b64a38c488163",
+    "20241002000001_add_performance_indexes": "6348e831b3f6f2935a0435dfd2d1bcf97dc6dd26e35a33b317cfd28753ee1ff6",
+    "20241017_contact_index_refresh": "7c054cabfac886062170d7a2b31a5c6c952ba103755f323fe5ef300115ccc8fe",
     "20250507140338_init": "486f568fecbb78f7ab6337532b499c3e0e624cd826b27c36b061e32fb6b1ae55",
     "20250511061112_init": "4027dfade3271cd2ab8a76c69da7dbe05807e894a8d16eb887f3e077e5acd12b",
     "20250511062609_init": "3fd489e4a06feba907f7cb3c79c00fffa8961a4da9db0c65a8fed8d8fa079a81",
     "20250511140935_add_verification_token": "a448026207c5e735547a11409e7e6e5d28030caaa49137909721ba2325cb5b2d",
     "20250512152926_init": "3d574660d29505fb1f34388528c311ef1cbd8e252c68781f401cc8290a393245",
     "20250516122057_personal_email": "ec53b2922041996546aac12c4c9509f68705677d469e259b531fe15f531bb18f",
-    "20250521120000_switch_user_ids_to_uuid": "ab5bbeb52856eb2683da79de7e5b1c27d1287c37c4f857eb0cf779555aabbb34",
+    "20250521120000_switch_user_ids_to_uuid": "5c9ecc237463ff35cdaf2d54287b158fb03064e80c33f8cf0a10c92f8e5e763c",
     "20251003_remove_email_verification_token": "cc8cc3a492093e57c7bd60b6c684fe5a4ed4cf386e0465e79db3c8491abfa709",
     "20251007_add_terms_fields": "45c20dcb5a75f87f94a331589d8e3d2a1554b37e7e25a870a1ceaf8bbb497118",
     "20251008_complete_consent_identity": "27428e53dd1e86203643b8b6f6cc8fc6343a20d104855b649c7739a50ca4cab9",
@@ -24,6 +24,7 @@
     "20261009150000_allow_provider_only_users": "a0f048dd4f616ca4b1d8a761704098af2f49e7a32d374480b5510d39d1bcb72a",
     "20261010100000_canonical_onboarding_state": "c5d9c6955763fbd87548ff0a08ef78008c1954bbab1a3b8db79f6497637c60db",
     "20261010120000_canonical_policy_acceptance": "45495cae502255ad1cb7dbc754a188ee550b5af3b7e0b9f0f73af42a54bd65f9",
-    "20261023120000_chat_profile_provisioning_outbox": "85a4730979596a56ece449d02a9297cec34ca27b3154800c42f735574f4c5222"
+    "20261023120000_chat_profile_provisioning_outbox": "85a4730979596a56ece449d02a9297cec34ca27b3154800c42f735574f4c5222",
+    "20250517120000_repair_contact_and_performance_indexes": "f0e702a6afa33c11a65c63d6a81fc373dfae87be1f08e9a3a015f2a67ebfd1eb"
   }
 }
