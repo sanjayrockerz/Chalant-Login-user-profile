@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  NotFoundException,
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Prisma, UserAccountStatus } from "@prisma/client";
@@ -63,6 +64,97 @@ export class CanonicalAuthService {
     private readonly email: EmailService,
     private readonly redis: RedisService,
   ) {}
+
+  async getAccountStatusForChat(authUserId: string): Promise<{
+    authUserId: string;
+    accountStatus: UserAccountStatus;
+    version: number;
+  }> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: authUserId },
+      select: { id: true, accountStatus: true, accountStatusVersion: true },
+    });
+    if (!user) throw new NotFoundException("Account not found");
+    return {
+      authUserId: user.id,
+      accountStatus: user.accountStatus,
+      version: user.accountStatusVersion,
+    };
+  }
+
+  async changeAccountStatus(input: {
+    targetId: string;
+    actorId: string;
+    accountStatus: UserAccountStatus;
+  }): Promise<{
+    authUserId: string;
+    accountStatus: UserAccountStatus;
+    version: number;
+    changed: boolean;
+  }> {
+    if (!Object.values(UserAccountStatus).includes(input.accountStatus)) {
+      throw new BadRequestException("Unsupported account status");
+    }
+
+    return this.prisma.$transaction(async (transaction) => {
+      const current = await transaction.user.findUnique({
+        where: { id: input.targetId },
+        select: { id: true, accountStatus: true, accountStatusVersion: true },
+      });
+      if (!current) throw new NotFoundException("Account not found");
+      if (current.accountStatus === input.accountStatus) {
+        return {
+          authUserId: current.id,
+          accountStatus: current.accountStatus,
+          version: current.accountStatusVersion,
+          changed: false,
+        };
+      }
+
+      const version = current.accountStatusVersion + 1;
+      const changed = await transaction.user.updateMany({
+        where: {
+          id: current.id,
+          accountStatusVersion: current.accountStatusVersion,
+        },
+        data: {
+          accountStatus: input.accountStatus,
+          accountStatusVersion: { increment: 1 },
+        },
+      });
+      if (changed.count !== 1) {
+        throw new ConflictException("Account status changed concurrently");
+      }
+
+      await transaction.accountStatusAudit.create({
+        data: {
+          targetUserId: current.id,
+          actorUserId: input.actorId,
+          fromStatus: current.accountStatus,
+          toStatus: input.accountStatus,
+          version,
+        },
+      });
+      await transaction.outboxEvent.create({
+        data: {
+          eventType: "chat.account.lifecycle.v1",
+          aggregateId: current.id,
+          payload: {
+            authUserId: current.id,
+            accountStatus: input.accountStatus,
+            version,
+          },
+        },
+      });
+
+      return {
+        authUserId: current.id,
+        accountStatus: input.accountStatus,
+        version,
+        changed: true,
+      };
+    });
+  }
 
   async register(
     input: RegisterPasswordInput,

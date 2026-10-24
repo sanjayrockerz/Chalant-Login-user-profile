@@ -38,8 +38,10 @@ export class ConfigService {
         JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "1h",
         CHAT_PROFILE_PROVISIONING_URL:
           process.env.CHAT_PROFILE_PROVISIONING_URL,
+        CHAT_ACCOUNT_LIFECYCLE_URL: process.env.CHAT_ACCOUNT_LIFECYCLE_URL,
         CHAT_PROFILE_PROVISIONING_HMAC_SECRET:
           process.env.CHAT_PROFILE_PROVISIONING_HMAC_SECRET,
+        AUTH_ADMIN_USER_IDS: process.env.AUTH_ADMIN_USER_IDS,
         REDIS_URL: process.env.REDIS_URL,
         CONTACT_HASH_MODE:
           (process.env.CONTACT_HASH_MODE as "sha256-v1" | "hmac-sha256-v2") ||

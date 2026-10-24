@@ -5,11 +5,12 @@ import { PrismaService } from "../../prisma/prisma.module";
 describe("ChatProfileOutboxWorker", () => {
   const event = {
     id: "00000000-0000-4000-8000-000000000002",
+    eventType: "chat.profile.provision.v1",
     payload: { authUserId: "00000000-0000-4000-8000-000000000001" },
     attempts: 0,
   };
-  const config = {
-    get: jest.fn((key: string) =>
+  const config: { get: jest.Mock<string, [string]> } = {
+    get: jest.fn((key: string): string =>
       key === "CHAT_PROFILE_PROVISIONING_URL"
         ? "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning"
         : "a-secret-that-is-long-enough-for-testing",
@@ -100,5 +101,44 @@ describe("ChatProfileOutboxWorker", () => {
     expect(failedUpdate?.data?.nextAttemptAt).toBeInstanceOf(Date);
     expect(failedUpdate?.data?.lastError).toBe("Chat returned HTTP 503");
     expect(failedUpdate?.data?.claimToken).toBeNull();
+  });
+
+  it("routes lifecycle events to the lifecycle endpoint with their event type", async () => {
+    const lifecycleEvent = {
+      ...event,
+      eventType: "chat.account.lifecycle.v1",
+      payload: {
+        authUserId: "00000000-0000-4000-8000-000000000001",
+        accountStatus: "SUSPENDED",
+        version: 2,
+      },
+    };
+    config.get.mockImplementation((key: string) => {
+      if (key === "CHAT_PROFILE_PROVISIONING_URL")
+        return "https://chat.example.test/profile";
+      if (key === "CHAT_ACCOUNT_LIFECYCLE_URL")
+        return "https://chat.example.test/lifecycle";
+      return "a-secret-that-is-long-enough-for-testing";
+    });
+    prisma.outboxEvent.findFirst.mockResolvedValue(lifecycleEvent);
+    const fetchMock = jest
+      .spyOn(global, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
+
+    await worker.deliverOne();
+
+    expect(fetchMock.mock.calls[0]?.[0]).toEqual(
+      new URL("https://chat.example.test/lifecycle"),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain(
+      '"eventType":"chat.account.lifecycle.v1"',
+    );
+    expect(prisma.outboxEvent.findFirst.mock.calls[0]?.[0].where).toMatchObject(
+      {
+        eventType: {
+          in: ["chat.profile.provision.v1", "chat.account.lifecycle.v1"],
+        },
+      },
+    );
   });
 });

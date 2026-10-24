@@ -20,7 +20,10 @@ export const configSchema = z.object({
   JWT_SECRET: z.string(),
   JWT_EXPIRES_IN: z.string().default("1h"),
   CHAT_PROFILE_PROVISIONING_URL: z.string().url().optional(),
+  CHAT_ACCOUNT_LIFECYCLE_URL: z.string().url().optional(),
   CHAT_PROFILE_PROVISIONING_HMAC_SECRET: z.string().min(32).optional(),
+  // Explicit owner-managed bootstrap allowlist for the Auth account admin API.
+  AUTH_ADMIN_USER_IDS: z.string().optional(),
 
   // Redis
   REDIS_URL: z.string(),

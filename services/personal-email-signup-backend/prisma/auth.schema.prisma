@@ -56,6 +56,7 @@ model User {
   /// Nullable for provider-only accounts; password accounts use PasswordCredential.
   password            String?
   accountStatus       UserAccountStatus     @default(ACTIVE)
+  accountStatusVersion Int                  @default(0) @map("account_status_version")
   isVerified          Boolean               @default(false)
   onboardingStatus    OnboardingStatus     @default(NOT_STARTED) @map("onboarding_status")
   onboardingCompletedAt DateTime?          @map("onboarding_completed_at")
@@ -107,9 +108,26 @@ model OutboxEvent {
   lastError     String?   @map("last_error")
   createdAt     DateTime  @default(now()) @map("created_at")
 
-  @@unique([eventType, aggregateId], map: "uniq_outbox_event_aggregate")
+  @@index([eventType, aggregateId], map: "idx_outbox_event_type_aggregate")
   @@index([deliveredAt, nextAttemptAt, claimedAt], map: "idx_outbox_event_pending")
   @@map("chat_profile_provisioning_outbox")
+}
+
+/// Append-only audit of administrator-driven account lock/reactivation changes.
+/// UUIDs are retained without cascading foreign keys so account removal cannot
+/// erase who performed a status change or which subject it affected.
+model AccountStatusAudit {
+  id           String            @id @default(uuid()) @db.Uuid
+  targetUserId String            @map("target_user_id") @db.Uuid
+  actorUserId  String            @map("actor_user_id") @db.Uuid
+  fromStatus   UserAccountStatus @map("from_status")
+  toStatus     UserAccountStatus @map("to_status")
+  version      Int
+  createdAt    DateTime          @default(now()) @map("created_at") @db.Timestamptz
+
+  @@unique([targetUserId, version], map: "uniq_account_status_audit_target_version")
+  @@index([actorUserId, createdAt], map: "idx_account_status_audit_actor_created")
+  @@map("account_status_audit")
 }
 
 /// Provider identities are keyed by issuer and stable provider subject, never email.

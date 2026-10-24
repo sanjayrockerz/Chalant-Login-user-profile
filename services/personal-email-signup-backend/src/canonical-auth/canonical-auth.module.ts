@@ -22,6 +22,9 @@ import { CanonicalRecoveryController } from "./canonical-recovery.controller";
 import { CanonicalRecoveryService } from "./canonical-recovery.service";
 import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
 import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
+import { AccountStatusAdminController } from "./account-status-admin.controller";
+import { AuthAdminGuard } from "./auth-admin.guard";
+import { ChatAccountStatusController } from "./chat-account-status.controller";
 
 @Module({
   imports: [
@@ -47,6 +50,8 @@ import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
     GoogleAuthController,
     AppleAuthController,
     CanonicalRecoveryController,
+    AccountStatusAdminController,
+    ChatAccountStatusController,
   ],
   providers: [
     PasswordBreachService,
@@ -80,6 +85,7 @@ import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
     PasswordPolicyService,
     JwtAuthGuard,
     ChatProfileOutboxWorker,
+    AuthAdminGuard,
   ],
   exports: [
     CanonicalAuthService,

@@ -9,6 +9,7 @@ import { PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
 
 const EVENT_TYPE = "chat.profile.provision.v1";
+const LIFECYCLE_EVENT_TYPE = "chat.account.lifecycle.v1";
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * 60 * 1000;
@@ -25,10 +26,9 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    const url = this.config.get("CHAT_PROFILE_PROVISIONING_URL");
     const secret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
-    if (!url || !secret) {
-      this.logger.warn("Chat provisioning delivery is not configured");
+    if (!secret) {
+      this.logger.warn("Chat event delivery is not configured");
       return;
     }
     this.timer = setInterval(() => void this.deliverOne(), POLL_INTERVAL_MS);
@@ -42,24 +42,15 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
   async deliverOne(): Promise<void> {
     if (this.running) return;
-    const url = this.config.get("CHAT_PROFILE_PROVISIONING_URL");
     const secret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
-    if (!url || !secret) return;
-    let target: URL;
-    try {
-      target = new URL(url);
-      if (target.protocol !== "https:") throw new Error("HTTPS required");
-    } catch {
-      this.logger.error("Chat provisioning endpoint must use HTTPS");
-      return;
-    }
+    if (!secret) return;
 
     this.running = true;
     try {
       const now = new Date();
       const row = await this.prisma.outboxEvent.findFirst({
         where: {
-          eventType: EVENT_TYPE,
+          eventType: { in: [EVENT_TYPE, LIFECYCLE_EVENT_TYPE] },
           deliveredAt: null,
           nextAttemptAt: { lte: now },
           OR: [
@@ -70,6 +61,21 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         orderBy: { createdAt: "asc" },
       });
       if (!row) return;
+
+      const eventUrl =
+        row.eventType === LIFECYCLE_EVENT_TYPE
+          ? this.config.get("CHAT_ACCOUNT_LIFECYCLE_URL")
+          : this.config.get("CHAT_PROFILE_PROVISIONING_URL");
+      if (!eventUrl) return;
+      let eventTarget: URL;
+      try {
+        eventTarget = new URL(eventUrl);
+        if (eventTarget.protocol !== "https:")
+          throw new Error("HTTPS required");
+      } catch {
+        this.logger.error("Chat event endpoint must use HTTPS");
+        return;
+      }
 
       const claimToken = randomUUID();
       const claimed = await this.prisma.outboxEvent.updateMany({
@@ -88,7 +94,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
       const body = JSON.stringify({
         eventId: row.id,
-        eventType: EVENT_TYPE,
+        eventType: row.eventType,
         payload: row.payload,
       });
       const timestamp = Math.floor(Date.now() / 1000).toString();
@@ -96,7 +102,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         .update(`${timestamp}.${body}`)
         .digest("hex");
       try {
-        const response = await fetch(target, {
+        const response = await fetch(eventTarget, {
           method: "POST",
           redirect: "error",
           headers: {
