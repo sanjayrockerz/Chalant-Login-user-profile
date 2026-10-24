@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - verification/phase1-phase2
     paths:
       - 'services/personal-email-signup-backend/**'
       - 'libs/**'
@@ -142,9 +143,9 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       postgres:
-        image: postgres:15-alpine
+        image: postgres:16-alpine
         env:
-          POSTGRES_DB: signup_ci
+          POSTGRES_DB: phase1_signup_ci
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
         ports:
@@ -185,21 +186,38 @@ jobs:
       - name: Configure test environment
         run: |
           cp .env.example .env.test
-          echo "DATABASE_URL=postgresql://test:test@localhost:5432/signup_ci" >> .env.test
+          echo "DATABASE_URL=postgresql://test:test@localhost:5432/phase1_signup_ci" >> .env.test
+          echo "DATABASE_URL_AUTH=postgresql://test:test@localhost:5432/phase1_signup_ci" >> .env.test
           echo "REDIS_URL=redis://localhost:6379" >> .env.test
+          echo "EMAIL_VERIFY_BASE_URL=http://127.0.0.1:3000/auth/verify-email" >> .env.test
+          echo "PASSWORD_RESET_BASE_URL=http://127.0.0.1:3000/auth/recovery/reset" >> .env.test
 
       - name: Apply migrations
-        run: npm run migration:deploy
+        run: npm run migration:fresh:init
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/signup_ci
-          DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/signup_ci
+          PHASE1_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE1_DATABASE_PROVENANCE: ci-service
+          DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/phase1_signup_ci
 
       - name: Run ${{ matrix.suite }} tests
         run: npm run test:${{ matrix.suite }} -- --coverage --coverageReporters=text-summary --coverageReporters=lcov --coverageDirectory=coverage/${{ matrix.suite }}
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://test:test@localhost:5432/signup_ci
+          DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE1_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE2A_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE2B_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE2C_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE3_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
+          PHASE4_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
           REDIS_URL: redis://localhost:6379
+          USE_REAL_REDIS: 'true'
+          CONTACT_HASH_MODE: hmac-sha256-v2
+          CONTACT_HMAC_KEY: phase1-phase2-ci-only-contact-hmac-key-32-bytes-min
+          EMAIL_VERIFY_BASE_URL: http://127.0.0.1:3000/auth/verify-email
+          PASSWORD_RESET_BASE_URL: http://127.0.0.1:3000/auth/recovery/reset
 
       - name: Upload test artifacts
         if: always()
@@ -234,9 +252,9 @@ jobs:
         ports:
           - 6379:6379
       postgres:
-        image: postgres:15-alpine
+        image: postgres:16-alpine
         env:
-          POSTGRES_DB: signup_e2e
+          POSTGRES_DB: phase1_signup_e2e
           POSTGRES_USER: test
           POSTGRES_PASSWORD: test
         ports:
@@ -272,19 +290,22 @@ jobs:
       - name: Prepare E2E environment
         run: |
           cp .env.example .env.e2e
-          echo "DATABASE_URL=postgresql://test:test@localhost:5432/signup_e2e" >> .env.e2e
+          echo "DATABASE_URL=postgresql://test:test@localhost:5432/phase1_signup_e2e" >> .env.e2e
           echo "REDIS_URL=redis://localhost:6379" >> .env.e2e
 
       - name: Run database migrations
-        run: npm run migration:deploy
+        run: npm run migration:fresh:init
         env:
-          DATABASE_URL: postgresql://test:test@localhost:5432/signup_e2e
+          PHASE1_DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_e2e
+          PHASE1_DATABASE_PROVENANCE: ci-service
+          DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_e2e
+          DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/phase1_signup_e2e
 
       - name: Execute E2E suite
         run: npm run test:e2e
         env:
           NODE_ENV: test
-          DATABASE_URL: postgresql://test:test@localhost:5432/signup_e2e
+          DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_e2e
           REDIS_URL: redis://localhost:6379
 
       - name: Upload E2E artifacts

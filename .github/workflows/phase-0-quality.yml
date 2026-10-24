@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - 'release-verification/**'
+      - verification/phase1-phase2
 
 permissions:
   contents: read
@@ -94,6 +95,7 @@ jobs:
         run: node -e "const Redis=require('ioredis'); const r=new Redis(process.env.REDIS_URL); r.ping().then(v=>{console.log(v); return r.quit()}).catch(e=>{console.error(e); process.exit(1)})"
       - run: npx prisma generate --schema=prisma/auth.schema.prisma
       - run: npm run migration:governance:check
+      - run: npm run test:migration-governance
       - run: createdb -h 127.0.0.1 -U postgres phase1_fresh
       - run: createdb -h 127.0.0.1 -U postgres phase1_upgrade
       - run: export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"; npm run migration:fresh:init
@@ -113,7 +115,7 @@ jobs:
           export ACTIVE_POLICY_VERSION='v-test-1';
           npm run test:integration:real -- --silent
       - run: export DATABASE_URL_AUTH='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export REDIS_URL='redis://127.0.0.1:6379'; export CANONICAL_RECOVERY_ENABLED='true'; npm run test -- src/canonical-auth/canonical-recovery.service.spec.ts --runInBand --silent
-      - run: export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_upgrade'; export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../scripts/phase1-identity-test-baseline.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261009120000_identity_foundation/migration.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010100000_canonical_onboarding_state/migration.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010120000_canonical_policy_acceptance/migration.sql; npm run migration:upgrade:verify; npm run test:identity:persistence -- --silent
+      - run: export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_upgrade'; export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f ../../scripts/phase1-identity-test-baseline.sql; npm run migration:upgrade:legacy; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261009120000_identity_foundation/migration.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010100000_canonical_onboarding_state/migration.sql; psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010120000_canonical_policy_acceptance/migration.sql; npm run migration:upgrade:verify; npm run test:identity:persistence -- --silent
 
   phone-build-and-test:
     runs-on: ubuntu-latest
