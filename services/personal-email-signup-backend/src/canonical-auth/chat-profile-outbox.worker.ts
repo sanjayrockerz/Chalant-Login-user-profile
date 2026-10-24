@@ -45,12 +45,29 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     const secret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
     if (!secret) return;
 
+    const endpointByType = new Map<string, URL>();
+    for (const [eventType, key] of [
+      [EVENT_TYPE, "CHAT_PROFILE_PROVISIONING_URL"],
+      [LIFECYCLE_EVENT_TYPE, "CHAT_ACCOUNT_LIFECYCLE_URL"],
+    ] as const) {
+      const configured = this.config.get(key);
+      if (!configured) continue;
+      try {
+        const endpoint = new URL(configured);
+        if (endpoint.protocol !== "https:") throw new Error("HTTPS required");
+        endpointByType.set(eventType, endpoint);
+      } catch {
+        this.logger.error(`Chat endpoint for ${eventType} must use HTTPS`);
+      }
+    }
+    if (endpointByType.size === 0) return;
+
     this.running = true;
     try {
       const now = new Date();
       const row = await this.prisma.outboxEvent.findFirst({
         where: {
-          eventType: { in: [EVENT_TYPE, LIFECYCLE_EVENT_TYPE] },
+          eventType: { in: [...endpointByType.keys()] },
           deliveredAt: null,
           nextAttemptAt: { lte: now },
           OR: [
@@ -62,20 +79,8 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       });
       if (!row) return;
 
-      const eventUrl =
-        row.eventType === LIFECYCLE_EVENT_TYPE
-          ? this.config.get("CHAT_ACCOUNT_LIFECYCLE_URL")
-          : this.config.get("CHAT_PROFILE_PROVISIONING_URL");
-      if (!eventUrl) return;
-      let eventTarget: URL;
-      try {
-        eventTarget = new URL(eventUrl);
-        if (eventTarget.protocol !== "https:")
-          throw new Error("HTTPS required");
-      } catch {
-        this.logger.error("Chat event endpoint must use HTTPS");
-        return;
-      }
+      const eventTarget = endpointByType.get(row.eventType);
+      if (!eventTarget) return;
 
       const claimToken = randomUUID();
       const claimed = await this.prisma.outboxEvent.updateMany({

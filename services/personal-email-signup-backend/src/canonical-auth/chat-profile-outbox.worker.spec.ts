@@ -9,12 +9,14 @@ describe("ChatProfileOutboxWorker", () => {
     payload: { authUserId: "00000000-0000-4000-8000-000000000001" },
     attempts: 0,
   };
-  const config: { get: jest.Mock<string, [string]> } = {
-    get: jest.fn((key: string): string =>
-      key === "CHAT_PROFILE_PROVISIONING_URL"
-        ? "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning"
-        : "a-secret-that-is-long-enough-for-testing",
-    ),
+  const config: { get: jest.Mock<string | undefined, [string]> } = {
+    get: jest.fn((key: string): string | undefined => {
+      if (key === "CHAT_PROFILE_PROVISIONING_URL")
+        return "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning";
+      if (key === "CHAT_PROFILE_PROVISIONING_HMAC_SECRET")
+        return "a-secret-that-is-long-enough-for-testing";
+      return undefined;
+    }),
   };
   let prisma: {
     outboxEvent: {
@@ -33,6 +35,13 @@ describe("ChatProfileOutboxWorker", () => {
 
   beforeEach(() => {
     jest.restoreAllMocks();
+    config.get.mockImplementation((key: string): string | undefined => {
+      if (key === "CHAT_PROFILE_PROVISIONING_URL")
+        return "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning";
+      if (key === "CHAT_PROFILE_PROVISIONING_HMAC_SECRET")
+        return "a-secret-that-is-long-enough-for-testing";
+      return undefined;
+    });
     prisma = {
       outboxEvent: {
         findFirst: jest
@@ -138,6 +147,18 @@ describe("ChatProfileOutboxWorker", () => {
         eventType: {
           in: ["chat.profile.provision.v1", "chat.account.lifecycle.v1"],
         },
+      },
+    );
+  });
+
+  it("does not let an unconfigured lifecycle endpoint block signup delivery", async () => {
+    prisma.outboxEvent.findFirst.mockResolvedValue(null as never);
+
+    await worker.deliverOne();
+
+    expect(prisma.outboxEvent.findFirst.mock.calls[0]?.[0].where).toMatchObject(
+      {
+        eventType: { in: ["chat.profile.provision.v1"] },
       },
     );
   });
