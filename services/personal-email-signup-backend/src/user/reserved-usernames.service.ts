@@ -239,23 +239,6 @@ export class ReservedUsernamesService {
 
   private readonly BRAND_RESERVED = new Set([
     // Platform-specific brand protection (customize per application)
-    "colleging",
-    "college",
-    "university",
-    "edu",
-    "education",
-    "student",
-    "students",
-    "faculty",
-    "professor",
-    "teacher",
-    "class",
-    "classes",
-    "course",
-    "courses",
-    "degree",
-    "grades",
-
     // Social media giants (prevent confusion)
     "facebook",
     "instagram",

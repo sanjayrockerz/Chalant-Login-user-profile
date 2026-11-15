@@ -95,10 +95,6 @@ describe("ReservedUsernamesService", () => {
 
     it("should identify brand reserved usernames", () => {
       const brandReserved = [
-        "colleging",
-        "college",
-        "university",
-        "student",
         "facebook",
         "twitter",
         "google",
@@ -110,6 +106,24 @@ describe("ReservedUsernamesService", () => {
         expect(result.isReserved).toBe(true);
         expect(result.category).toBe("brand");
         expect(result.reason).toContain("brand");
+      });
+    });
+
+    it("does not reserve academic terms or the retired Colleging name", () => {
+      for (const username of [
+        "colleging",
+        "college",
+        "university",
+        "student",
+        "faculty",
+        "course",
+      ]) {
+        expect(service.isReserved(username).isReserved).toBe(false);
+      }
+
+      expect(service.isReserved("facebook")).toMatchObject({
+        isReserved: true,
+        category: "brand",
       });
     });
 
