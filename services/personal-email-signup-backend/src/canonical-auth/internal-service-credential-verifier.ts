@@ -32,7 +32,8 @@ export interface InternalServiceRequestHeaders {
   signature: string;
 }
 
-export interface InternalServiceV2RequestHeaders extends InternalServiceRequestHeaders {
+export interface InternalServiceV2RequestHeaders
+  extends InternalServiceRequestHeaders {
   nonce: string;
 }
 
