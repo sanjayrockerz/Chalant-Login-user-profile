@@ -75,3 +75,11 @@ Scope: local successor of `253e166`; no deployment, merge, or push performed.
 ## Next batch
 
 Unify API/data contracts and startup-scale reliability using this verified canonical runtime. Do not activate the quarantined legacy auth implementation or expose contact discovery until the external acceptance evidence above exists.
+
+## AUTH-1 verification follow-up — 2026-11-16
+
+Against the published `main@a65360f11b44fa00a49850838162e508fc3eb19b`, the real-module HTTP/DB/Redis integration runner passed 8 suites / 35 tests on task-created PostgreSQL 16 and Redis 7. This included the registered canonical token-validation controller, V2 nonce/replay behavior, refresh rollback/concurrency and logout/revocation. Only those task-created containers were removed. This does not establish Login `main.ts` process startup or downstream application acceptance.
+
+Current trust boundary review: V1 and V2 use the same configured service-client keys, audience and scope; no per-version authorization is configured. V1 remains exposed for documented compatibility while external consumers are not inventoried, so downgrade isolation is unresolved. Recovery-token consumption still uses Redis `GETDEL` before the user/password/database transaction; a later failure strands the token, and safe correction needs an atomic durable-token or reviewed recoverable-claim design. HMAC configuration enforces a 32-character minimum but entropy, deployed key rotation/revocation, and TLS/network provisioning are operator evidence. Signup workflow unit and integration coverage jobs each apply the global threshold to their own partial suite; changing that gate requires explicit coverage-policy review.
+
+The AUTH-1 cross-application acceptance remains **NOT COMPLETE**: Profile and Community register their legacy JWT guards; Community/Messaging/Realtime/Channel import canonical consumer code as standby, and `CanonicalIdentityGuard` attaches a separate `canonicalIdentity` property while current controllers consume `request.user`. No downstream guard was activated or compatibility bridge introduced. The module-level Auth acceptance above does not prove downstream app route/guard behavior.
