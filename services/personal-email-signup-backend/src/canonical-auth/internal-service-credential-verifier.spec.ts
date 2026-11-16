@@ -101,7 +101,7 @@ describe("InternalServiceCredentialVerifier protocol isolation", () => {
   it("allows two Auth instances to reserve one nonce only once", async () => {
     const reservations = new Set<string>();
     const client = {
-      set: async (key: string) => {
+      set: (key: string) => {
         if (reservations.has(key)) return null;
         reservations.add(key);
         return "OK";

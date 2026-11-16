@@ -12,6 +12,17 @@ import { EmailService } from "../email/email.service";
 import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
 import { RedisService } from "../redis/redis.service";
 
+function isPrismaUniqueConstraintError(
+  error: unknown,
+): error is { code: "P2002" } {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2002"
+  );
+}
+
 const RECOVERY_PURPOSE = "password-reset-v1";
 const GENERIC_RESPONSE =
   "If the account is eligible, recovery instructions will be sent.";
@@ -199,12 +210,7 @@ export class CanonicalRecoveryService {
         );
       }
     } catch (error) {
-      if (
-        error &&
-        typeof error === "object" &&
-        "code" in error &&
-        error.code === "P2002"
-      ) {
+      if (isPrismaUniqueConstraintError(error)) {
         throw new UnauthorizedException(
           "Invalid or expired recovery credential",
         );

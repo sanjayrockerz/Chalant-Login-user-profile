@@ -156,9 +156,9 @@ describe("CanonicalRecoveryService", () => {
       expect.stringMatching(/^canonical-recovery:password-reset-v1:/),
     );
     expect(transaction.user.update).toHaveBeenCalled();
-    expect(transaction.passwordRecoveryConsumption.create).toHaveBeenCalledWith(
-      { data: { tokenHash: expect.any(String) } },
-    );
+    const consumptionCall = transaction.passwordRecoveryConsumption.create.mock
+      .calls[0] as unknown as [{ data: { tokenHash: string } }];
+    expect(consumptionCall[0].data.tokenHash).toEqual(expect.any(String));
     expect(transaction.identitySession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: "user-1", revokedAt: null } }),
     );
