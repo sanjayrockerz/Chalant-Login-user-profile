@@ -25,6 +25,8 @@ import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
 import { AccountStatusAdminController } from "./account-status-admin.controller";
 import { AuthAdminGuard } from "./auth-admin.guard";
 import { ChatAccountStatusController } from "./chat-account-status.controller";
+import { InternalTokenValidationController } from "./internal-token-validation.controller";
+import { InternalServiceCredentialVerifier } from "./internal-service-credential-verifier";
 
 @Module({
   imports: [
@@ -52,6 +54,7 @@ import { ChatAccountStatusController } from "./chat-account-status.controller";
     CanonicalRecoveryController,
     AccountStatusAdminController,
     ChatAccountStatusController,
+    InternalTokenValidationController,
   ],
   providers: [
     PasswordBreachService,
@@ -86,6 +89,7 @@ import { ChatAccountStatusController } from "./chat-account-status.controller";
     JwtAuthGuard,
     ChatProfileOutboxWorker,
     AuthAdminGuard,
+    InternalServiceCredentialVerifier,
   ],
   exports: [
     CanonicalAuthService,

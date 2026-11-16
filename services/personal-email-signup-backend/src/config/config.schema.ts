@@ -1,5 +1,16 @@
 import { z } from "zod";
 
+const authIntrospectionClientSchema = z.object({
+  keys: z
+    .record(z.string(), z.string().min(32))
+    .refine(
+      (keys) => Object.keys(keys).length > 0,
+      "at least one key is required",
+    ),
+  audiences: z.array(z.string().min(1)).min(1),
+  scopes: z.array(z.string().min(1)).min(1),
+});
+
 export const configSchema = z.object({
   // Age validation
   MIN_DECLARED_AGE: z.number().default(13),
@@ -22,6 +33,9 @@ export const configSchema = z.object({
   CHAT_PROFILE_PROVISIONING_URL: z.string().url().optional(),
   CHAT_ACCOUNT_LIFECYCLE_URL: z.string().url().optional(),
   CHAT_PROFILE_PROVISIONING_HMAC_SECRET: z.string().min(32).optional(),
+  AUTH_INTROSPECTION_CLIENTS: z
+    .record(z.string(), authIntrospectionClientSchema)
+    .default({}),
   // Explicit owner-managed bootstrap allowlist for the Auth account admin API.
   AUTH_ADMIN_USER_IDS: z.string().optional(),
 

@@ -1,4 +1,5 @@
 import { Injectable } from "@nestjs/common";
+import { ZodError } from "zod";
 import { configSchema, Config } from "./config.schema";
 
 @Injectable()
@@ -41,6 +42,7 @@ export class ConfigService {
         CHAT_ACCOUNT_LIFECYCLE_URL: process.env.CHAT_ACCOUNT_LIFECYCLE_URL,
         CHAT_PROFILE_PROVISIONING_HMAC_SECRET:
           process.env.CHAT_PROFILE_PROVISIONING_HMAC_SECRET,
+        AUTH_INTROSPECTION_CLIENTS: this.parseIntrospectionClients(),
         AUTH_ADMIN_USER_IDS: process.env.AUTH_ADMIN_USER_IDS,
         REDIS_URL: process.env.REDIS_URL,
         CONTACT_HASH_MODE:
@@ -229,7 +231,25 @@ export class ConfigService {
       }
       return config;
     } catch (error) {
+      if (error instanceof ZodError) {
+        const fields = error.issues
+          .map((issue) => issue.path.join(".") || "<root>")
+          .join(", ");
+        throw new Error(`Invalid configuration fields: ${fields}`);
+      }
       throw new Error(`Invalid configuration: ${error}`);
+    }
+  }
+
+  private parseIntrospectionClients(): unknown {
+    const raw = process.env.AUTH_INTROSPECTION_CLIENTS_JSON;
+    if (!raw) return {};
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new Error(
+        "AUTH_INTROSPECTION_CLIENTS_JSON must contain valid JSON",
+      );
     }
   }
 

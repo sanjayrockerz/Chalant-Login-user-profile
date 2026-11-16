@@ -318,19 +318,45 @@ export class CanonicalAuthService {
   async authenticateAccessTokenContext(
     token: string,
   ): Promise<AuthenticatedSessionContext> {
+    let payload: {
+      sub?: string;
+      sid?: string;
+      typ?: string;
+      exp?: number;
+    };
     try {
-      const payload = this.jwt.verify<{
+      payload = this.jwt.verify<{
         sub?: string;
         sid?: string;
         typ?: string;
+        exp?: number;
       }>(token, {
         issuer: ISSUER,
         audience: AUDIENCE,
+        algorithms: ["HS256"],
       });
-      if (payload.typ !== ACCESS_TOKEN_TYPE || !payload.sub || !payload.sid) {
-        throw new Error("Invalid canonical access claims");
-      }
-      const subject = toCanonicalUserId(payload.sub);
+    } catch {
+      throw new UnauthorizedException("Invalid access token");
+    }
+
+    if (
+      payload.typ !== ACCESS_TOKEN_TYPE ||
+      !payload.sub ||
+      !payload.sid ||
+      !Number.isSafeInteger(payload.exp) ||
+      payload.exp <= Math.floor(Date.now() / 1000)
+    ) {
+      throw new UnauthorizedException("Invalid access token");
+    }
+
+    let subject: string;
+    try {
+      subject = toCanonicalUserId(payload.sub);
+    } catch {
+      throw new UnauthorizedException("Invalid access token");
+    }
+
+    try {
       const session = await this.prisma.identitySession.findUnique({
         where: { id: payload.sid },
         select: { userId: true, expiresAt: true, revokedAt: true },
@@ -341,15 +367,23 @@ export class CanonicalAuthService {
         session.revokedAt ||
         session.expiresAt <= new Date()
       ) {
-        throw new Error("Session is not active");
+        throw new UnauthorizedException("Invalid access token");
       }
       return {
         principal: await this.getPrincipal(subject),
         sessionId: payload.sid,
+        accessTokenExpiresAt: payload.exp,
       };
     } catch (error: unknown) {
-      if (error instanceof ServiceUnavailableException) throw error;
-      throw new UnauthorizedException("Invalid access token");
+      if (
+        error instanceof UnauthorizedException ||
+        error instanceof ServiceUnavailableException
+      ) {
+        throw error;
+      }
+      throw new ServiceUnavailableException(
+        "Canonical authentication authority is unavailable",
+      );
     }
   }
 
@@ -528,6 +562,7 @@ export class CanonicalAuthService {
         expiresIn: ACCESS_TTL_SECONDS,
         issuer: ISSUER,
         audience: AUDIENCE,
+        algorithm: "HS256",
         secret,
       },
     );

@@ -7,6 +7,43 @@ info:
     username availability/set contracts and standardized error codes for the Personal Email Signup backend.
 
 paths:
+  /internal/v1/auth/token/validate:
+    post:
+      summary: Validate an access token for an authenticated internal service
+      description: >-
+        Validates canonical claims, the persisted session, revocation state, expiry, and
+        current account eligibility. The caller is separately authenticated by a
+        timestamped HMAC-SHA256 signature over the timestamp, service ID, method, path,
+        audience, scope, and end-user token. Never log the request body or signing key.
+        The response omits email, username, roles, refresh tokens, and provider credentials.
+      security:
+        - authServiceId: []
+          authKeyId: []
+          authTimestamp: []
+          authSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, audience, scope]
+              properties:
+                token: { type: string, maxLength: 8192 }
+                audience: { type: string, minLength: 1 }
+                scope: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Canonical identity and currently valid session confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalTokenValidationResponseV1'
+        '400': { description: Malformed request body }
+        '401': { description: Invalid service signature or invalid, expired, revoked, or ineligible user session }
+        '403': { description: Calling service is not allowed to request this audience or scope }
+        '503': { description: Canonical authentication authority or session database is unavailable }
+
   /api/policies/accept:
     post:
       summary: Accept the current Terms & Privacy for a client session
@@ -150,6 +187,22 @@ paths:
 
 components:
   securitySchemes:
+    authServiceId:
+      type: apiKey
+      in: header
+      name: x-auth-service-id
+    authKeyId:
+      type: apiKey
+      in: header
+      name: x-auth-key-id
+    authTimestamp:
+      type: apiKey
+      in: header
+      name: x-auth-timestamp
+    authSignature:
+      type: apiKey
+      in: header
+      name: x-auth-signature
     cookieAuth:
       type: apiKey
       in: cookie
@@ -168,6 +221,25 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
   schemas:
+    CanonicalTokenValidationResponseV1:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, subject, sessionId, accountStatus, emailVerified, accessTokenExpiresAt, service]
+      properties:
+        contractVersion: { type: integer, enum: [1] }
+        subject: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        accountStatus: { type: string, enum: [ACTIVE] }
+        emailVerified: { type: boolean }
+        accessTokenExpiresAt: { type: integer, format: int64 }
+        service:
+          type: object
+          additionalProperties: false
+          required: [id, audience, scope]
+          properties:
+            id: { type: string }
+            audience: { type: string }
+            scope: { type: string }
     ErrorResponse:
       type: object
       properties:

@@ -1,3 +1,7 @@
+import {
+  ServiceUnavailableException,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { UserAccountStatus } from "@prisma/client";
 import { CanonicalAuthService } from "./canonical-auth.service";
 
@@ -120,5 +124,116 @@ describe("CanonicalAuthService email verification", () => {
       }),
     );
     expect(result.status).toBe("verified");
+  });
+});
+
+describe("CanonicalAuthService canonical access token validation", () => {
+  const subject = "00000000-0000-4000-8000-000000000011";
+  const sessionId = "00000000-0000-4000-8000-000000000012";
+  const expiry = Math.floor(Date.now() / 1000) + 300;
+
+  function createValidationService(
+    overrides: {
+      verify?: jest.Mock;
+      findSession?: jest.Mock;
+      findUser?: jest.Mock;
+    } = {},
+  ) {
+    const jwt = {
+      verify:
+        overrides.verify ??
+        jest.fn().mockReturnValue({
+          sub: subject,
+          sid: sessionId,
+          typ: "canonical-access",
+          exp: expiry,
+        }),
+    };
+    const prisma = {
+      identitySession: {
+        findUnique:
+          overrides.findSession ??
+          jest.fn().mockResolvedValue({
+            userId: subject,
+            expiresAt: new Date((expiry + 300) * 1000),
+            revokedAt: null,
+          }),
+      },
+      user: {
+        findUnique:
+          overrides.findUser ??
+          jest.fn().mockResolvedValue({
+            id: subject,
+            username: "canonical_user",
+            email: "canonical@example.test",
+            isVerified: true,
+            accountStatus: UserAccountStatus.ACTIVE,
+          }),
+      },
+    };
+    const service = new CanonicalAuthService(
+      prisma as any,
+      jwt as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, jwt, prisma };
+  }
+
+  it("pins verification to the canonical HS256 issuer and audience and returns expiry", async () => {
+    const { service, jwt } = createValidationService();
+
+    const context = await service.authenticateAccessTokenContext("signed.jwt");
+
+    expect(jwt.verify).toHaveBeenCalledWith("signed.jwt", {
+      issuer: "r3-canonical-identity",
+      audience: "r3-api",
+      algorithms: ["HS256"],
+    });
+    expect(context).toMatchObject({
+      principal: { subject },
+      sessionId,
+      accessTokenExpiresAt: expiry,
+    });
+  });
+
+  it("rejects tokens without a numeric expiry", async () => {
+    const { service } = createValidationService({
+      verify: jest.fn().mockReturnValue({
+        sub: subject,
+        sid: sessionId,
+        typ: "canonical-access",
+      }),
+    });
+
+    await expect(
+      service.authenticateAccessTokenContext("missing-exp.jwt"),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("rejects revoked sessions", async () => {
+    const { service } = createValidationService({
+      findSession: jest.fn().mockResolvedValue({
+        userId: subject,
+        expiresAt: new Date((expiry + 300) * 1000),
+        revokedAt: new Date(),
+      }),
+    });
+
+    await expect(
+      service.authenticateAccessTokenContext("revoked.jwt"),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("fails closed as temporarily unavailable when session authority cannot be reached", async () => {
+    const { service } = createValidationService({
+      findSession: jest.fn().mockRejectedValue(new Error("database offline")),
+    });
+
+    await expect(
+      service.authenticateAccessTokenContext("valid.jwt"),
+    ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });

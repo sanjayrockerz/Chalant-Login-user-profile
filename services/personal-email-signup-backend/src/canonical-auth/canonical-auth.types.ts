@@ -30,4 +30,5 @@ export interface RequestWithPrincipal {
 export interface AuthenticatedSessionContext {
   principal: CanonicalPrincipal;
   sessionId: string;
+  accessTokenExpiresAt: number;
 }

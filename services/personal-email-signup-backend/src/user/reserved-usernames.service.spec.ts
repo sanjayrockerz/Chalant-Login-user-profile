@@ -94,12 +94,7 @@ describe("ReservedUsernamesService", () => {
     });
 
     it("should identify brand reserved usernames", () => {
-      const brandReserved = [
-        "facebook",
-        "twitter",
-        "google",
-        "apple",
-      ];
+      const brandReserved = ["facebook", "twitter", "google", "apple"];
 
       brandReserved.forEach((username) => {
         const result = service.isReserved(username);

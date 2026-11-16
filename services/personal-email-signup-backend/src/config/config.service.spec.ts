@@ -40,4 +40,25 @@ describe("ConfigService", () => {
       "postgresql://legacy-db.example.test/app",
     );
   });
+
+  it("rejects malformed introspection configuration without exposing secret values", () => {
+    process.env.DATABASE_URL_AUTH = "postgresql://auth-db.example.test/app";
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+    process.env.JWT_SECRET = "test-jwt-secret";
+    process.env.COOKIE_SECRET = "test-cookie-secret";
+    process.env.AUTH_INTROSPECTION_CLIENTS_JSON = JSON.stringify({
+      "community-service": {
+        keys: { "community-v1": "raw-short-secret-value" },
+        audiences: ["community-api"],
+        scopes: ["auth:token:validate"],
+      },
+    });
+
+    expect(() => new ConfigService()).toThrow(/AUTH_INTROSPECTION_CLIENTS/);
+    try {
+      new ConfigService();
+    } catch (error) {
+      expect(String(error)).not.toContain("raw-short-secret-value");
+    }
+  });
 });
