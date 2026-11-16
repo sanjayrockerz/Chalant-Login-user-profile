@@ -9,7 +9,7 @@ import {
 } from "@nestjs/common";
 import { JwtService } from "@nestjs/jwt";
 import { Prisma, UserAccountStatus } from "@prisma/client";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { verify as verifyArgon2 } from "@node-rs/argon2";
 import { compare as compareBcrypt } from "bcryptjs";
 import { PrismaService } from "../../prisma/prisma.module";
@@ -238,10 +238,10 @@ export class CanonicalAuthService {
       throw new UnauthorizedException("Invalid credentials");
     }
     if (user.accountStatus !== UserAccountStatus.ACTIVE) {
-      throw new UnauthorizedException("Account is not active");
+      throw new UnauthorizedException("Invalid credentials");
     }
     if (!user.isVerified) {
-      throw new UnauthorizedException("Email verification is required");
+      throw new UnauthorizedException("Invalid credentials");
     }
 
     const principal = this.toPrincipal(user);
@@ -277,7 +277,11 @@ export class CanonicalAuthService {
       throw new UnauthorizedException("Invalid refresh token");
     }
 
+    const successor = this.prepareSession(session.userId);
     const rotated = await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${session.userId}::uuid FOR UPDATE`,
+      );
       const consumed = await transaction.identitySession.updateMany({
         where: { id: session.id, revokedAt: null, expiresAt: { gt: now } },
         data: { revokedAt: now },
@@ -297,10 +301,14 @@ export class CanonicalAuthService {
           "Account is not eligible for authentication",
         );
       }
+      await transaction.identitySession.create({
+        data: successor.session,
+        select: { id: true },
+      });
       return user;
     });
     const principal = this.toPrincipal(rotated);
-    return { ...(await this.issueSession(principal)), user: principal };
+    return { ...successor.tokens, user: principal };
   }
 
   async logout(refreshToken: string): Promise<void> {
@@ -435,9 +443,15 @@ export class CanonicalAuthService {
   }
 
   async revokeAllSessions(userId: string): Promise<void> {
-    await this.prisma.identitySession.updateMany({
-      where: { userId: toCanonicalUserId(userId), revokedAt: null },
-      data: { revokedAt: new Date() },
+    const canonicalUserId = toCanonicalUserId(userId);
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${canonicalUserId}::uuid FOR UPDATE`,
+      );
+      await transaction.identitySession.updateMany({
+        where: { userId: canonicalUserId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     });
   }
 
@@ -542,22 +556,32 @@ export class CanonicalAuthService {
   }
 
   async issueSession(principal: CanonicalPrincipal): Promise<SessionTokens> {
-    const refreshToken = randomBytes(48).toString("base64url");
-    const session = await this.prisma.identitySession.create({
-      data: {
-        userId: principal.subject,
-        sessionHash: hashRefreshToken(refreshToken),
-        expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
-      },
+    const prepared = this.prepareSession(principal.subject);
+    await this.prisma.identitySession.create({
+      data: prepared.session,
       select: { id: true },
     });
+    return prepared.tokens;
+  }
+
+  private prepareSession(subject: string): {
+    session: {
+      id: string;
+      userId: string;
+      sessionHash: string;
+      expiresAt: Date;
+    };
+    tokens: SessionTokens;
+  } {
+    const refreshToken = randomBytes(48).toString("base64url");
+    const sessionId = randomUUID();
     const secret = this.config.get("JWT_SECRET");
     if (!secret)
       throw new ServiceUnavailableException(
         "Canonical session signing is unavailable",
       );
     const accessToken = this.jwt.sign(
-      { sub: principal.subject, sid: session.id, typ: ACCESS_TOKEN_TYPE },
+      { sub: subject, sid: sessionId, typ: ACCESS_TOKEN_TYPE },
       {
         expiresIn: ACCESS_TTL_SECONDS,
         issuer: ISSUER,
@@ -567,9 +591,17 @@ export class CanonicalAuthService {
       },
     );
     return {
-      access_token: accessToken,
-      refresh_token: refreshToken,
-      expires_in: ACCESS_TTL_SECONDS,
+      session: {
+        id: sessionId,
+        userId: subject,
+        sessionHash: hashRefreshToken(refreshToken),
+        expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
+      },
+      tokens: {
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        expires_in: ACCESS_TTL_SECONDS,
+      },
     };
   }
 

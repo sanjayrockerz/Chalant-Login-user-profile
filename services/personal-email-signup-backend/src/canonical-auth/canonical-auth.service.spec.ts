@@ -237,3 +237,58 @@ describe("CanonicalAuthService canonical access token validation", () => {
     ).rejects.toBeInstanceOf(ServiceUnavailableException);
   });
 });
+
+describe("CanonicalAuthService refresh rotation", () => {
+  it("persists the successor session inside the transaction that consumes the old one", async () => {
+    const user = {
+      id: "00000000-0000-4000-8000-000000000021",
+      username: "refresh_user",
+      email: "refresh@example.test",
+      isVerified: true,
+      accountStatus: UserAccountStatus.ACTIVE,
+    };
+    const successorCreate = jest
+      .fn()
+      .mockRejectedValue(new Error("database unavailable"));
+    const rootSessionCreate = jest.fn().mockResolvedValue({ id: "unexpected" });
+    const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
+      identitySession: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        create: successorCreate,
+      },
+      user: { findUnique: jest.fn().mockResolvedValue(user) },
+    };
+    const prisma = {
+      identitySession: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "00000000-0000-4000-8000-000000000022",
+          userId: user.id,
+          expiresAt: new Date(Date.now() + 60_000),
+          revokedAt: null,
+        }),
+        create: rootSessionCreate,
+      },
+      $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) =>
+        callback(transaction),
+      ),
+    };
+    const jwt = { sign: jest.fn().mockReturnValue("access-token") };
+    const config = { get: jest.fn().mockReturnValue("test-signing-secret") };
+    const service = new CanonicalAuthService(
+      prisma as any,
+      jwt as any,
+      config as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    await expect(service.refresh("old-refresh-token")).rejects.toThrow(
+      "database unavailable",
+    );
+
+    expect(successorCreate).toHaveBeenCalledTimes(1);
+    expect(rootSessionCreate).not.toHaveBeenCalled();
+  });
+});

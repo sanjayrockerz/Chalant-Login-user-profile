@@ -157,7 +157,7 @@ export class CustomThrottlerGuard extends ThrottlerGuard {
         ttl: userTtl * 1000,
         blockDuration: userBlock * 1000,
         getTracker: (req: Record<string, any>) =>
-          this.hashIdentifier(req.user?.id ?? "anonymous"),
+          this.hashIdentifier(req.user?.subject ?? req.user?.id ?? "anonymous"),
         generateKey: (
           context: ExecutionContext,
           tracker: string,

@@ -1,4 +1,12 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  HttpCode,
+  HttpStatus,
+  Post,
+  UsePipes,
+  ValidationPipe,
+} from "@nestjs/common";
 import { IsEmail, IsString, MinLength } from "class-validator";
 import { CanonicalRecoveryService } from "./canonical-recovery.service";
 
@@ -18,6 +26,13 @@ class RecoveryResetDto {
 }
 
 @Controller("auth/recovery")
+@UsePipes(
+  new ValidationPipe({
+    whitelist: true,
+    forbidNonWhitelisted: true,
+    transform: true,
+  }),
+)
 export class CanonicalRecoveryController {
   constructor(private readonly recovery: CanonicalRecoveryService) {}
 

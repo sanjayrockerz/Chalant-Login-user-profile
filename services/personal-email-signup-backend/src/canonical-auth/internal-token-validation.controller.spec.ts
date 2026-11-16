@@ -85,7 +85,7 @@ describe("InternalTokenValidationController", () => {
     } as unknown as ConfigService;
     controller = new InternalTokenValidationController(
       auth as unknown as CanonicalAuthService,
-      new InternalServiceCredentialVerifier(config),
+      new InternalServiceCredentialVerifier(config, {} as any),
     );
   });
 

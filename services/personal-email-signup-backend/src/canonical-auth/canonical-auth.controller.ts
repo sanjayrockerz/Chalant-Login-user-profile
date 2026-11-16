@@ -10,7 +10,10 @@ import {
   Delete,
   Param,
   BadRequestException,
+  UsePipes,
+  ValidationPipe,
 } from "@nestjs/common";
+import { IsEmail, IsString, MaxLength, MinLength } from "class-validator";
 import { JwtAuthGuard } from "../auth/jwt-auth.guard";
 import { CanonicalAuthService } from "./canonical-auth.service";
 import {
@@ -19,19 +22,54 @@ import {
   RequestWithPrincipal,
 } from "./canonical-auth.types";
 
+class RegisterPasswordDto implements RegisterPasswordInput {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(255)
+  username!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1024)
+  password!: string;
+}
+
+class PasswordLoginDto implements PasswordLoginInput {
+  @IsEmail()
+  @MaxLength(320)
+  email!: string;
+
+  @IsString()
+  @MinLength(1)
+  @MaxLength(1024)
+  password!: string;
+}
+
+const strictAuthBodyValidation = new ValidationPipe({
+  whitelist: true,
+  forbidNonWhitelisted: true,
+  transform: true,
+});
+
 @Controller("auth")
 export class CanonicalAuthController {
   constructor(private readonly auth: CanonicalAuthService) {}
 
   @Post("register")
   @HttpCode(HttpStatus.CREATED)
-  register(@Body() input: RegisterPasswordInput) {
+  @UsePipes(strictAuthBodyValidation)
+  register(@Body() input: RegisterPasswordDto) {
     return this.auth.register(input);
   }
 
   @Post("login")
   @HttpCode(HttpStatus.OK)
-  login(@Body() input: PasswordLoginInput) {
+  @UsePipes(strictAuthBodyValidation)
+  login(@Body() input: PasswordLoginDto) {
     return this.auth.login(input);
   }
 

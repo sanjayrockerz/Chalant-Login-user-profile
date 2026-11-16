@@ -7,7 +7,7 @@ import { ConfigService } from "../config/config.service";
 import { CanonicalAuthModule } from "./canonical-auth.module";
 import { Server } from "http";
 import request from "supertest";
-import { createHmac } from "crypto";
+import { createHash, createHmac, randomBytes } from "crypto";
 import { sign as signJwt, decode as decodeJwt } from "jsonwebtoken";
 
 interface RegistrationBody {
@@ -29,6 +29,7 @@ const introspectionSecret = "phase2a-community-auth-introspection-secret";
 const introspectionService = "community-service";
 const introspectionKeyId = "community-test-v1";
 const introspectionPath = "/internal/v1/auth/token/validate";
+const introspectionV2Path = "/internal/v2/auth/token/validate";
 
 describeDatabase("canonical password authentication HTTP contract", () => {
   let app: INestApplication;
@@ -119,6 +120,45 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     };
   }
 
+  function signIntrospectionV2Request(
+    token: string,
+    nonce = randomBytes(32).toString("base64url"),
+  ) {
+    const body = {
+      token,
+      audience: "community-api",
+      scope: "auth:token:validate",
+    };
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const bodyDigest = createHash("sha256")
+      .update(JSON.stringify(body))
+      .digest("hex");
+    const canonical = JSON.stringify([
+      2,
+      Number(timestamp),
+      introspectionService,
+      "POST",
+      introspectionV2Path,
+      "",
+      nonce,
+      bodyDigest,
+      body.audience,
+      body.scope,
+    ]);
+    return {
+      body,
+      headers: {
+        "x-auth-service-id": introspectionService,
+        "x-auth-key-id": introspectionKeyId,
+        "x-auth-timestamp": timestamp,
+        "x-auth-nonce": nonce,
+        "x-auth-signature": createHmac("sha256", introspectionSecret)
+          .update(canonical)
+          .digest("hex"),
+      },
+    };
+  }
+
   it("validates an Auth-issued token through the registered service-authenticated endpoint", async () => {
     const email = `phase2a-introspection-${Date.now()}@example.test`;
     const subject = await registerAndVerify(
@@ -165,6 +205,35 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       .set(signed.headers)
       .send(signed.body)
       .expect(401);
+  });
+
+  it("atomically rejects a concurrent replay of a correctly signed v2 request", async () => {
+    const email = `phase2a-introspection-v2-${Date.now()}@example.test`;
+    await registerAndVerify(email, `phase2a_v2_${Date.now()}`);
+    const login = await request(server)
+      .post("/auth/login")
+      .send({ email, password: "A sufficiently unique passphrase 2026!" })
+      .expect(200);
+    const signed = signIntrospectionV2Request(
+      (login.body as TokenBody).access_token,
+    );
+
+    const responses = await Promise.all(
+      [0, 1].map(() =>
+        request(server)
+          .post(introspectionV2Path)
+          .set(signed.headers)
+          .send(signed.body),
+      ),
+    );
+    expect(responses.map(({ status }) => status).sort()).toEqual([200, 401]);
+    expect(
+      (
+        responses.find(({ status }) => status === 200)?.body as {
+          contractVersion?: number;
+        }
+      )?.contractVersion,
+    ).toBe(2);
   });
 
   it("rejects invalid service signatures and an altered end-user token", async () => {
@@ -283,6 +352,77 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     expect(stored?.passwordCredential?.passwordHash).toMatch(/^\$2[aby]\$/);
   });
 
+  it("rejects malformed recovery DTOs before service execution", async () => {
+    await request(server).post("/auth/recovery/request").send({}).expect(400);
+
+    await request(server)
+      .post("/auth/recovery/request")
+      .send({ email: "person@example.test", unexpected: "field" })
+      .expect(400);
+  });
+
+  it("rejects unknown registration and login properties before auth service execution", async () => {
+    const email = `phase2a-strict-dto-${Date.now()}@example.test`;
+    emails.push(email);
+    await request(server)
+      .post("/auth/register")
+      .send({
+        email,
+        username: `phase2a_strict_${Date.now()}`,
+        password: "A sufficiently unique passphrase 2026!",
+        accountStatus: "ACTIVE",
+      })
+      .expect(400);
+
+    await request(server)
+      .post("/auth/login")
+      .send({ email, password: "not-a-real-password", serviceRole: "admin" })
+      .expect(400);
+  });
+
+  it("returns one public login error for unknown, unverified, and inactive accounts", async () => {
+    const suffix = Date.now();
+    const unverifiedEmail = `phase2a-enum-unverified-${suffix}@example.test`;
+    emails.push(unverifiedEmail);
+    await request(server)
+      .post("/auth/register")
+      .send({
+        email: unverifiedEmail,
+        username: `phase2a_enum_u_${suffix}`,
+        password: "A sufficiently unique passphrase 2026!",
+      })
+      .expect(201);
+
+    const inactiveEmail = `phase2a-enum-inactive-${suffix}@example.test`;
+    const inactiveUserId = await registerAndVerify(
+      inactiveEmail,
+      `phase2a_enum_i_${suffix}`,
+    );
+    await prisma.user.update({
+      where: { id: inactiveUserId },
+      data: { accountStatus: "SUSPENDED" },
+    });
+
+    const password = "A sufficiently unique passphrase 2026!";
+    const responses = await Promise.all(
+      [
+        { email: `missing-${suffix}@example.test`, password },
+        { email: unverifiedEmail, password },
+        { email: inactiveEmail, password },
+      ].map(({ email: loginEmail, password: loginPassword }) =>
+        request(server)
+          .post("/auth/login")
+          .send({ email: loginEmail, password: loginPassword }),
+      ),
+    );
+    expect(responses.map(({ status }) => status)).toEqual([401, 401, 401]);
+    expect(responses.map(({ text }) => text)).toEqual([
+      responses[0].text,
+      responses[0].text,
+      responses[0].text,
+    ]);
+  });
+
   it("logs in, resolves the canonical principal, rotates refresh tokens, and revokes logout", async () => {
     const email = `phase2a-flow-${Date.now()}@example.test`;
     await registerAndVerify(email, `phase2a_flow_${Date.now()}`);
@@ -322,6 +462,170 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       .post("/auth/refresh")
       .send({ refresh_token: rotatedBody.refresh_token })
       .expect(401);
+  });
+
+  it("keeps the old refresh session usable when successor persistence fails", async () => {
+    const email = `phase2a-refresh-rollback-${Date.now()}@example.test`;
+    const username = `phase2a_refresh_rollback_${Date.now()}`;
+    const subject = await registerAndVerify(email, username);
+    const login = await request(server)
+      .post("/auth/login")
+      .send({ email, password: "A sufficiently unique passphrase 2026!" })
+      .expect(200);
+    const refreshToken = (login.body as TokenBody).refresh_token;
+    const triggerName = `fail_refresh_successor_${Date.now()}`;
+    const functionName = `reject_refresh_successor_${Date.now()}`;
+
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.user_id = '${subject}'::uuid AND NEW.revoked_at IS NULL THEN
+          RAISE EXCEPTION 'injected refresh successor failure';
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER ${triggerName}
+      BEFORE INSERT ON identity_sessions
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+    `);
+
+    try {
+      await request(server)
+        .post("/auth/refresh")
+        .send({ refresh_token: refreshToken })
+        .expect(500);
+
+      const oldSession = await prisma.identitySession.findFirstOrThrow({
+        where: { userId: subject, revokedAt: null },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(oldSession.revokedAt).toBeNull();
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON identity_sessions`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS ${functionName}()`,
+      );
+    }
+
+    const retry = await request(server)
+      .post("/auth/refresh")
+      .send({ refresh_token: refreshToken })
+      .expect(200);
+    expect((retry.body as TokenBody).refresh_token).not.toBe(refreshToken);
+  });
+
+  it("allows only one successor when two requests rotate the same refresh token concurrently", async () => {
+    const email = `phase2a-refresh-race-${Date.now()}@example.test`;
+    const subject = await registerAndVerify(
+      email,
+      `phase2a_refresh_race_${Date.now()}`,
+    );
+    const login = await request(server)
+      .post("/auth/login")
+      .send({ email, password: "A sufficiently unique passphrase 2026!" })
+      .expect(200);
+    const refreshToken = (login.body as TokenBody).refresh_token;
+
+    const results = await Promise.all(
+      [0, 1].map(() =>
+        request(server)
+          .post("/auth/refresh")
+          .send({ refresh_token: refreshToken }),
+      ),
+    );
+    expect(results.map((response) => response.status).sort()).toEqual([
+      200, 401,
+    ]);
+    expect(
+      await prisma.identitySession.count({
+        where: { userId: subject, revokedAt: null },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.identitySession.count({ where: { userId: subject } }),
+    ).toBe(2);
+  });
+
+  it("makes logout-all revoke a successor created by a concurrent refresh", async () => {
+    const email = `phase2a-logout-refresh-race-${Date.now()}@example.test`;
+    const subject = await registerAndVerify(
+      email,
+      `phase2a_logout_refresh_${Date.now()}`,
+    );
+    const login = await request(server)
+      .post("/auth/login")
+      .send({ email, password: "A sufficiently unique passphrase 2026!" })
+      .expect(200);
+    const loginBody = login.body as TokenBody;
+    const triggerName = `delay_refresh_successor_${Date.now()}`;
+    const functionName = `delay_refresh_successor_fn_${Date.now()}`;
+
+    await prisma.$executeRawUnsafe(`
+      CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
+      BEGIN
+        IF NEW.user_id = '${subject}'::uuid AND NEW.revoked_at IS NULL THEN
+          PERFORM pg_sleep(1.5);
+        END IF;
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql
+    `);
+    await prisma.$executeRawUnsafe(`
+      CREATE TRIGGER ${triggerName}
+      BEFORE INSERT ON identity_sessions
+      FOR EACH ROW EXECUTE FUNCTION ${functionName}()
+    `);
+
+    try {
+      const refresh = request(server)
+        .post("/auth/refresh")
+        .send({ refresh_token: loginBody.refresh_token })
+        .then((response) => response);
+      const sleepDeadline = Date.now() + 5_000;
+      let triggerSleeping = false;
+      while (Date.now() < sleepDeadline) {
+        const rows = await prisma.$queryRaw<Array<{ count: bigint }>>`
+          SELECT count(*) AS count
+          FROM pg_stat_activity
+          WHERE datname = current_database()
+            AND usename = current_user
+            AND wait_event = 'PgSleep'
+        `;
+        if (Number(rows[0]?.count ?? 0) > 0) {
+          triggerSleeping = true;
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(triggerSleeping).toBe(true);
+
+      const revokeAll = request(server)
+        .post("/auth/sessions/revoke-all")
+        .set("Authorization", `Bearer ${loginBody.access_token}`);
+      const [refreshResponse, revokeResponse] = await Promise.all([
+        refresh,
+        revokeAll,
+      ]);
+      expect(refreshResponse.status).toBe(200);
+      expect(revokeResponse.status).toBe(204);
+      expect(
+        await prisma.identitySession.count({
+          where: { userId: subject, revokedAt: null },
+        }),
+      ).toBe(0);
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `DROP TRIGGER IF EXISTS ${triggerName} ON identity_sessions`,
+      );
+      await prisma.$executeRawUnsafe(
+        `DROP FUNCTION IF EXISTS ${functionName}()`,
+      );
+    }
   });
 
   it("rejects wrong credentials, duplicate registration, unverified login, and missing authentication", async () => {

@@ -7,6 +7,43 @@ info:
     username availability/set contracts and standardized error codes for the Personal Email Signup backend.
 
 paths:
+  /internal/v2/auth/token/validate:
+    post:
+      summary: Replay-protected access-token validation for an authenticated internal service
+      description: >-
+        Validates the current canonical session and account. HMAC-SHA256 covers contract
+        version, method, path, empty query, timestamp, 256-bit nonce, canonical request
+        body digest, audience, and scope. Auth atomically reserves the nonce in shared
+        Redis. Redirects are not followed by consumers.
+      security:
+        - authServiceId: []
+          authKeyId: []
+          authTimestamp: []
+          authNonce: []
+          authSignature: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [token, audience, scope]
+              properties:
+                token: { type: string, maxLength: 8192 }
+                audience: { type: string, minLength: 1 }
+                scope: { type: string, minLength: 1 }
+      responses:
+        '200':
+          description: Canonical identity and currently valid session confirmed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CanonicalTokenValidationResponseV2'
+        '400': { description: Malformed request body }
+        '401': { description: Invalid service signature, replayed nonce, or invalid, expired, revoked, or ineligible session }
+        '403': { description: Caller is not allowed to request this audience or scope }
+        '503': { description: Authority, session database, or replay store is unavailable }
   /internal/v1/auth/token/validate:
     post:
       summary: Validate an access token for an authenticated internal service
@@ -199,6 +236,10 @@ components:
       type: apiKey
       in: header
       name: x-auth-timestamp
+    authNonce:
+      type: apiKey
+      in: header
+      name: x-auth-nonce
     authSignature:
       type: apiKey
       in: header
@@ -227,6 +268,25 @@ components:
       required: [contractVersion, subject, sessionId, accountStatus, emailVerified, accessTokenExpiresAt, service]
       properties:
         contractVersion: { type: integer, enum: [1] }
+        subject: { type: string, format: uuid }
+        sessionId: { type: string, format: uuid }
+        accountStatus: { type: string, enum: [ACTIVE] }
+        emailVerified: { type: boolean }
+        accessTokenExpiresAt: { type: integer, format: int64 }
+        service:
+          type: object
+          additionalProperties: false
+          required: [id, audience, scope]
+          properties:
+            id: { type: string }
+            audience: { type: string }
+            scope: { type: string }
+    CanonicalTokenValidationResponseV2:
+      type: object
+      additionalProperties: false
+      required: [contractVersion, subject, sessionId, accountStatus, emailVerified, accessTokenExpiresAt, service]
+      properties:
+        contractVersion: { type: integer, enum: [2] }
         subject: { type: string, format: uuid }
         sessionId: { type: string, format: uuid }
         accountStatus: { type: string, enum: [ACTIVE] }
