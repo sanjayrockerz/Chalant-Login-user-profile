@@ -159,6 +159,16 @@ model PasswordCredential {
   @@map("password_credentials")
 }
 
+/// Durable replay fence for password recovery. The raw token is never stored;
+/// successful reset records its SHA-256 digest in the same transaction as the
+/// password update and session revocation.
+model PasswordRecoveryConsumption {
+  tokenHash  String   @id @map("token_hash") @db.Char(64)
+  consumedAt DateTime @map("consumed_at") @default(now()) @db.Timestamptz
+
+  @@map("password_recovery_consumptions")
+}
+
 /// Future session ownership boundary. No issuer or session activation is added in Phase 1.
 model IdentitySession {
   id         String    @id @default(uuid()) @db.Uuid

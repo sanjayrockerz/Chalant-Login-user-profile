@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 const authIntrospectionClientSchema = z.object({
+  // Protocol enablement is explicit so a legacy HMAC key cannot silently
+  // authenticate requests on the replay-protected v2 endpoint (or vice versa).
+  protocolVersions: z.array(z.enum(["v1", "v2"])).min(1),
   keys: z
     .record(z.string(), z.string().min(32))
     .refine(
@@ -11,7 +14,7 @@ const authIntrospectionClientSchema = z.object({
   scopes: z.array(z.string().min(1)).min(1),
 });
 
-export const configSchema = z.object({
+const configBaseSchema = z.object({
   // Age validation
   MIN_DECLARED_AGE: z.number().default(13),
 
@@ -156,6 +159,19 @@ export const configSchema = z.object({
   APPLE_PRIVATE_KEY_FILE: z.string().optional(),
   APPLE_REDIRECT_URI: z.string().url().optional(),
   APPLE_OIDC_STATE_TTL_SECONDS: z.number().int().positive().default(600),
+});
+
+export const configSchema = configBaseSchema.superRefine((config, context) => {
+  if (
+    config.NODE_ENV === "production" &&
+    !config.REDIS_URL.startsWith("rediss://")
+  ) {
+    context.addIssue({
+      code: "custom",
+      path: ["REDIS_URL"],
+      message: "Production Redis connections must use TLS (rediss://)",
+    });
+  }
 });
 
 export type Config = z.infer<typeof configSchema>;

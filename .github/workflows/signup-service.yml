@@ -137,7 +137,7 @@ jobs:
         working-directory: ${{ env.SERVICE_PATH }}
     strategy:
       matrix:
-        suite: [unit, integration]
+        suite: [unit, integration, coverage]
       fail-fast: false
     services:
       redis:
@@ -208,7 +208,12 @@ jobs:
           DATABASE_URL_AUTH: postgresql://test:test@localhost:5432/phase1_signup_ci
 
       - name: Run ${{ matrix.suite }} tests
-        run: npm run test:${{ matrix.suite }} -- --coverage --coverageReporters=text-summary --coverageReporters=lcov --coverageDirectory=coverage/${{ matrix.suite }}
+        run: |
+          if [ "${{ matrix.suite }}" = "coverage" ]; then
+            npm run test:coverage -- --coverageReporters=text-summary --coverageReporters=lcov --coverageDirectory=coverage/combined
+          else
+            npm run test:${{ matrix.suite }}
+          fi
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://test:test@localhost:5432/phase1_signup_ci
@@ -237,11 +242,11 @@ jobs:
           retention-days: 7
 
       - name: Upload coverage report
-        if: matrix.suite == 'unit'
+        if: matrix.suite == 'coverage'
         uses: actions/upload-artifact@v4
         with:
           name: signup-coverage
-          path: ${{ env.SERVICE_PATH }}/coverage/unit/lcov.info
+          path: ${{ env.SERVICE_PATH }}/coverage/combined/lcov.info
           retention-days: 7
 
   e2e:

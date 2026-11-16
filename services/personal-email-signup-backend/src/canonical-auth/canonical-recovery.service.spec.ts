@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from "@nestjs/common";
+import { Logger, ServiceUnavailableException } from "@nestjs/common";
 import { CanonicalRecoveryService } from "./canonical-recovery.service";
 
 describe("CanonicalRecoveryService", () => {
@@ -27,7 +27,14 @@ describe("CanonicalRecoveryService", () => {
       checkRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
       set: jest.fn().mockResolvedValue(undefined),
       del: jest.fn().mockResolvedValue(1),
-      getAndDelete: jest.fn(),
+      get: jest.fn().mockResolvedValue({
+        purpose: "password-reset-v1",
+        userId: "user-1",
+      }),
+      getClient: jest.fn(() => ({
+        set: jest.fn().mockResolvedValue("OK"),
+        eval: jest.fn().mockResolvedValue(1),
+      })),
     };
     const email = {
       sendPasswordReset: jest.fn().mockResolvedValue({ accepted: true }),
@@ -108,11 +115,10 @@ describe("CanonicalRecoveryService", () => {
 
   it("atomically consumes the credential and revokes active sessions", async () => {
     const deps = dependencies();
-    deps.redis.getAndDelete.mockResolvedValue({
-      purpose: "password-reset-v1",
-      userId: "user-1",
-    });
     const transaction = {
+      passwordRecoveryConsumption: {
+        create: jest.fn().mockResolvedValue(undefined),
+      },
       user: { update: jest.fn().mockResolvedValue(undefined) },
       identitySession: {
         updateMany: jest.fn().mockResolvedValue({ count: 2 }),
@@ -143,12 +149,112 @@ describe("CanonicalRecoveryService", () => {
     await expect(
       service.resetPassword("a".repeat(43), "Strong-password-123!"),
     ).resolves.toBeUndefined();
-    expect(deps.redis.getAndDelete).toHaveBeenCalledWith(
+    expect(deps.redis.get).toHaveBeenCalledWith(
+      expect.stringMatching(/^canonical-recovery:password-reset-v1:/),
+    );
+    expect(deps.redis.del).toHaveBeenCalledWith(
       expect.stringMatching(/^canonical-recovery:password-reset-v1:/),
     );
     expect(transaction.user.update).toHaveBeenCalled();
+    expect(transaction.passwordRecoveryConsumption.create).toHaveBeenCalledWith(
+      { data: { tokenHash: expect.any(String) } },
+    );
     expect(transaction.identitySession.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: "user-1", revokedAt: null } }),
+    );
+  });
+
+  it("keeps the recovery token retryable when the password transaction fails", async () => {
+    const deps = dependencies();
+    const transaction = {
+      passwordRecoveryConsumption: {
+        create: jest.fn().mockResolvedValue(undefined),
+      },
+      user: { update: jest.fn().mockResolvedValue(undefined) },
+      identitySession: {
+        updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "user-1",
+          email: "person@example.com",
+          username: "person",
+          isVerified: true,
+          accountStatus: "ACTIVE",
+        }),
+      },
+      $transaction: jest
+        .fn()
+        .mockRejectedValueOnce(new Error("temporary database failure"))
+        .mockImplementationOnce((callback: (tx: unknown) => unknown) =>
+          callback(transaction),
+        ),
+    };
+    const service = new CanonicalRecoveryService(
+      prisma as never,
+      deps.redis as never,
+      deps.email as never,
+      deps.config as never,
+      deps.policy as never,
+    );
+
+    await expect(
+      service.resetPassword("a".repeat(43), "Strong-password-123!"),
+    ).rejects.toThrow("temporary database failure");
+    expect(deps.redis.del).not.toHaveBeenCalled();
+    await expect(
+      service.resetPassword("a".repeat(43), "Strong-password-123!"),
+    ).resolves.toBeUndefined();
+    expect(deps.redis.del).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns success and logs when Redis cleanup fails after the DB commit", async () => {
+    const deps = dependencies();
+    deps.redis.del.mockRejectedValue(new Error("Redis unavailable"));
+    const transaction = {
+      passwordRecoveryConsumption: {
+        create: jest.fn().mockResolvedValue(undefined),
+      },
+      user: { update: jest.fn().mockResolvedValue(undefined) },
+      identitySession: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    };
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "user-1",
+          email: "person@example.com",
+          username: "person",
+          isVerified: true,
+          accountStatus: "ACTIVE",
+        }),
+      },
+      $transaction: jest.fn((callback: (tx: unknown) => unknown) =>
+        callback(transaction),
+      ),
+    };
+    const cleanupLog = jest
+      .spyOn(Logger.prototype, "error")
+      .mockImplementation(() => undefined);
+    const service = new CanonicalRecoveryService(
+      prisma as never,
+      deps.redis as never,
+      deps.email as never,
+      deps.config as never,
+      deps.policy as never,
+    );
+
+    await expect(
+      service.resetPassword("b".repeat(43), "Strong-password-123!"),
+    ).resolves.toBeUndefined();
+    expect(transaction.passwordRecoveryConsumption.create).toHaveBeenCalled();
+    expect(deps.redis.del).toHaveBeenCalledTimes(1);
+    expect(cleanupLog).toHaveBeenCalledWith(
+      expect.stringContaining("durable replay marker remains authoritative"),
+      expect.any(String),
     );
   });
 });

@@ -32,12 +32,12 @@ export interface InternalServiceRequestHeaders {
   signature: string;
 }
 
-export interface InternalServiceV2RequestHeaders
-  extends InternalServiceRequestHeaders {
+export interface InternalServiceV2RequestHeaders extends InternalServiceRequestHeaders {
   nonce: string;
 }
 
 interface IntrospectionClientConfiguration {
+  protocolVersions: Array<"v1" | "v2">;
   keys: Record<string, string>;
   audiences: string[];
   scopes: string[];
@@ -67,6 +67,7 @@ export class InternalServiceCredentialVerifier {
     if (
       !client ||
       typeof client !== "object" ||
+      !client.protocolVersions?.includes("v1") ||
       !headers.keyId ||
       !Object.prototype.hasOwnProperty.call(client.keys, headers.keyId) ||
       typeof client.keys[headers.keyId] !== "string"
@@ -138,6 +139,7 @@ export class InternalServiceCredentialVerifier {
     if (
       !client ||
       typeof client !== "object" ||
+      !client.protocolVersions?.includes("v2") ||
       !headers.keyId ||
       !Object.prototype.hasOwnProperty.call(client.keys, headers.keyId) ||
       typeof client.keys[headers.keyId] !== "string"

@@ -1,9 +1,10 @@
 import {
   Injectable,
+  Logger,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, randomUUID } from "crypto";
 import { UserAccountStatus } from "@prisma/client";
 import { PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
@@ -14,6 +15,7 @@ import { RedisService } from "../redis/redis.service";
 const RECOVERY_PURPOSE = "password-reset-v1";
 const GENERIC_RESPONSE =
   "If the account is eligible, recovery instructions will be sent.";
+const RECOVERY_CLAIM_TTL_SECONDS = 120;
 
 function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -21,6 +23,8 @@ function tokenHash(token: string): string {
 
 @Injectable()
 export class CanonicalRecoveryService {
+  private readonly logger = new Logger(CanonicalRecoveryService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
@@ -92,11 +96,37 @@ export class CanonicalRecoveryService {
     if (!token || !password)
       throw new UnauthorizedException("Invalid recovery credential");
 
-    const record = await this.redis.getAndDelete<{
-      purpose: string;
-      userId: string;
-    }>(this.keyFor(token));
+    const key = this.keyFor(token);
+    // Reserve without consuming: a failed database transaction must leave the
+    // token retryable. SET NX makes concurrent attempts serialize across Auth
+    // instances sharing Redis; the lease expires after process failure.
+    const claimOwner = randomUUID();
+    const claimKey = `${key}:claim`;
+    let claimed: string | null;
+    try {
+      claimed = await this.redis
+        .getClient()
+        .set(claimKey, claimOwner, "EX", RECOVERY_CLAIM_TTL_SECONDS, "NX");
+    } catch {
+      throw new ServiceUnavailableException(
+        "Recovery credential reservation is unavailable",
+      );
+    }
+    if (claimed !== "OK") {
+      throw new UnauthorizedException("Invalid or expired recovery credential");
+    }
+
+    let record: { purpose: string; userId: string } | null;
+    try {
+      record = await this.redis.get<{ purpose: string; userId: string }>(key);
+    } catch {
+      await this.releaseClaim(claimKey, claimOwner);
+      throw new ServiceUnavailableException(
+        "Recovery credential storage is unavailable",
+      );
+    }
     if (!record || record.purpose !== RECOVERY_PURPOSE) {
+      await this.releaseClaim(claimKey, claimOwner);
       throw new UnauthorizedException("Invalid or expired recovery credential");
     }
 
@@ -115,6 +145,7 @@ export class CanonicalRecoveryService {
       !user.isVerified ||
       user.accountStatus !== UserAccountStatus.ACTIVE
     ) {
+      await this.releaseClaim(claimKey, claimOwner);
       throw new UnauthorizedException("Account is not eligible for recovery");
     }
 
@@ -123,29 +154,68 @@ export class CanonicalRecoveryService {
       skipHIBP: true,
     });
     if (!policy.compliant || !policy.hash) {
+      await this.releaseClaim(claimKey, claimOwner);
       throw new UnauthorizedException(
         "Password does not meet security requirements",
       );
     }
 
-    await this.prisma.$transaction(async (transaction) => {
-      await transaction.user.update({
-        where: { id: user.id },
-        data: {
-          password: policy.hash,
-          passwordCredential: {
-            upsert: {
-              create: { passwordHash: policy.hash },
-              update: { passwordHash: policy.hash },
+    let tokenConsumed = false;
+    try {
+      await this.prisma.$transaction(async (transaction) => {
+        // The unique digest is the durable source of truth. Redis claims reduce
+        // contention, while this row prevents replay after a process crash
+        // between database commit and Redis cleanup.
+        await transaction.passwordRecoveryConsumption.create({
+          data: { tokenHash: tokenHash(token) },
+        });
+        await transaction.user.update({
+          where: { id: user.id },
+          data: {
+            password: policy.hash,
+            passwordCredential: {
+              upsert: {
+                create: { passwordHash: policy.hash },
+                update: { passwordHash: policy.hash },
+              },
             },
           },
-        },
+        });
+        await transaction.identitySession.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
       });
-      await transaction.identitySession.updateMany({
-        where: { userId: user.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    });
+      tokenConsumed = true;
+      try {
+        await this.redis.del(key);
+      } catch (error) {
+        // The transaction already committed the durable replay marker. Cache
+        // cleanup failure must not turn a completed password reset into an
+        // ambiguous API error or make the token reusable.
+        this.logger.error(
+          "Recovery token cache cleanup failed after database commit; durable replay marker remains authoritative",
+          error instanceof Error ? error.stack : undefined,
+        );
+      }
+    } catch (error) {
+      if (
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "P2002"
+      ) {
+        throw new UnauthorizedException(
+          "Invalid or expired recovery credential",
+        );
+      }
+      throw error;
+    } finally {
+      // If storage failed after the DB commit, retain the claim lease rather
+      // than immediately making a possibly consumed credential reusable.
+      if (!tokenConsumed) await this.releaseClaim(claimKey, claimOwner);
+    }
+    await this.releaseClaim(claimKey, claimOwner);
   }
 
   private requireEnabled(): void {
@@ -158,6 +228,17 @@ export class CanonicalRecoveryService {
 
   private keyFor(token: string): string {
     return `canonical-recovery:${RECOVERY_PURPOSE}:${tokenHash(token)}`;
+  }
+
+  private async releaseClaim(key: string, owner: string): Promise<void> {
+    await this.redis
+      .getClient()
+      .eval(
+        "if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end",
+        1,
+        key,
+        owner,
+      );
   }
 
   private normalizeEmail(value: string): string {

@@ -1,10 +1,12 @@
 jest.unmock("../config/config.service");
 
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, UnauthorizedException } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
+import { RedisService } from "../redis/redis.service";
 import { CanonicalAuthModule } from "./canonical-auth.module";
+import { CanonicalRecoveryService } from "./canonical-recovery.service";
 import { Server } from "http";
 import request from "supertest";
 import { createHash, createHmac, randomBytes } from "crypto";
@@ -34,8 +36,12 @@ const introspectionV2Path = "/internal/v2/auth/token/validate";
 describeDatabase("canonical password authentication HTTP contract", () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let redis: RedisService;
+  let recovery: CanonicalRecoveryService;
   let server: Server;
   const emails: string[] = [];
+  const recoveryTokenHashes: string[] = [];
+  const recoveryRedisKeys: string[] = [];
 
   beforeAll(async () => {
     process.env.DATABASE_URL_AUTH = databaseUrl;
@@ -45,12 +51,14 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     process.env.JWT_SECRET = "phase2a-test-signing-secret-change-me";
     process.env.AUTH_INTROSPECTION_CLIENTS_JSON = JSON.stringify({
       [introspectionService]: {
+        protocolVersions: ["v1", "v2"],
         keys: { [introspectionKeyId]: introspectionSecret },
         audiences: ["community-api"],
         scopes: ["auth:token:validate"],
       },
     });
     process.env.NODE_ENV = "test";
+    process.env.CANONICAL_RECOVERY_ENABLED = "true";
     const moduleRef = await Test.createTestingModule({
       imports: [CanonicalAuthModule],
     }).compile();
@@ -61,12 +69,24 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     await app.init();
     server = app.getHttpServer() as unknown as Server;
     prisma = moduleRef.get(PrismaService);
+    redis = moduleRef.get(RedisService);
+    recovery = moduleRef.get(CanonicalRecoveryService);
   });
 
   afterEach(async () => {
     if (emails.length > 0) {
       await prisma.user.deleteMany({ where: { email: { in: emails } } });
       emails.length = 0;
+    }
+    if (recoveryTokenHashes.length > 0) {
+      await prisma.passwordRecoveryConsumption.deleteMany({
+        where: { tokenHash: { in: recoveryTokenHashes } },
+      });
+      recoveryTokenHashes.length = 0;
+    }
+    if (recoveryRedisKeys.length > 0) {
+      await Promise.all(recoveryRedisKeys.map((key) => redis.del(key)));
+      recoveryRedisKeys.length = 0;
     }
   });
 
@@ -359,6 +379,63 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       .post("/auth/recovery/request")
       .send({ email: "person@example.test", unexpected: "field" })
       .expect(400);
+  });
+
+  it("rolls back token consumption with a failed password transaction and rejects replay after commit", async () => {
+    const suffix = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const email = `phase2a-recovery-atomic-${suffix}@example.test`;
+    emails.push(email);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username: `phase2a_recovery_${suffix}`,
+        password: "old-password-hash",
+        isVerified: true,
+        passwordCredential: { create: { passwordHash: "old-password-hash" } },
+      },
+    });
+    const rawToken = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    recoveryTokenHashes.push(tokenHash);
+    const redisKey = `canonical-recovery:password-reset-v1:${tokenHash}`;
+    recoveryRedisKeys.push(redisKey);
+    const tokenRecord = { purpose: "password-reset-v1", userId: user.id };
+    await redis.set(redisKey, tokenRecord, 900);
+
+    const originalTransaction = prisma.$transaction.bind(prisma) as (
+      callback: (transaction: unknown) => Promise<void>,
+    ) => Promise<void>;
+    const prismaWithTransactionOverride = prisma as unknown as {
+      $transaction: (
+        callback: (transaction: unknown) => Promise<void>,
+      ) => Promise<void>;
+    };
+    prismaWithTransactionOverride.$transaction = (callback) =>
+      originalTransaction(async (transaction) => {
+        await callback(transaction);
+        throw new Error("forced transaction rollback");
+      });
+    await expect(
+      recovery.resetPassword(rawToken, "Strong-password-123!"),
+    ).rejects.toThrow("forced transaction rollback");
+    prismaWithTransactionOverride.$transaction = originalTransaction;
+
+    expect(
+      await prisma.passwordRecoveryConsumption.count({ where: { tokenHash } }),
+    ).toBe(0);
+    expect(await redis.get(redisKey)).toEqual(tokenRecord);
+
+    await recovery.resetPassword(rawToken, "Strong-password-123!");
+    expect(
+      await prisma.passwordRecoveryConsumption.count({ where: { tokenHash } }),
+    ).toBe(1);
+
+    // Model a crash after PostgreSQL commits but before Redis cleanup: restoring
+    // the token record must still fail at the durable database unique key.
+    await redis.set(redisKey, tokenRecord, 900);
+    await expect(
+      recovery.resetPassword(rawToken, "Another-strong-password-456!"),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it("rejects unknown registration and login properties before auth service execution", async () => {

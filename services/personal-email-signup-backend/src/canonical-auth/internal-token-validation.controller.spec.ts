@@ -76,6 +76,7 @@ describe("InternalTokenValidationController", () => {
           ? {
               [serviceId]: {
                 keys: { [keyId]: secret },
+                protocolVersions: ["v1", "v2"],
                 audiences: [body.audience],
                 scopes: [body.scope],
               },
