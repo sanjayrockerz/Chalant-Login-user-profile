@@ -20,6 +20,13 @@ on:
       - '.github/workflows/signup-service.yml'
   workflow_dispatch:
     inputs:
+      target_environment:
+        description: "Environment to deploy"
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
       run_e2e:
         description: 'Force run end-to-end tests'
         required: false
@@ -421,7 +428,7 @@ jobs:
           tags: |
             ${{ steps.image_tag.outputs.value }}
             ${{ env.IMAGE_REPOSITORY }}:latest
-          push: ${{ github.ref == 'refs/heads/main' }}
+          push: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && (github.event.inputs.target_environment == 'staging' || (github.event.inputs.target_environment == 'production' && github.event.inputs.promote_to_prod == 'true')) }}
           cache-from: type=gha,scope=${{ env.SERVICE_KEY }}
           cache-to: type=gha,scope=${{ env.SERVICE_KEY }},mode=max
           labels: |
@@ -435,7 +442,14 @@ jobs:
       name: staging
       url: https://staging.signup.example.com
     needs: [changes, build, coverage, e2e]
-    if: needs.changes.outputs.service_impacted == 'true' && github.ref == 'refs/heads/main' && needs.build.result == 'success' && (needs.e2e.result != 'failure')
+    if: >-
+      needs.changes.outputs.service_impacted == 'true' &&
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event.inputs.target_environment == 'staging' ||
+      (github.event.inputs.target_environment == 'production' && github.event.inputs.promote_to_prod == 'true')) &&
+      needs.build.result == 'success' &&
+      needs.e2e.result != 'failure'
     steps:
       - uses: actions/checkout@v4
 
@@ -527,7 +541,12 @@ jobs:
       name: production
       url: https://app.signup.example.com
     needs: [build, deploy-staging]
-    if: github.ref == 'refs/heads/main' && needs.deploy-staging.result == 'success' && (github.event_name != 'workflow_dispatch' || github.event.inputs.promote_to_prod == 'true')
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.inputs.target_environment == 'production' &&
+      github.event.inputs.promote_to_prod == 'true' &&
+      needs.deploy-staging.result == 'success'
     steps:
       - uses: actions/checkout@v4
 

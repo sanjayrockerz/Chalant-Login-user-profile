@@ -1,11 +1,6 @@
 name: Deployment Pipeline
 
 on:
-  workflow_run:
-    workflows: ["Signup Service CI/CD", "Login Service CI/CD"]
-    types:
-      - completed
-    branches: [main]
   workflow_dispatch:
     inputs:
       service:
@@ -58,45 +53,19 @@ jobs:
           deploy_login="false"
           target_env="staging"
           deployment_type="manual"
-          source_workflow="${{ github.event.workflow_run.name || 'manual' }}"
+          source_workflow="manual"
 
-          # Manual dispatch
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            target_env="${{ github.event.inputs.environment }}"
-            deployment_type="manual"
-
-            case "${{ github.event.inputs.service }}" in
-              "signup")
-                deploy_signup="true"
-                ;;
-              "login")
-                deploy_login="true"
-                ;;
-              "all")
-                deploy_signup="true"
-                deploy_login="true"
-                ;;
-            esac
-
-          # Automatic deployment from successful CI
-          elif [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            if [[ "${{ github.event.workflow_run.conclusion }}" == "success" ]]; then
-              deployment_type="automatic"
-              target_env="staging"  # Always deploy to staging first
-
-              case "${{ github.event.workflow_run.name }}" in
-                "Signup Service CI/CD")
-                  deploy_signup="true"
-                  ;;
-                "Login Service CI/CD")
-                  deploy_login="true"
-                  ;;
-              esac
-            else
-              echo "❌ Source workflow failed, skipping deployment"
-              exit 1
-            fi
+          if [[ "${{ github.event_name }}" != "workflow_dispatch" ]]; then
+            echo "::error::Deployment is only available through an explicit manual dispatch."
+            exit 1
           fi
+
+          target_env="${{ github.event.inputs.environment }}"
+          case "${{ github.event.inputs.service }}" in
+            "signup") deploy_signup="true" ;;
+            "login") deploy_login="true" ;;
+            "all") deploy_signup="true"; deploy_login="true" ;;
+          esac
 
           echo "deploy_signup=${deploy_signup}" >> $GITHUB_OUTPUT
           echo "deploy_login=${deploy_login}" >> $GITHUB_OUTPUT
@@ -544,7 +513,7 @@ jobs:
           echo "- Environment: ${{ needs.deployment-strategy.outputs.target-env }}"
           echo "- Services: ${{ needs.deployment-strategy.outputs.deploy-signup == 'true' && 'signup' || '' }} ${{ needs.deployment-strategy.outputs.deploy-login == 'true' && 'login' || '' }}"
           echo "- Success rate: $(if [[ "${{ needs.post-deployment-validation.result }}" == "success" || "${{ needs.post-deployment-validation.result }}" == "skipped" ]]; then echo "100%"; else echo "0%"; fi)"
-          echo "- Duration: ${{ github.event.workflow_run.duration || 'N/A' }}"
+          echo "- Trigger: explicit manual dispatch"
 
           # Metrics would be sent to monitoring system
           echo "📈 Metrics sent to dashboard"

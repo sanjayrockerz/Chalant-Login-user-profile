@@ -20,6 +20,8 @@ jobs:
         with:
           node-version: 20
       - run: node scripts/verify-phase0.js
+      - name: Verify deployment requires explicit authorization
+        run: node --test scripts/deployment-policy.test.mjs
 
   signup-build-and-test:
     runs-on: ubuntu-latest
