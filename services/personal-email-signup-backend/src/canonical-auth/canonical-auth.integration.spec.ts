@@ -40,6 +40,7 @@ describeDatabase("canonical password authentication HTTP contract", () => {
   let recovery: CanonicalRecoveryService;
   let server: Server;
   const emails: string[] = [];
+  const authSubjects: string[] = [];
   const recoveryTokenHashes: string[] = [];
   const recoveryRedisKeys: string[] = [];
 
@@ -75,8 +76,12 @@ describeDatabase("canonical password authentication HTTP contract", () => {
 
   afterEach(async () => {
     if (emails.length > 0) {
+      await prisma.outboxEvent.deleteMany({
+        where: { aggregateId: { in: authSubjects } },
+      });
       await prisma.user.deleteMany({ where: { email: { in: emails } } });
       emails.length = 0;
+      authSubjects.length = 0;
     }
     if (recoveryTokenHashes.length > 0) {
       await prisma.passwordRecoveryConsumption.deleteMany({
@@ -108,7 +113,9 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       where: { email },
       data: { isVerified: true },
     });
-    return (registration.body as RegistrationBody).user.subject;
+    const subject = (registration.body as RegistrationBody).user.subject;
+    authSubjects.push(subject);
+    return subject;
   }
 
   function signIntrospectionRequest(token: string) {
@@ -394,6 +401,14 @@ describeDatabase("canonical password authentication HTTP contract", () => {
         passwordCredential: { create: { passwordHash: "old-password-hash" } },
       },
     });
+    authSubjects.push(user.id);
+    await prisma.identitySession.create({
+      data: {
+        userId: user.id,
+        sessionHash: randomBytes(32).toString("hex"),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
     const rawToken = randomBytes(32).toString("base64url");
     const tokenHash = createHash("sha256").update(rawToken).digest("hex");
     recoveryTokenHashes.push(tokenHash);
@@ -423,12 +438,35 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     expect(
       await prisma.passwordRecoveryConsumption.count({ where: { tokenHash } }),
     ).toBe(0);
+    expect(
+      await prisma.outboxEvent.count({
+        where: { aggregateId: user.id, eventType: "auth.lifecycle.v1" },
+      }),
+    ).toBe(0);
     expect(await redis.get(redisKey)).toEqual(tokenRecord);
 
     await recovery.resetPassword(rawToken, "Strong-password-123!");
     expect(
       await prisma.passwordRecoveryConsumption.count({ where: { tokenHash } }),
     ).toBe(1);
+    const committedLifecycleEvents = await prisma.outboxEvent.findMany({
+      where: { aggregateId: user.id, eventType: "auth.lifecycle.v1" },
+    });
+    expect(committedLifecycleEvents).toHaveLength(1);
+    expect(committedLifecycleEvents[0]?.payload).toMatchObject({
+      eventType: "auth.lifecycle.v1",
+      version: 1,
+      subject: user.id,
+      action: "SESSION_REVOKED",
+      scope: "SESSION",
+    });
+    expect(
+      typeof (committedLifecycleEvents[0]?.payload as Record<string, unknown>)
+        .occurredAt,
+    ).toBe("string");
+    expect(committedLifecycleEvents[0]?.id).toBe(
+      (committedLifecycleEvents[0]?.payload as Record<string, unknown>).eventId,
+    );
 
     // Model a crash after PostgreSQL commits but before Redis cleanup: restoring
     // the token record must still fail at the durable database unique key.
@@ -451,7 +489,8 @@ describeDatabase("canonical password authentication HTTP contract", () => {
         passwordCredential: { create: { passwordHash: "old-password-hash" } },
       },
     });
-    await prisma.identitySession.create({
+    authSubjects.push(user.id);
+    const session = await prisma.identitySession.create({
       data: {
         userId: user.id,
         sessionHash: randomBytes(32).toString("hex"),
@@ -487,6 +526,19 @@ describeDatabase("canonical password authentication HTTP contract", () => {
         where: { userId: user.id, revokedAt: { not: null } },
       }),
     ).toBe(1);
+    const lifecycleEvents = await prisma.outboxEvent.findMany({
+      where: { aggregateId: user.id, eventType: "auth.lifecycle.v1" },
+    });
+    expect(lifecycleEvents).toHaveLength(1);
+    expect(lifecycleEvents[0]?.payload).toMatchObject({
+      eventId: lifecycleEvents[0]?.id,
+      eventType: "auth.lifecycle.v1",
+      version: 1,
+      subject: user.id,
+      action: "SESSION_REVOKED",
+      scope: "SESSION",
+      sessionId: session.id,
+    });
     expect(await redis.get(redisKey)).toBeNull();
   });
 

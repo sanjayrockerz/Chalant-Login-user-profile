@@ -127,7 +127,9 @@ describe("ChatProfileOutboxWorker", () => {
         return "https://chat.example.test/profile";
       if (key === "CHAT_ACCOUNT_LIFECYCLE_URL")
         return "https://chat.example.test/lifecycle";
-      return "a-secret-that-is-long-enough-for-testing";
+      if (key === "CHAT_PROFILE_PROVISIONING_HMAC_SECRET")
+        return "a-secret-that-is-long-enough-for-testing";
+      return undefined;
     });
     prisma.outboxEvent.findFirst.mockResolvedValue(lifecycleEvent);
     const fetchMock = jest
@@ -161,5 +163,57 @@ describe("ChatProfileOutboxWorker", () => {
         eventType: { in: ["chat.profile.provision.v1"] },
       },
     );
+  });
+
+  it("delivers the versioned Auth envelope over a separately signed HTTPS route", async () => {
+    const payload = {
+      eventId: event.id,
+      eventType: "auth.lifecycle.v1",
+      version: 1,
+      subject: "00000000-0000-4000-8000-000000000001",
+      action: "SESSION_REVOKED",
+      scope: "SESSION",
+      sessionId: "00000000-0000-4000-8000-000000000003",
+      occurredAt: "2026-11-17T12:00:00.000Z",
+    };
+    config.get.mockImplementation((key: string) => {
+      if (key === "AUTH_LIFECYCLE_URL")
+        return "https://community.example.test/internal/auth-lifecycle";
+      if (key === "AUTH_LIFECYCLE_HMAC_SECRET")
+        return "a-dedicated-auth-lifecycle-secret-of-32-bytes";
+      return undefined;
+    });
+    prisma.outboxEvent.findFirst.mockResolvedValue({
+      ...event,
+      eventType: "auth.lifecycle.v1",
+      payload,
+    } as unknown as typeof event);
+    const fetchMock = jest
+      .spyOn(global, "fetch")
+      .mockResolvedValue({ ok: true } as Response);
+
+    await worker.deliverOne();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, request] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(url).toEqual(
+      new URL("https://community.example.test/internal/auth-lifecycle"),
+    );
+    expect(request.body).toBe(JSON.stringify(payload));
+    const headers = new Headers(request.headers);
+    const timestamp = headers.get("x-auth-lifecycle-timestamp");
+    expect(headers.get("x-auth-lifecycle-event-id")).toBe(payload.eventId);
+    expect(headers.get("x-chat-event-signature")).toBeNull();
+    expect(headers.get("x-auth-lifecycle-signature")).toBe(
+      createHmac("sha256", "a-dedicated-auth-lifecycle-secret-of-32-bytes")
+        .update(`${timestamp}.${JSON.stringify(payload)}`)
+        .digest("hex"),
+    );
+    expect(prisma.outboxEvent.findFirst.mock.calls[0]?.[0].where).toMatchObject(
+      { eventType: { in: ["auth.lifecycle.v1"] } },
+    );
+    expect(
+      prisma.outboxEvent.updateMany.mock.calls.at(-1)?.[0].data?.deliveredAt,
+    ).toBeInstanceOf(Date);
   });
 });

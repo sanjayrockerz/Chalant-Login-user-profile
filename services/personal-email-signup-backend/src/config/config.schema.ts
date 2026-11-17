@@ -36,6 +36,8 @@ const configBaseSchema = z.object({
   CHAT_PROFILE_PROVISIONING_URL: z.string().url().optional(),
   CHAT_ACCOUNT_LIFECYCLE_URL: z.string().url().optional(),
   CHAT_PROFILE_PROVISIONING_HMAC_SECRET: z.string().min(32).optional(),
+  AUTH_LIFECYCLE_URL: z.string().url().optional(),
+  AUTH_LIFECYCLE_HMAC_SECRET: z.string().min(32).optional(),
   AUTH_INTROSPECTION_CLIENTS: z
     .record(z.string(), authIntrospectionClientSchema)
     .default({}),

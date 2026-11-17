@@ -26,6 +26,10 @@ import {
   RegisterPasswordInput,
   SessionTokens,
 } from "./canonical-auth.types";
+import {
+  persistAccountStatusChangedEvent,
+  persistSessionRevokedEvent,
+} from "./auth-lifecycle-event";
 
 const ACCESS_TOKEN_TYPE = "canonical-access";
 const ISSUER = "r3-canonical-identity";
@@ -146,6 +150,13 @@ export class CanonicalAuthService {
           },
         },
       });
+      await persistAccountStatusChangedEvent(
+        transaction,
+        current.id,
+        input.accountStatus,
+        version,
+        new Date(),
+      );
 
       return {
         authUserId: current.id,
@@ -313,9 +324,25 @@ export class CanonicalAuthService {
 
   async logout(refreshToken: string): Promise<void> {
     const raw = this.requireText(refreshToken, "refreshToken");
-    await this.prisma.identitySession.updateMany({
-      where: { sessionHash: hashRefreshToken(raw), revokedAt: null },
-      data: { revokedAt: new Date() },
+    const now = new Date();
+    await this.prisma.$transaction(async (transaction) => {
+      const session = await transaction.identitySession.findUnique({
+        where: { sessionHash: hashRefreshToken(raw) },
+        select: { id: true, userId: true },
+      });
+      if (!session) return;
+      const revoked = await transaction.identitySession.updateMany({
+        where: { id: session.id, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      if (revoked.count === 1) {
+        await persistSessionRevokedEvent(
+          transaction,
+          session.userId,
+          session.id,
+          now,
+        );
+      }
     });
   }
 
@@ -432,13 +459,16 @@ export class CanonicalAuthService {
   }
 
   async revokeSession(userId: string, sessionId: string): Promise<void> {
-    await this.prisma.identitySession.updateMany({
-      where: {
-        id: sessionId,
-        userId: toCanonicalUserId(userId),
-        revokedAt: null,
-      },
-      data: { revokedAt: new Date() },
+    const subject = toCanonicalUserId(userId);
+    const now = new Date();
+    await this.prisma.$transaction(async (transaction) => {
+      const revoked = await transaction.identitySession.updateMany({
+        where: { id: sessionId, userId: subject, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      if (revoked.count === 1) {
+        await persistSessionRevokedEvent(transaction, subject, sessionId, now);
+      }
     });
   }
 
@@ -448,10 +478,34 @@ export class CanonicalAuthService {
       await transaction.$queryRaw(
         Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${canonicalUserId}::uuid FOR UPDATE`,
       );
-      await transaction.identitySession.updateMany({
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "identity_sessions" WHERE "user_id" = ${canonicalUserId}::uuid AND "revoked_at" IS NULL FOR UPDATE`,
+      );
+      const sessions = await transaction.identitySession.findMany({
         where: { userId: canonicalUserId, revokedAt: null },
-        data: { revokedAt: new Date() },
+        select: { id: true },
       });
+      if (sessions.length === 0) return;
+      const now = new Date();
+      const revoked = await transaction.identitySession.updateMany({
+        where: {
+          userId: canonicalUserId,
+          revokedAt: null,
+          id: { in: sessions.map((session) => session.id) },
+        },
+        data: { revokedAt: now },
+      });
+      if (revoked.count !== sessions.length) {
+        throw new ConflictException("Sessions changed concurrently");
+      }
+      for (const session of sessions) {
+        await persistSessionRevokedEvent(
+          transaction,
+          canonicalUserId,
+          session.id,
+          now,
+        );
+      }
     });
   }
 
@@ -557,9 +611,27 @@ export class CanonicalAuthService {
 
   async issueSession(principal: CanonicalPrincipal): Promise<SessionTokens> {
     const prepared = this.prepareSession(principal.subject);
-    await this.prisma.identitySession.create({
-      data: prepared.session,
-      select: { id: true },
+    await this.prisma.$transaction(async (transaction) => {
+      await transaction.$queryRaw(
+        Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${principal.subject}::uuid FOR UPDATE`,
+      );
+      const user = await transaction.user.findUnique({
+        where: { id: principal.subject },
+        select: { accountStatus: true, isVerified: true },
+      });
+      if (
+        !user ||
+        user.accountStatus !== UserAccountStatus.ACTIVE ||
+        !user.isVerified
+      ) {
+        throw new UnauthorizedException(
+          "Account is not eligible for authentication",
+        );
+      }
+      await transaction.identitySession.create({
+        data: prepared.session,
+        select: { id: true },
+      });
     });
     return prepared.tokens;
   }

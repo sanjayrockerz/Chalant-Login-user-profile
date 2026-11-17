@@ -7,6 +7,7 @@ import {
 import { randomUUID, createHmac } from "crypto";
 import { PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
+import { AUTH_LIFECYCLE_EVENT_TYPE } from "./auth-lifecycle-event";
 
 const EVENT_TYPE = "chat.profile.provision.v1";
 const LIFECYCLE_EVENT_TYPE = "chat.account.lifecycle.v1";
@@ -26,9 +27,10 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit(): void {
-    const secret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
-    if (!secret) {
-      this.logger.warn("Chat event delivery is not configured");
+    const chatSecret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
+    const authSecret = this.config.get("AUTH_LIFECYCLE_HMAC_SECRET");
+    if (!chatSecret && !authSecret) {
+      this.logger.warn("Signed lifecycle event delivery is not configured");
       return;
     }
     this.timer = setInterval(() => void this.deliverOne(), POLL_INTERVAL_MS);
@@ -42,32 +44,69 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
   async deliverOne(): Promise<void> {
     if (this.running) return;
-    const secret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
-    if (!secret) return;
-
-    const endpointByType = new Map<string, URL>();
-    for (const [eventType, key] of [
-      [EVENT_TYPE, "CHAT_PROFILE_PROVISIONING_URL"],
-      [LIFECYCLE_EVENT_TYPE, "CHAT_ACCOUNT_LIFECYCLE_URL"],
-    ] as const) {
-      const configured = this.config.get(key);
-      if (!configured) continue;
+    const routeDefinitions = [
+      {
+        eventType: EVENT_TYPE,
+        endpointKey: "CHAT_PROFILE_PROVISIONING_URL",
+        secretKey: "CHAT_PROFILE_PROVISIONING_HMAC_SECRET",
+        headerPrefix: "x-chat-event",
+        format: "chat-envelope" as const,
+      },
+      {
+        eventType: LIFECYCLE_EVENT_TYPE,
+        endpointKey: "CHAT_ACCOUNT_LIFECYCLE_URL",
+        secretKey: "CHAT_PROFILE_PROVISIONING_HMAC_SECRET",
+        headerPrefix: "x-chat-event",
+        format: "chat-envelope" as const,
+      },
+      {
+        eventType: AUTH_LIFECYCLE_EVENT_TYPE,
+        endpointKey: "AUTH_LIFECYCLE_URL",
+        secretKey: "AUTH_LIFECYCLE_HMAC_SECRET",
+        headerPrefix: "x-auth-lifecycle",
+        format: "auth-lifecycle" as const,
+      },
+    ] as const;
+    const routeByType = new Map<
+      string,
+      {
+        endpoint: URL;
+        secret: string;
+        headerPrefix: string;
+        format: "chat-envelope" | "auth-lifecycle";
+      }
+    >();
+    for (const route of routeDefinitions) {
+      const secretValue = this.config.get(route.secretKey);
+      const configuredValue = this.config.get(route.endpointKey);
+      if (
+        typeof secretValue !== "string" ||
+        secretValue.length < 32 ||
+        typeof configuredValue !== "string"
+      ) {
+        continue;
+      }
       try {
-        const endpoint = new URL(configured);
+        const endpoint = new URL(configuredValue);
         if (endpoint.protocol !== "https:") throw new Error("HTTPS required");
-        endpointByType.set(eventType, endpoint);
+        routeByType.set(route.eventType, {
+          endpoint,
+          secret: secretValue,
+          headerPrefix: route.headerPrefix,
+          format: route.format,
+        });
       } catch {
-        this.logger.error(`Chat endpoint for ${eventType} must use HTTPS`);
+        this.logger.error(`Endpoint for ${route.eventType} must use HTTPS`);
       }
     }
-    if (endpointByType.size === 0) return;
+    if (routeByType.size === 0) return;
 
     this.running = true;
     try {
       const now = new Date();
       const row = await this.prisma.outboxEvent.findFirst({
         where: {
-          eventType: { in: [...endpointByType.keys()] },
+          eventType: { in: [...routeByType.keys()] },
           deliveredAt: null,
           nextAttemptAt: { lte: now },
           OR: [
@@ -79,8 +118,8 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       });
       if (!row) return;
 
-      const eventTarget = endpointByType.get(row.eventType);
-      if (!eventTarget) return;
+      const route = routeByType.get(row.eventType);
+      if (!route) return;
 
       const claimToken = randomUUID();
       const claimed = await this.prisma.outboxEvent.updateMany({
@@ -97,24 +136,40 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       });
       if (claimed.count !== 1) return;
 
-      const body = JSON.stringify({
-        eventId: row.id,
-        eventType: row.eventType,
-        payload: row.payload,
-      });
+      const body =
+        route.format === "auth-lifecycle"
+          ? JSON.stringify(row.payload)
+          : JSON.stringify({
+              eventId: row.id,
+              eventType: row.eventType,
+              payload: row.payload,
+            });
       const timestamp = Math.floor(Date.now() / 1000).toString();
-      const signature = createHmac("sha256", secret)
+      const signature = createHmac("sha256", route.secret)
         .update(`${timestamp}.${body}`)
         .digest("hex");
+      let authEventId: string | undefined;
+      if (route.format === "auth-lifecycle") {
+        const payload = row.payload as { eventId?: unknown };
+        if (typeof payload.eventId !== "string" || payload.eventId !== row.id) {
+          await this.scheduleInvalidAuthLifecycleEvent(row.id, claimToken);
+          return;
+        }
+        authEventId = payload.eventId;
+      }
       try {
-        const response = await fetch(eventTarget, {
+        const headers: Record<string, string> = {
+          "content-type": "application/json",
+          [`${route.headerPrefix}-timestamp`]: timestamp,
+          [`${route.headerPrefix}-signature`]: signature,
+        };
+        if (authEventId) {
+          headers["x-auth-lifecycle-event-id"] = authEventId;
+        }
+        const response = await fetch(route.endpoint, {
           method: "POST",
           redirect: "error",
-          headers: {
-            "content-type": "application/json",
-            "x-chat-event-timestamp": timestamp,
-            "x-chat-event-signature": signature,
-          },
+          headers,
           body,
           signal: AbortSignal.timeout(10_000),
         });
@@ -149,7 +204,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
           },
         });
         this.logger.warn(
-          `Chat provisioning delivery failed; retry scheduled (${attempts})`,
+          `${row.eventType} delivery failed; retry scheduled (${attempts})`,
         );
       }
     } catch (error) {
@@ -160,5 +215,21 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     } finally {
       this.running = false;
     }
+  }
+
+  private async scheduleInvalidAuthLifecycleEvent(
+    eventId: string,
+    claimToken: string,
+  ): Promise<void> {
+    await this.prisma.outboxEvent.updateMany({
+      where: { id: eventId, claimToken, deliveredAt: null },
+      data: {
+        claimedAt: null,
+        claimToken: null,
+        nextAttemptAt: new Date(Date.now() + MAX_BACKOFF_MS),
+        lastError: "invalid auth.lifecycle.v1 event envelope",
+      },
+    });
+    this.logger.error("Invalid auth.lifecycle.v1 event held for inspection");
   }
 }

@@ -116,14 +116,27 @@ describe("CanonicalRecoveryService", () => {
 
   it("atomically consumes the credential and revokes active sessions", async () => {
     const deps = dependencies();
+    const sessionRows = [
+      { id: "00000000-0000-4000-8000-000000000001" },
+      { id: "00000000-0000-4000-8000-000000000002" },
+    ];
     const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
       passwordRecoveryConsumption: {
         create: jest.fn().mockResolvedValue(undefined),
       },
-      user: { update: jest.fn().mockResolvedValue(undefined) },
-      identitySession: {
-        updateMany: jest.fn().mockResolvedValue({ count: 2 }),
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          isVerified: true,
+          accountStatus: "ACTIVE",
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
       },
+      identitySession: {
+        findMany: jest.fn().mockResolvedValue(sessionRows),
+        updateMany: jest.fn().mockResolvedValue({ count: sessionRows.length }),
+      },
+      outboxEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
       user: {
@@ -161,20 +174,36 @@ describe("CanonicalRecoveryService", () => {
       .calls[0] as unknown as [{ data: { tokenHash: string } }];
     expect(consumptionCall[0].data.tokenHash).toEqual(expect.any(String));
     expect(transaction.identitySession.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "user-1", revokedAt: null } }),
+      expect.objectContaining({
+        where: {
+          userId: "user-1",
+          revokedAt: null,
+          id: { in: sessionRows.map(({ id }) => id) },
+        },
+      }),
     );
+    expect(transaction.outboxEvent.create).toHaveBeenCalledTimes(2);
   });
 
   it("keeps the recovery token retryable when the password transaction fails", async () => {
     const deps = dependencies();
     const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
       passwordRecoveryConsumption: {
         create: jest.fn().mockResolvedValue(undefined),
       },
-      user: { update: jest.fn().mockResolvedValue(undefined) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          isVerified: true,
+          accountStatus: "ACTIVE",
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
       identitySession: {
+        findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
+      outboxEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
       user: {
@@ -237,13 +266,22 @@ describe("CanonicalRecoveryService", () => {
     deps.redis.del.mockRejectedValue(new Error("Redis unavailable"));
     deps.claimEval.mockRejectedValue(new Error("Redis claim release failed"));
     const transaction = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
       passwordRecoveryConsumption: {
         create: jest.fn().mockResolvedValue(undefined),
       },
-      user: { update: jest.fn().mockResolvedValue(undefined) },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          isVerified: true,
+          accountStatus: "ACTIVE",
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      },
       identitySession: {
+        findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      outboxEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
       user: {

@@ -6,6 +6,17 @@ describe("CanonicalAuthService account status administration", () => {
   const adminId = "00000000-0000-4000-8000-000000000102";
 
   it("records a status change, named actor, and versioned Chat event in one transaction", async () => {
+    const outboxRows: Array<{
+      eventType: string;
+      aggregateId: string;
+      payload: Record<string, unknown>;
+    }> = [];
+    const outboxCreate = jest
+      .fn<Promise<void>, [{ data: (typeof outboxRows)[number] }]>()
+      .mockImplementation(({ data }) => {
+        outboxRows.push(data);
+        return Promise.resolve();
+      });
     const tx = {
       user: {
         findUnique: jest.fn().mockResolvedValue({
@@ -16,7 +27,7 @@ describe("CanonicalAuthService account status administration", () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       accountStatusAudit: { create: jest.fn().mockResolvedValue({}) },
-      outboxEvent: { create: jest.fn().mockResolvedValue({ id: "event-id" }) },
+      outboxEvent: { create: outboxCreate },
     };
     const prisma = {
       $transaction: jest.fn((callback: (client: typeof tx) => unknown) =>
@@ -66,6 +77,20 @@ describe("CanonicalAuthService account status administration", () => {
         },
       },
     });
+    const authEvent = outboxRows.find(
+      (row) => row.eventType === "auth.lifecycle.v1",
+    );
+    expect(authEvent?.aggregateId).toBe(targetId);
+    expect(authEvent?.payload).toMatchObject({
+      eventType: "auth.lifecycle.v1",
+      version: 1,
+      subject: targetId,
+      action: "ACCOUNT_STATUS_CHANGED",
+      scope: "ACCOUNT",
+      accountStatus: UserAccountStatus.SUSPENDED,
+      revision: 1,
+    });
+    expect(typeof authEvent?.payload.occurredAt).toBe("string");
     expect(result).toEqual({
       authUserId: targetId,
       accountStatus: UserAccountStatus.SUSPENDED,
