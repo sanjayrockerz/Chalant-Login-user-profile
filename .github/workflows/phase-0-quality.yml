@@ -5,7 +5,7 @@ on:
   push:
     branches:
       - main
-      - 'release-verification/**'
+      - "release-verification/**"
       - verification/phase1-phase2
 
 permissions:
@@ -78,7 +78,7 @@ jobs:
       PHASE1_DATABASE_PROVENANCE: ci-service
       PGPASSWORD: phase1_ci_only
       REDIS_URL: redis://127.0.0.1:6379
-      USE_REAL_REDIS: 'true'
+      USE_REAL_REDIS: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -117,6 +117,11 @@ jobs:
           export CONTACT_HMAC_KEY='ci-only-contact-hmac-key-at-least-32-bytes';
           export ACTIVE_POLICY_VERSION='v-test-1';
           npm run test:integration:real -- --silent
+      - name: Verify Auth lifecycle outbox retry and acknowledgement recovery
+        run: |
+          export DATABASE_URL_AUTH='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'
+          export AUTH_LIFECYCLE_OUTBOX_DISPOSABLE='true'
+          npm run test:auth-lifecycle-outbox:real
       - run: export DATABASE_URL_AUTH='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export REDIS_URL='redis://127.0.0.1:6379'; export CANONICAL_RECOVERY_ENABLED='true'; npm run test -- src/canonical-auth/canonical-recovery.service.spec.ts --runInBand --silent
       - name: Upgrade the representative legacy database and verify identity persistence
         run: |
