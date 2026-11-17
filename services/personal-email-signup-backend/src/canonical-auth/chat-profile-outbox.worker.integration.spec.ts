@@ -78,11 +78,14 @@ const enabled =
             requests.push({
               body,
               eventId: request.headers["x-auth-lifecycle-event-id"] as
-                string | undefined,
+                | string
+                | undefined,
               signature: request.headers["x-auth-lifecycle-signature"] as
-                string | undefined,
+                | string
+                | undefined,
               timestamp: request.headers["x-auth-lifecycle-timestamp"] as
-                string | undefined,
+                | string
+                | undefined,
             });
             response.statusCode = responsesRemaining > 0 ? 503 : 202;
             if (responsesRemaining > 0) responsesRemaining -= 1;
