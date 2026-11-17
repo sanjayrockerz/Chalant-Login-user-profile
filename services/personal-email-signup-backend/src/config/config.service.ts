@@ -42,8 +42,9 @@ export class ConfigService {
         CHAT_ACCOUNT_LIFECYCLE_URL: process.env.CHAT_ACCOUNT_LIFECYCLE_URL,
         CHAT_PROFILE_PROVISIONING_HMAC_SECRET:
           process.env.CHAT_PROFILE_PROVISIONING_HMAC_SECRET,
-        AUTH_LIFECYCLE_URL: process.env.AUTH_LIFECYCLE_URL,
-        AUTH_LIFECYCLE_HMAC_SECRET: process.env.AUTH_LIFECYCLE_HMAC_SECRET,
+        AUTH_LIFECYCLE_URL: process.env.AUTH_LIFECYCLE_URL || undefined,
+        AUTH_LIFECYCLE_HMAC_SECRET:
+          process.env.AUTH_LIFECYCLE_HMAC_SECRET || undefined,
         AUTH_INTROSPECTION_CLIENTS: this.parseIntrospectionClients(),
         AUTH_ADMIN_USER_IDS: process.env.AUTH_ADMIN_USER_IDS,
         REDIS_URL: process.env.REDIS_URL,

@@ -41,6 +41,20 @@ describe("ConfigService", () => {
     );
   });
 
+  it("treats empty Auth lifecycle settings as unconfigured", () => {
+    process.env.DATABASE_URL_AUTH = "postgresql://auth-db.example.test/app";
+    process.env.REDIS_URL = "redis://127.0.0.1:6379";
+    process.env.JWT_SECRET = "test-jwt-secret";
+    process.env.COOKIE_SECRET = "test-cookie-secret";
+    process.env.AUTH_LIFECYCLE_URL = "";
+    process.env.AUTH_LIFECYCLE_HMAC_SECRET = "";
+
+    const config = new ConfigService();
+
+    expect(config.get("AUTH_LIFECYCLE_URL")).toBeUndefined();
+    expect(config.get("AUTH_LIFECYCLE_HMAC_SECRET")).toBeUndefined();
+  });
+
   it("rejects malformed introspection configuration without exposing secret values", () => {
     process.env.DATABASE_URL_AUTH = "postgresql://auth-db.example.test/app";
     process.env.REDIS_URL = "redis://127.0.0.1:6379";
