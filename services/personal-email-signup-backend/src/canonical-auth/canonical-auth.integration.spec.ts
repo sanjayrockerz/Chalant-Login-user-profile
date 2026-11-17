@@ -438,6 +438,58 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
+  it("allows only one concurrent HTTP redemption and revokes active sessions", async () => {
+    const suffix = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+    const email = `phase2a-recovery-concurrent-${suffix}@example.test`;
+    emails.push(email);
+    const user = await prisma.user.create({
+      data: {
+        email,
+        username: `phase2a_recover_${suffix}`,
+        password: "old-password-hash",
+        isVerified: true,
+        passwordCredential: { create: { passwordHash: "old-password-hash" } },
+      },
+    });
+    await prisma.identitySession.create({
+      data: {
+        userId: user.id,
+        sessionHash: randomBytes(32).toString("hex"),
+        expiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    const rawToken = randomBytes(32).toString("base64url");
+    const tokenHash = createHash("sha256").update(rawToken).digest("hex");
+    recoveryTokenHashes.push(tokenHash);
+    const redisKey = `canonical-recovery:password-reset-v1:${tokenHash}`;
+    recoveryRedisKeys.push(redisKey);
+    await redis.set(
+      redisKey,
+      { purpose: "password-reset-v1", userId: user.id },
+      900,
+    );
+
+    const results = await Promise.all([
+      request(server)
+        .post("/auth/recovery/reset")
+        .send({ token: rawToken, password: "Strong-password-123!" }),
+      request(server)
+        .post("/auth/recovery/reset")
+        .send({ token: rawToken, password: "Another-strong-password-456!" }),
+    ]);
+    expect(results.map(({ status }) => status).sort()).toEqual([204, 401]);
+    expect(
+      await prisma.passwordRecoveryConsumption.count({ where: { tokenHash } }),
+    ).toBe(1);
+    expect(
+      await prisma.identitySession.count({
+        where: { userId: user.id, revokedAt: { not: null } },
+      }),
+    ).toBe(1);
+    expect(await redis.get(redisKey)).toBeNull();
+  });
+
   it("rejects unknown registration and login properties before auth service execution", async () => {
     const email = `phase2a-strict-dto-${Date.now()}@example.test`;
     emails.push(email);

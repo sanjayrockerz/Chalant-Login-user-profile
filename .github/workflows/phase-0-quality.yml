@@ -98,6 +98,7 @@ jobs:
       - run: npx prisma generate --schema=prisma/auth.schema.prisma
       - run: npm run migration:governance:check
       - run: npm run test:migration-governance
+      - run: node --test ../../scripts/phase1-upgrade-workflow.test.js
       - run: createdb -h 127.0.0.1 -U postgres phase1_fresh
       - run: createdb -h 127.0.0.1 -U postgres phase1_upgrade
       - run: export PHASE1_DATABASE_URL='postgresql://postgres:phase1_ci_only@127.0.0.1:5432/phase1_fresh'; export DATABASE_URL_AUTH="$PHASE1_DATABASE_URL"; npm run migration:fresh:init
@@ -128,6 +129,7 @@ jobs:
           psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261010120000_canonical_policy_acceptance/migration.sql
           psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261023120000_chat_profile_provisioning_outbox/migration.sql
           psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261024120000_auth_account_status_admin/migration.sql
+          psql "$PHASE1_DATABASE_URL" -v ON_ERROR_STOP=1 -f prisma/migrations/20261116120000_password_recovery_consumption/migration.sql
           npm run migration:upgrade:verify
           npm run test:identity:persistence -- --silent
 

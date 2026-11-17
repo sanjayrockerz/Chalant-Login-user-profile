@@ -127,77 +127,84 @@ export class CanonicalRecoveryService {
       throw new UnauthorizedException("Invalid or expired recovery credential");
     }
 
-    let record: { purpose: string; userId: string } | null;
+    let committed = false;
     try {
-      record = await this.redis.get<{ purpose: string; userId: string }>(key);
-    } catch {
-      await this.releaseClaim(claimKey, claimOwner);
-      throw new ServiceUnavailableException(
-        "Recovery credential storage is unavailable",
-      );
-    }
-    if (!record || record.purpose !== RECOVERY_PURPOSE) {
-      await this.releaseClaim(claimKey, claimOwner);
-      throw new UnauthorizedException("Invalid or expired recovery credential");
-    }
+      let record: { purpose: string; userId: string } | null;
+      try {
+        record = await this.redis.get<{ purpose: string; userId: string }>(key);
+      } catch {
+        throw new ServiceUnavailableException(
+          "Recovery credential storage is unavailable",
+        );
+      }
+      if (!record || record.purpose !== RECOVERY_PURPOSE) {
+        throw new UnauthorizedException(
+          "Invalid or expired recovery credential",
+        );
+      }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: record.userId },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        isVerified: true,
-        accountStatus: true,
-      },
-    });
-    if (
-      !user ||
-      !user.isVerified ||
-      user.accountStatus !== UserAccountStatus.ACTIVE
-    ) {
-      await this.releaseClaim(claimKey, claimOwner);
-      throw new UnauthorizedException("Account is not eligible for recovery");
-    }
+      const user = await this.prisma.user.findUnique({
+        where: { id: record.userId },
+        select: {
+          id: true,
+          email: true,
+          username: true,
+          isVerified: true,
+          accountStatus: true,
+        },
+      });
+      if (
+        !user ||
+        !user.isVerified ||
+        user.accountStatus !== UserAccountStatus.ACTIVE
+      ) {
+        throw new UnauthorizedException("Account is not eligible for recovery");
+      }
 
-    const policy = await this.passwordPolicy.evaluate(password, {
-      userInputs: [user.email, user.username],
-      skipHIBP: true,
-    });
-    if (!policy.compliant || !policy.hash) {
-      await this.releaseClaim(claimKey, claimOwner);
-      throw new UnauthorizedException(
-        "Password does not meet security requirements",
-      );
-    }
+      const policy = await this.passwordPolicy.evaluate(password, {
+        userInputs: [user.email, user.username],
+        skipHIBP: true,
+      });
+      if (!policy.compliant || !policy.hash) {
+        throw new UnauthorizedException(
+          "Password does not meet security requirements",
+        );
+      }
 
-    let tokenConsumed = false;
-    try {
-      await this.prisma.$transaction(async (transaction) => {
-        // The unique digest is the durable source of truth. Redis claims reduce
-        // contention, while this row prevents replay after a process crash
-        // between database commit and Redis cleanup.
-        await transaction.passwordRecoveryConsumption.create({
-          data: { tokenHash: tokenHash(token) },
-        });
-        await transaction.user.update({
-          where: { id: user.id },
-          data: {
-            password: policy.hash,
-            passwordCredential: {
-              upsert: {
-                create: { passwordHash: policy.hash },
-                update: { passwordHash: policy.hash },
+      try {
+        await this.prisma.$transaction(async (transaction) => {
+          // The unique digest is the durable source of truth. Redis claims reduce
+          // contention, while this row prevents replay after a process crash
+          // between database commit and Redis cleanup.
+          await transaction.passwordRecoveryConsumption.create({
+            data: { tokenHash: tokenHash(token) },
+          });
+          await transaction.user.update({
+            where: { id: user.id },
+            data: {
+              password: policy.hash,
+              passwordCredential: {
+                upsert: {
+                  create: { passwordHash: policy.hash },
+                  update: { passwordHash: policy.hash },
+                },
               },
             },
-          },
+          });
+          await transaction.identitySession.updateMany({
+            where: { userId: user.id, revokedAt: null },
+            data: { revokedAt: new Date() },
+          });
         });
-        await transaction.identitySession.updateMany({
-          where: { userId: user.id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-      });
-      tokenConsumed = true;
+      } catch (error) {
+        if (isPrismaUniqueConstraintError(error)) {
+          throw new UnauthorizedException(
+            "Invalid or expired recovery credential",
+          );
+        }
+        throw error;
+      }
+      committed = true;
       try {
         await this.redis.del(key);
       } catch (error) {
@@ -209,19 +216,20 @@ export class CanonicalRecoveryService {
           error instanceof Error ? error.stack : undefined,
         );
       }
-    } catch (error) {
-      if (isPrismaUniqueConstraintError(error)) {
-        throw new UnauthorizedException(
-          "Invalid or expired recovery credential",
+    } finally {
+      try {
+        await this.releaseClaim(claimKey, claimOwner);
+      } catch (error) {
+        // Release is best-effort: failures before commit preserve their original
+        // error, and the durable consumption row fences retries after commit.
+        this.logger.error(
+          committed
+            ? "Recovery claim cleanup failed after commit; durable replay marker remains authoritative"
+            : "Recovery claim cleanup failed before commit; claim lease will expire automatically",
+          error instanceof Error ? error.stack : undefined,
         );
       }
-      throw error;
-    } finally {
-      // If storage failed after the DB commit, retain the claim lease rather
-      // than immediately making a possibly consumed credential reusable.
-      if (!tokenConsumed) await this.releaseClaim(claimKey, claimOwner);
     }
-    await this.releaseClaim(claimKey, claimOwner);
   }
 
   private requireEnabled(): void {

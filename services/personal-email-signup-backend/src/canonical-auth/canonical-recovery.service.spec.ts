@@ -23,6 +23,7 @@ describe("CanonicalRecoveryService", () => {
       RECOVERY_RATE_WINDOW_SECONDS: 3600,
       RECOVERY_TOKEN_TTL_SECONDS: 900,
     };
+    const claimEval = jest.fn().mockResolvedValue(1);
     const redis = {
       checkRateLimit: jest.fn().mockResolvedValue({ allowed: true }),
       set: jest.fn().mockResolvedValue(undefined),
@@ -33,7 +34,7 @@ describe("CanonicalRecoveryService", () => {
       }),
       getClient: jest.fn(() => ({
         set: jest.fn().mockResolvedValue("OK"),
-        eval: jest.fn().mockResolvedValue(1),
+        eval: claimEval,
       })),
     };
     const email = {
@@ -45,7 +46,7 @@ describe("CanonicalRecoveryService", () => {
         .mockResolvedValue({ compliant: true, hash: "new-hash" }),
     };
     const config = { get: jest.fn((key: string) => configValues[key]) };
-    return { config, email, policy, redis };
+    return { claimEval, config, email, policy, redis };
   }
 
   it("does not enumerate provider-only accounts", async () => {
@@ -210,9 +211,31 @@ describe("CanonicalRecoveryService", () => {
     expect(deps.redis.del).toHaveBeenCalledTimes(1);
   });
 
+  it("releases its claim when the account lookup fails before the transaction", async () => {
+    const deps = dependencies();
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockRejectedValue(new Error("database offline")),
+      },
+    };
+    const service = new CanonicalRecoveryService(
+      prisma as never,
+      deps.redis as never,
+      deps.email as never,
+      deps.config as never,
+      deps.policy as never,
+    );
+
+    await expect(
+      service.resetPassword("c".repeat(43), "Strong-password-123!"),
+    ).rejects.toThrow("database offline");
+    expect(deps.claimEval).toHaveBeenCalledTimes(1);
+  });
+
   it("returns success and logs when Redis cleanup fails after the DB commit", async () => {
     const deps = dependencies();
     deps.redis.del.mockRejectedValue(new Error("Redis unavailable"));
+    deps.claimEval.mockRejectedValue(new Error("Redis claim release failed"));
     const transaction = {
       passwordRecoveryConsumption: {
         create: jest.fn().mockResolvedValue(undefined),
