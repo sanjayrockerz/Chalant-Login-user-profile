@@ -25,7 +25,8 @@ export interface AuthAccountStatusChangedEvent extends AuthLifecycleEventBase {
 }
 
 export type AuthLifecycleEvent =
-  AuthSessionRevokedEvent | AuthAccountStatusChangedEvent;
+  | AuthSessionRevokedEvent
+  | AuthAccountStatusChangedEvent;
 
 export async function persistSessionRevokedEvent(
   transaction: Prisma.TransactionClient,

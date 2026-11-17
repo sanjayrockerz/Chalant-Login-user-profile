@@ -29,7 +29,29 @@ describe("CanonicalAuthService password login", () => {
   ) {
     const passwordHash =
       "$2a$04$JXLKo9asKjR2mVzUiGQRbOzDaJZvwBIre5NmARZUTQKC1N7lt1IJO";
+    const identitySession = {
+      create: jest.fn(
+        (args: {
+          data: { userId: string; sessionHash: string; expiresAt: Date };
+          select: { id: true };
+        }) => ({ id: args.data.userId }),
+      ),
+    };
+    const transaction = {
+      $queryRaw: jest.fn(),
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          accountStatus: UserAccountStatus.ACTIVE,
+          isVerified: true,
+        }),
+      },
+      identitySession,
+    };
     const prisma = {
+      $transaction: jest.fn(
+        async (callback: (tx: typeof transaction) => Promise<unknown>) =>
+          callback(transaction),
+      ),
       user: {
         findUnique: jest.fn().mockResolvedValue(
           overrides.user === null
@@ -44,14 +66,7 @@ describe("CanonicalAuthService password login", () => {
               },
         ),
       },
-      identitySession: {
-        create: jest.fn(
-          (args: {
-            data: { userId: string; sessionHash: string; expiresAt: Date };
-            select: { id: true };
-          }) => ({ id: args.data.userId }),
-        ),
-      },
+      identitySession,
     };
     const jwt = { sign: jest.fn().mockReturnValue("signed-access-token") };
     const config = {
