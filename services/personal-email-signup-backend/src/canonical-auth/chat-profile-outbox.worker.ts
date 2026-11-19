@@ -4,6 +4,7 @@ import {
   OnModuleDestroy,
   OnModuleInit,
 } from "@nestjs/common";
+import { request as httpsRequest } from "node:https";
 import { randomUUID, createHmac } from "crypto";
 import { PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
@@ -20,6 +21,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChatProfileOutboxWorker.name);
   private timer?: NodeJS.Timeout;
   private running = false;
+  private activeDelivery?: Promise<void>;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -38,8 +40,9 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     void this.deliverOne();
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
+    await this.activeDelivery;
   }
 
   async deliverOne(): Promise<void> {
@@ -102,6 +105,27 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     if (routeByType.size === 0) return;
 
     this.running = true;
+    const delivery = this.deliverClaimedEvent(routeByType);
+    this.activeDelivery = delivery;
+    try {
+      await delivery;
+    } finally {
+      if (this.activeDelivery === delivery) this.activeDelivery = undefined;
+      this.running = false;
+    }
+  }
+
+  private async deliverClaimedEvent(
+    routeByType: Map<
+      string,
+      {
+        endpoint: URL;
+        secret: string;
+        headerPrefix: string;
+        format: "auth-lifecycle" | "chat-envelope";
+      }
+    >,
+  ): Promise<void> {
     try {
       const now = new Date();
       const row = await this.prisma.outboxEvent.findFirst({
@@ -160,22 +184,24 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       try {
         const headers: Record<string, string> = {
           "content-type": "application/json",
+          // A receiver can durably accept an event and then lose its response.
+          // Force retries onto independent connections so that a reset from
+          // that lost acknowledgement cannot poison a reused socket.
+          connection: "close",
           [`${route.headerPrefix}-timestamp`]: timestamp,
           [`${route.headerPrefix}-signature`]: signature,
         };
         if (authEventId) {
           headers["x-auth-lifecycle-event-id"] = authEventId;
         }
-        const response = await fetch(route.endpoint, {
-          method: "POST",
-          redirect: "error",
+        const statusCode = await this.postLifecycleEvent(
+          route.endpoint,
           headers,
           body,
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!response.ok)
-          throw new Error(`Chat returned HTTP ${response.status}`);
-        await this.prisma.outboxEvent.updateMany({
+        );
+        if (statusCode < 200 || statusCode >= 300)
+          throw new Error(`Chat returned HTTP ${statusCode}`);
+        const deliveryUpdate = await this.prisma.outboxEvent.updateMany({
           where: { id: row.id, claimToken, deliveredAt: null },
           data: {
             deliveredAt: new Date(),
@@ -184,6 +210,12 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
             lastError: null,
           },
         });
+        if (deliveryUpdate.count !== 1) {
+          throw new Error("Outbox delivery claim was no longer current");
+        }
+        this.logger.log(
+          `${row.eventType} delivery acknowledged eventId=${row.id} attempt=${row.attempts + 1}`,
+        );
       } catch (error) {
         const attempts = row.attempts + 1;
         const delay = Math.min(
@@ -203,8 +235,17 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
             lastError: message,
           },
         });
+        const httpStatus =
+          error instanceof Error
+            ? /^Chat returned HTTP (\d{3})$/.exec(error.message)?.[1]
+            : undefined;
+        const errorClass = httpStatus
+          ? `http_${httpStatus}`
+          : error instanceof Error
+            ? error.name
+            : "unknown";
         this.logger.warn(
-          `${row.eventType} delivery failed; retry scheduled (${attempts})`,
+          `${row.eventType} delivery retry scheduled eventId=${row.id} attempt=${attempts} errorClass=${errorClass}`,
         );
       }
     } catch (error) {
@@ -212,9 +253,51 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         "Chat provisioning outbox poll failed",
         error instanceof Error ? error.stack : undefined,
       );
-    } finally {
-      this.running = false;
     }
+  }
+
+  private postLifecycleEvent(
+    endpoint: URL,
+    headers: Record<string, string>,
+    body: string,
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: Error, statusCode?: number) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timeout);
+        if (error) reject(error);
+        else resolve(statusCode ?? 502);
+      };
+      const request = httpsRequest(
+        endpoint,
+        {
+          method: "POST",
+          headers,
+          // Outbox retries are low-volume and must not reuse a socket after an
+          // ambiguous lost response. agent:false gives each attempt a fresh
+          // TCP/TLS connection instead of relying on fetch pool recovery.
+          agent: false,
+        },
+        (response) => {
+          response.resume();
+          response.once("end", () =>
+            finish(undefined, response.statusCode ?? 502),
+          );
+          response.once("error", (error) => finish(error));
+          response.once("aborted", () =>
+            finish(new Error("Chat response ended before acknowledgement")),
+          );
+        },
+      );
+      const timeout = setTimeout(
+        () => request.destroy(new Error("Chat request timed out")),
+        10_000,
+      );
+      request.once("error", (error) => finish(error));
+      request.end(body);
+    });
   }
 
   private async scheduleInvalidAuthLifecycleEvent(

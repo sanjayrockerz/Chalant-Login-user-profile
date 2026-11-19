@@ -1,4 +1,8 @@
 import { createHmac } from "crypto";
+import { EventEmitter } from "node:events";
+import * as https from "node:https";
+import { PassThrough } from "node:stream";
+jest.mock("node:https", () => ({ request: jest.fn() }));
 import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
 import { PrismaService } from "../../prisma/prisma.module";
 
@@ -32,9 +36,46 @@ describe("ChatProfileOutboxWorker", () => {
     };
   };
   let worker: ChatProfileOutboxWorker;
+  let nextStatus: number | undefined;
+  let pendingResponses: Array<(statusCode: number) => void>;
+  let requests: Array<{
+    url: URL;
+    options: https.RequestOptions;
+    body: string;
+  }>;
 
   beforeEach(() => {
     jest.restoreAllMocks();
+    nextStatus = 202;
+    pendingResponses = [];
+    requests = [];
+    (https.request as jest.Mock).mockReset().mockImplementation(((
+      url: URL,
+      options: https.RequestOptions,
+      callback: (response: NodeJS.ReadableStream & { statusCode?: number }) => void,
+    ) => {
+      const request = new EventEmitter() as EventEmitter & {
+        end: (body: string) => void;
+        destroy: (error: Error) => void;
+      };
+      request.end = (body: string) => {
+        requests.push({ url, options, body });
+        const respond = (statusCode: number) => {
+          const response = new PassThrough() as PassThrough & {
+            statusCode?: number;
+          };
+          response.statusCode = statusCode;
+          callback(response);
+          response.end();
+        };
+        if (nextStatus === undefined) pendingResponses.push(respond);
+        else respond(nextStatus);
+      };
+      request.destroy = (error: Error) => {
+        queueMicrotask(() => request.emit("error", error));
+      };
+      return request as unknown as ReturnType<typeof https.request>;
+    }) as typeof https.request);
     config.get.mockImplementation((key: string): string | undefined => {
       if (key === "CHAT_PROFILE_PROVISIONING_URL")
         return "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning";
@@ -67,23 +108,19 @@ describe("ChatProfileOutboxWorker", () => {
   });
 
   it("only marks delivery complete after the Chat endpoint accepts the event", async () => {
-    const fetchMock = jest
-      .spyOn(global, "fetch")
-      .mockResolvedValue({ ok: true } as Response);
-
     await worker.deliverOne();
 
-    const request = fetchMock.mock.calls[0]?.[1];
-    const requestUrl = fetchMock.mock.calls[0]?.[0];
-    expect(requestUrl).toBeInstanceOf(URL);
-    if (!(requestUrl instanceof URL)) throw new Error("Endpoint must be a URL");
-    expect(requestUrl.href).toBe(
+    const request = requests[0];
+    expect(request?.url.href).toBe(
       "https://chat.example.test/api/v1/internal/v1/chat-profile-provisioning",
     );
-    expect(request?.method).toBe("POST");
+    expect(request?.options.method).toBe("POST");
+    expect(request?.options.agent).toBe(false);
+    const requestHeaders = request?.options.headers as Record<string, string>;
+    expect(requestHeaders.connection).toBe("close");
     expect(request?.body).toContain(event.payload.authUserId);
-    const headers = new Headers(request?.headers);
-    const timestamp = headers.get("x-chat-event-timestamp");
+    const headers = requestHeaders;
+    const timestamp = headers["x-chat-event-timestamp"];
     const body = request?.body;
     expect(typeof body).toBe("string");
     if (typeof body !== "string") throw new Error("Request body must be text");
@@ -93,16 +130,14 @@ describe("ChatProfileOutboxWorker", () => {
     )
       .update(`${timestamp}.${body}`)
       .digest("hex");
-    expect(headers.get("x-chat-event-signature")).toBe(expectedSignature);
+    expect(headers["x-chat-event-signature"]).toBe(expectedSignature);
     const successfulUpdate =
       prisma.outboxEvent.updateMany.mock.calls.at(-1)?.[0];
     expect(successfulUpdate?.data?.deliveredAt).toBeInstanceOf(Date);
   });
 
   it("keeps failed delivery pending and schedules a retry", async () => {
-    jest
-      .spyOn(global, "fetch")
-      .mockResolvedValue({ ok: false, status: 503 } as Response);
+    nextStatus = 503;
 
     await worker.deliverOne();
 
@@ -110,6 +145,31 @@ describe("ChatProfileOutboxWorker", () => {
     expect(failedUpdate?.data?.nextAttemptAt).toBeInstanceOf(Date);
     expect(failedUpdate?.data?.lastError).toBe("Chat returned HTTP 503");
     expect(failedUpdate?.data?.claimToken).toBeNull();
+  });
+
+  it("waits for an active delivery to persist its acknowledgement during shutdown", async () => {
+    nextStatus = undefined;
+
+    const delivery = worker.deliverOne();
+    for (let attempt = 0; attempt < 10 && requests.length === 0; attempt += 1) {
+      await Promise.resolve();
+    }
+    expect(requests).toHaveLength(1);
+
+    let shutdownComplete = false;
+    const shutdown = worker.onModuleDestroy().then(() => {
+      shutdownComplete = true;
+    });
+    await Promise.resolve();
+    expect(shutdownComplete).toBe(false);
+
+    pendingResponses[0]?.(202);
+    await Promise.all([delivery, shutdown]);
+
+    expect(shutdownComplete).toBe(true);
+    expect(
+      prisma.outboxEvent.updateMany.mock.calls.at(-1)?.[0].data?.deliveredAt,
+    ).toBeInstanceOf(Date);
   });
 
   it("routes lifecycle events to the lifecycle endpoint with their event type", async () => {
@@ -132,16 +192,12 @@ describe("ChatProfileOutboxWorker", () => {
       return undefined;
     });
     prisma.outboxEvent.findFirst.mockResolvedValue(lifecycleEvent);
-    const fetchMock = jest
-      .spyOn(global, "fetch")
-      .mockResolvedValue({ ok: true } as Response);
-
     await worker.deliverOne();
 
-    expect(fetchMock.mock.calls[0]?.[0]).toEqual(
+    expect(requests[0]?.url).toEqual(
       new URL("https://chat.example.test/lifecycle"),
     );
-    expect(fetchMock.mock.calls[0]?.[1]?.body).toContain(
+    expect(requests[0]?.body).toContain(
       '"eventType":"chat.account.lifecycle.v1"',
     );
     expect(prisma.outboxEvent.findFirst.mock.calls[0]?.[0].where).toMatchObject(
@@ -188,23 +244,20 @@ describe("ChatProfileOutboxWorker", () => {
       eventType: "auth.lifecycle.v1",
       payload,
     } as unknown as typeof event);
-    const fetchMock = jest
-      .spyOn(global, "fetch")
-      .mockResolvedValue({ ok: true } as Response);
-
     await worker.deliverOne();
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, request] = fetchMock.mock.calls[0] as [URL, RequestInit];
-    expect(url).toEqual(
+    expect(requests).toHaveLength(1);
+    const request = requests[0];
+    expect(request?.url).toEqual(
       new URL("https://community.example.test/internal/auth-lifecycle"),
     );
-    expect(request.body).toBe(JSON.stringify(payload));
-    const headers = new Headers(request.headers);
-    const timestamp = headers.get("x-auth-lifecycle-timestamp");
-    expect(headers.get("x-auth-lifecycle-event-id")).toBe(payload.eventId);
-    expect(headers.get("x-chat-event-signature")).toBeNull();
-    expect(headers.get("x-auth-lifecycle-signature")).toBe(
+    expect(request?.body).toBe(JSON.stringify(payload));
+    expect(request?.options.agent).toBe(false);
+    const headers = request?.options.headers as Record<string, string>;
+    const timestamp = headers["x-auth-lifecycle-timestamp"];
+    expect(headers["x-auth-lifecycle-event-id"]).toBe(payload.eventId);
+    expect(headers["x-chat-event-signature"]).toBeUndefined();
+    expect(headers["x-auth-lifecycle-signature"]).toBe(
       createHmac("sha256", "a-dedicated-auth-lifecycle-secret-of-32-bytes")
         .update(`${timestamp}.${JSON.stringify(payload)}`)
         .digest("hex"),
