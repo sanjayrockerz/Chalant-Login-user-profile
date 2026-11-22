@@ -210,6 +210,7 @@ export class SafetyOrderingService {
   }
 
   async reserveMatch(caller: SafetyCaller, input: MatchReservationDto) {
+    const commitmentTestEnabled = this.matchCommitmentTestEnabled();
     if (
       caller.id !== "chat-backend-service" ||
       caller.scope !== "safety:operations:match:reserve"
@@ -301,7 +302,7 @@ export class SafetyOrderingService {
     );
 
     if (operation.state === "CHECKED") {
-      return this.matchSourceCheckResult(operation, true);
+      return this.matchSourceCheckResult(operation, true, commitmentTestEnabled);
     }
     if (operation.state !== "HELD" && operation.state !== "RECOVERY_REQUIRED") {
       return {
@@ -453,7 +454,8 @@ export class SafetyOrderingService {
         readConsistency: pairState.readConsistency,
       },
       eligibility: {
-        sourceCheckOnly: true,
+        sourceCheckOnly: !commitmentTestEnabled,
+        ...(commitmentTestEnabled ? { permitPolicy: "C17_DISPOSABLE_MATCH_V1" } : {}),
         emailVerificationPolicy: "OWNER_APPROVED_BOTH_VERIFIED",
         originatingSessionPolicy: "OWNER_APPROVED_EXACT_ACTIVE_AUTH_SESSION",
         sessions: Object.fromEntries(
@@ -516,7 +518,11 @@ export class SafetyOrderingService {
       "auth.match.checked.before-response",
       input.operationId,
     );
-    return this.matchSourceCheckResult(checked, checked.state === "CHECKED");
+    return this.matchSourceCheckResult(
+      checked,
+      checked.state === "CHECKED",
+      commitmentTestEnabled,
+    );
   }
 
   private async createOperation(
@@ -758,6 +764,7 @@ export class SafetyOrderingService {
     ) {
       throw new ConflictException("MATCH operation has an unknown state");
     }
+    const matchPermit = this.matchPermitForOperation(operation);
     return {
       operationId: operation.id,
       type: operation.operationType,
@@ -771,11 +778,16 @@ export class SafetyOrderingService {
       sourceRevisions: operation.sourceRevisions,
       failureCode: operation.failureCode,
       chatReceipt: operation.chatReceipt,
-      permitIssued: false as const,
-      activationBlockedBy: [
-        "CHAT_ATOMIC_MATCH_COMMITMENT_NOT_ENABLED",
-        "PRODUCTION_MATCH_ACTIVATION_DISABLED",
-      ],
+      permitIssued: matchPermit !== null,
+      matchPermit,
+      ...(matchPermit
+        ? { testOnly: true }
+        : {
+            activationBlockedBy: [
+              "CHAT_ATOMIC_MATCH_COMMITMENT_NOT_ENABLED",
+              "PRODUCTION_MATCH_ACTIVATION_DISABLED",
+            ],
+          }),
     };
   }
 
@@ -1514,19 +1526,72 @@ export class SafetyOrderingService {
     }, TRANSACTION_OPTIONS);
   }
 
-  private matchSourceCheckResult(operation: any, reused: boolean) {
+  private matchSourceCheckResult(
+    operation: any,
+    reused: boolean,
+    commitmentTestEnabled = this.matchCommitmentTestEnabled(),
+  ) {
+    const matchPermit = commitmentTestEnabled
+      ? this.matchPermitForOperation(operation)
+      : null;
     return {
       ...operation,
       state: "CHECKED",
       sourceCheckStatus: "PASSED",
       sourceCheckPassed: true,
       sourceCheckReused: reused,
-      permitIssued: false,
+      permitIssued: matchPermit !== null,
+      matchPermit,
       testOnly: true,
-      activationBlockedBy: [
-        "CHAT_ATOMIC_MATCH_COMMITMENT_NOT_ENABLED",
-        "PRODUCTION_MATCH_ACTIVATION_DISABLED",
-      ],
+      ...(matchPermit
+        ? {}
+        : {
+            activationBlockedBy: [
+              "CHAT_ATOMIC_MATCH_COMMITMENT_NOT_ENABLED",
+              "PRODUCTION_MATCH_ACTIVATION_DISABLED",
+            ],
+          }),
+    };
+  }
+
+  private matchCommitmentTestEnabled(): boolean {
+    return (
+      process.env.NODE_ENV === "test" &&
+      process.env.AUTH_MATCH_COMMITMENT_ENABLED === "true" &&
+      process.env.AUTH_MATCH_COMMITMENT_TEST_MODE === "true"
+    );
+  }
+
+  private matchPermitForOperation(operation: any): Record<string, unknown> | null {
+    const operationId = operation.operationId ?? operation.id;
+    const metadata = operation.requestMetadata;
+    const sourceRevisions = operation.sourceRevisions;
+    if (
+      !this.matchCommitmentTestEnabled() ||
+      operation.operationType !== "MATCH" && operation.type !== "MATCH" ||
+      operation.state !== "CHECKED" ||
+      !metadata || typeof metadata !== "object" || Array.isArray(metadata) ||
+      !sourceRevisions || typeof sourceRevisions !== "object" || Array.isArray(sourceRevisions) ||
+      (sourceRevisions as any).eligibility?.sourceCheckOnly !== false ||
+      (sourceRevisions as any).eligibility?.permitPolicy !== "C17_DISPOSABLE_MATCH_V1"
+    ) {
+      return null;
+    }
+    const value = metadata as Record<string, unknown>;
+    if (typeof value.proposalId !== "string" || typeof value.chatOperationId !== "string") return null;
+    const binding = {
+      operationId,
+      chatOperationId: value.chatOperationId,
+      proposalId: value.proposalId,
+      participants: value.participants,
+      resourceKeys: [...operation.resourceKeys].sort(),
+      fenceEpochs: this.jsonRecord(operation.fenceEpochs),
+      sourceRevisions,
+    };
+    return {
+      ...binding,
+      permitId: createHash("sha256").update(this.stableJson(binding)).digest("hex"),
+      testOnly: true,
     };
   }
 

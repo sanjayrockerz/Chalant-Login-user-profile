@@ -74,4 +74,60 @@ describe("SafetyOrderingService Chat verification", () => {
     const result = await serviceFor(operation).getOperation(operationId, profile);
     expect(result).toMatchObject({ operationId, subjects: [a, b] });
   });
+
+  it("derives a MATCH permit only from a checked, source-verified test operation", () => {
+    const previous = {
+      nodeEnv: process.env.NODE_ENV,
+      enabled: process.env.AUTH_MATCH_COMMITMENT_ENABLED,
+      testMode: process.env.AUTH_MATCH_COMMITMENT_TEST_MODE,
+    };
+    process.env.NODE_ENV = "test";
+    process.env.AUTH_MATCH_COMMITMENT_ENABLED = "true";
+    process.env.AUTH_MATCH_COMMITMENT_TEST_MODE = "true";
+    try {
+      const match = {
+        ...operation,
+        operationType: "MATCH",
+        state: "CHECKED",
+        callerServiceId: "chat-backend-service",
+        resourceKeys: [`account:${a}`, `account:${b}`, pairKey].sort(),
+        fenceEpochs: {
+          [`account:${a}`]: "2",
+          [`account:${b}`]: "3",
+          [pairKey]: "4",
+        },
+        requestMetadata: {
+          proposalId: "00000000-0000-4000-8000-000000000004",
+          chatOperationId: "00000000-0000-4000-8000-000000000005",
+          participants: [
+            { authSubject: a, searchId: "00000000-0000-4000-8000-000000000006", generation: "1", originatingSessionId: "00000000-0000-4000-8000-000000000007" },
+            { authSubject: b, searchId: "00000000-0000-4000-8000-000000000008", generation: "2", originatingSessionId: "00000000-0000-4000-8000-000000000009" },
+          ],
+        },
+        sourceRevisions: {
+          eligibility: { sourceCheckOnly: false, permitPolicy: "C17_DISPOSABLE_MATCH_V1" },
+          profile: { pairRevision: 9 },
+          accounts: { [a]: { revision: 3 }, [b]: { revision: 4 } },
+        },
+      };
+      const permit = (serviceFor(null) as any).matchPermitForOperation(match);
+      expect(permit).toMatchObject({
+        operationId,
+        proposalId: match.requestMetadata.proposalId,
+        chatOperationId: match.requestMetadata.chatOperationId,
+        testOnly: true,
+      });
+      expect(permit.permitId).toMatch(/^[a-f0-9]{64}$/);
+      expect((serviceFor(null) as any).matchPermitForOperation({ ...match, state: "HELD" })).toBeNull();
+      process.env.NODE_ENV = "development";
+      expect((serviceFor(null) as any).matchPermitForOperation(match)).toBeNull();
+    } finally {
+      if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous.nodeEnv;
+      if (previous.enabled === undefined) delete process.env.AUTH_MATCH_COMMITMENT_ENABLED;
+      else process.env.AUTH_MATCH_COMMITMENT_ENABLED = previous.enabled;
+      if (previous.testMode === undefined) delete process.env.AUTH_MATCH_COMMITMENT_TEST_MODE;
+      else process.env.AUTH_MATCH_COMMITMENT_TEST_MODE = previous.testMode;
+    }
+  });
 });
