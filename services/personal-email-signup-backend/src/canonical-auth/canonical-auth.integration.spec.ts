@@ -7,9 +7,10 @@ import { ConfigService } from "../config/config.service";
 import { RedisService } from "../redis/redis.service";
 import { CanonicalAuthModule } from "./canonical-auth.module";
 import { CanonicalRecoveryService } from "./canonical-recovery.service";
+import { CanonicalAuthService } from "./canonical-auth.service";
 import { Server } from "http";
 import request from "supertest";
-import { createHash, createHmac, randomBytes } from "crypto";
+import { createHash, createHmac, randomBytes, randomUUID } from "crypto";
 import { sign as signJwt, decode as decodeJwt } from "jsonwebtoken";
 
 interface RegistrationBody {
@@ -38,6 +39,8 @@ describeDatabase("canonical password authentication HTTP contract", () => {
   let prisma: PrismaService;
   let redis: RedisService;
   let recovery: CanonicalRecoveryService;
+  let authService: CanonicalAuthService;
+  let config: ConfigService;
   let server: Server;
   const emails: string[] = [];
   const authSubjects: string[] = [];
@@ -72,6 +75,8 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     prisma = moduleRef.get(PrismaService);
     redis = moduleRef.get(RedisService);
     recovery = moduleRef.get(CanonicalRecoveryService);
+    authService = moduleRef.get(CanonicalAuthService);
+    config = moduleRef.get(ConfigService);
   });
 
   afterEach(async () => {
@@ -353,9 +358,11 @@ describeDatabase("canonical password authentication HTTP contract", () => {
         .post("/auth/login")
         .send({ email, password: "A sufficiently unique passphrase 2026!" })
         .expect(200);
-      await prisma.user.update({
-        where: { id: subject },
-        data: { accountStatus },
+      await authService.changeAccountStatus({
+        operationId: randomUUID(),
+        targetId: subject,
+        actorId: subject,
+        accountStatus,
       });
       const signed = signIntrospectionRequest(
         (login.body as TokenBody).access_token,
@@ -366,6 +373,85 @@ describeDatabase("canonical password authentication HTTP contract", () => {
         .send(signed.body)
         .expect(401);
     }
+  });
+
+  it("requires an admin principal and stable idempotency for HTTP status mutations", async () => {
+    const suffix = randomUUID();
+    const adminEmail = `phase2a-admin-status-${suffix}@example.test`;
+    const adminSubject = await registerAndVerify(
+      adminEmail,
+      `phase2a_admin_${suffix}`,
+    );
+    const targetEmail = `phase2a-status-target-${suffix}@example.test`;
+    const subject = await registerAndVerify(
+      targetEmail,
+      `phase2a_target_${suffix}`,
+    );
+    const login = await request(server)
+      .post("/auth/login")
+      .send({
+        email: adminEmail,
+        password: "A sufficiently unique passphrase 2026!",
+      })
+      .expect(200);
+    const target = `/auth/admin/accounts/${subject}/status`;
+
+    await request(server)
+      .patch(target)
+      .send({ status: "SUSPENDED" })
+      .expect(401);
+
+    const accessToken = (login.body as TokenBody).access_token;
+    (
+      config as unknown as { config: Record<string, unknown> }
+    ).config.AUTH_ADMIN_USER_IDS = randomUUID();
+    await request(server)
+      .patch(target)
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ status: "SUSPENDED" })
+      .expect(403);
+
+    (
+      config as unknown as { config: Record<string, unknown> }
+    ).config.AUTH_ADMIN_USER_IDS = adminSubject;
+    await request(server)
+      .patch(target)
+      .set("authorization", `Bearer ${accessToken}`)
+      .send({ status: "SUSPENDED" })
+      .expect(400);
+
+    const operationId = randomUUID();
+    const first = await request(server)
+      .patch(target)
+      .set("authorization", `Bearer ${accessToken}`)
+      .set("idempotency-key", operationId)
+      .send({ status: "SUSPENDED" })
+      .expect(200);
+    const replay = await request(server)
+      .patch(target)
+      .set("authorization", `Bearer ${accessToken}`)
+      .set("idempotency-key", operationId)
+      .send({ status: "SUSPENDED" })
+      .expect(200);
+
+    expect(replay.body).toEqual(first.body);
+    expect(first.body).toMatchObject({
+      authUserId: subject,
+      accountStatus: "SUSPENDED",
+      version: 1,
+      changed: true,
+    });
+    await request(server)
+      .patch(target)
+      .set("authorization", `Bearer ${accessToken}`)
+      .set("idempotency-key", operationId)
+      .send({ status: "DISABLED" })
+      .expect(409);
+    expect(
+      await prisma.accountStatusAudit.count({
+        where: { targetUserId: subject },
+      }),
+    ).toBe(1);
   });
 
   it("registers a canonical credential without issuing a pre-verification session", async () => {
@@ -579,9 +665,11 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       inactiveEmail,
       `phase2a_enum_i_${suffix}`,
     );
-    await prisma.user.update({
-      where: { id: inactiveUserId },
-      data: { accountStatus: "SUSPENDED" },
+    await authService.changeAccountStatus({
+      operationId: randomUUID(),
+      targetId: inactiveUserId,
+      actorId: inactiveUserId,
+      accountStatus: "SUSPENDED",
     });
 
     const password = "A sufficiently unique passphrase 2026!";
@@ -614,6 +702,13 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     const loginBody = login.body as TokenBody;
     expect(loginBody.access_token).toEqual(expect.any(String));
     expect(loginBody.refresh_token).toEqual(expect.any(String));
+    const originalSession = await prisma.identitySession.findUniqueOrThrow({
+      where: {
+        sessionHash: createHash("sha256")
+          .update(loginBody.refresh_token)
+          .digest("hex"),
+      },
+    });
 
     await request(server)
       .get("/auth/me")
@@ -630,6 +725,15 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       .expect(200);
     const rotatedBody = rotated.body as TokenBody;
     expect(rotatedBody.refresh_token).not.toBe(loginBody.refresh_token);
+    const rotatedSession = await prisma.identitySession.findUniqueOrThrow({
+      where: {
+        sessionHash: createHash("sha256")
+          .update(rotatedBody.refresh_token)
+          .digest("hex"),
+      },
+    });
+    expect(rotatedSession.id).toBe(originalSession.id);
+    expect(rotatedSession.revokedAt).toBeNull();
     await request(server)
       .post("/auth/refresh")
       .send({ refresh_token: loginBody.refresh_token })
@@ -645,7 +749,7 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       .expect(401);
   });
 
-  it("keeps the old refresh session usable when successor persistence fails", async () => {
+  it("keeps the originating session and refresh token usable when token rotation fails", async () => {
     const email = `phase2a-refresh-rollback-${Date.now()}@example.test`;
     const username = `phase2a_refresh_rollback_${Date.now()}`;
     const subject = await registerAndVerify(email, username);
@@ -660,7 +764,7 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     await prisma.$executeRawUnsafe(`
       CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
       BEGIN
-        IF NEW.user_id = '${subject}'::uuid AND NEW.revoked_at IS NULL THEN
+        IF NEW.user_id = '${subject}'::uuid AND NEW.session_hash <> OLD.session_hash THEN
           RAISE EXCEPTION 'injected refresh successor failure';
         END IF;
         RETURN NEW;
@@ -669,7 +773,7 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     `);
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER ${triggerName}
-      BEFORE INSERT ON identity_sessions
+      BEFORE UPDATE ON identity_sessions
       FOR EACH ROW EXECUTE FUNCTION ${functionName}()
     `);
 
@@ -693,11 +797,22 @@ describeDatabase("canonical password authentication HTTP contract", () => {
       );
     }
 
+    const prior = await prisma.identitySession.findFirstOrThrow({
+      where: { userId: subject, revokedAt: null },
+    });
     const retry = await request(server)
       .post("/auth/refresh")
       .send({ refresh_token: refreshToken })
       .expect(200);
     expect((retry.body as TokenBody).refresh_token).not.toBe(refreshToken);
+    const rotated = await prisma.identitySession.findUniqueOrThrow({
+      where: {
+        sessionHash: createHash("sha256")
+          .update((retry.body as TokenBody).refresh_token)
+          .digest("hex"),
+      },
+    });
+    expect(rotated.id).toBe(prior.id);
   });
 
   it("allows only one successor when two requests rotate the same refresh token concurrently", async () => {
@@ -729,10 +844,10 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     ).toBe(1);
     expect(
       await prisma.identitySession.count({ where: { userId: subject } }),
-    ).toBe(2);
+    ).toBe(1);
   });
 
-  it("makes logout-all revoke a successor created by a concurrent refresh", async () => {
+  it("orders logout-all after Auth-session refresh rotation", async () => {
     const email = `phase2a-logout-refresh-race-${Date.now()}@example.test`;
     const subject = await registerAndVerify(
       email,
@@ -749,7 +864,7 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     await prisma.$executeRawUnsafe(`
       CREATE FUNCTION ${functionName}() RETURNS trigger AS $$
       BEGIN
-        IF NEW.user_id = '${subject}'::uuid AND NEW.revoked_at IS NULL THEN
+        IF NEW.user_id = '${subject}'::uuid AND NEW.session_hash <> OLD.session_hash THEN
           PERFORM pg_sleep(1.5);
         END IF;
         RETURN NEW;
@@ -758,7 +873,7 @@ describeDatabase("canonical password authentication HTTP contract", () => {
     `);
     await prisma.$executeRawUnsafe(`
       CREATE TRIGGER ${triggerName}
-      BEFORE INSERT ON identity_sessions
+      BEFORE UPDATE ON identity_sessions
       FOR EACH ROW EXECUTE FUNCTION ${functionName}()
     `);
 
@@ -793,7 +908,15 @@ describeDatabase("canonical password authentication HTTP contract", () => {
         revokeAll,
       ]);
       expect(refreshResponse.status).toBe(200);
-      expect(revokeResponse.status).toBe(204);
+      expect(revokeResponse.status).toBe(409);
+      const heldSession = await prisma.identitySession.findFirstOrThrow({
+        where: { userId: subject, revokedAt: null },
+      });
+      expect(heldSession.id).toBeTruthy();
+      await request(server)
+        .post("/auth/sessions/revoke-all")
+        .set("Authorization", `Bearer ${loginBody.access_token}`)
+        .expect(204);
       expect(
         await prisma.identitySession.count({
           where: { userId: subject, revokedAt: null },

@@ -91,6 +91,21 @@ export class CanonicalAuthController {
     await this.auth.logout(refreshToken);
   }
 
+  @Post("chat-token")
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  issueChatToken(@Req() request: RequestWithPrincipal) {
+    if (!request.user?.subject || !request.sessionId) {
+      throw new BadRequestException(
+        "Authenticated session context is required",
+      );
+    }
+    return this.auth.issueChatAccessToken(
+      request.user.subject,
+      request.sessionId,
+    );
+  }
+
   @Post("logout-current")
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)

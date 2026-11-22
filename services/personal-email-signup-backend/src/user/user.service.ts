@@ -1,4 +1,9 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from "@nestjs/common";
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  ServiceUnavailableException,
+} from "@nestjs/common";
 import { PrismaService } from "../../prisma/prisma.module";
 import { RedisService } from "../redis/redis.service";
 
@@ -178,15 +183,13 @@ export class UserService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async deleteUser(userId: string): Promise<void> {
-    try {
-      await this.prisma.user.delete({
-        where: { id: userId },
-      });
-    } catch (error) {
-      console.error("Error deleting user:", error);
-      throw new Error("Database error while deleting user");
-    }
+  deleteUser(userId: string): Promise<void> {
+    void userId;
+    return Promise.reject(
+      new ServiceUnavailableException(
+        "Legacy account deletion is disabled until canonical deletion policy and retention are approved",
+      ),
+    );
   }
 
   private mapPrismaUserToLocalUser(user: any): LocalUser {

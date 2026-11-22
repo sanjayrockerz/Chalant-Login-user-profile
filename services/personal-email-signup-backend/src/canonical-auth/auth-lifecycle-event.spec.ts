@@ -74,8 +74,14 @@ function makeTransaction(): TransactionMock {
 
 function makeService(transaction: TransactionMock) {
   const prisma = {
+    identitySession: transaction.identitySession,
     $transaction: jest.fn((callback: (tx: unknown) => unknown) =>
       callback(transaction),
+    ),
+  };
+  const safetyOrdering = {
+    runAccountMutation: jest.fn((input: { commit: (tx: unknown) => unknown }) =>
+      Promise.resolve(input.commit(transaction)),
     ),
   };
   const service = new CanonicalAuthService(
@@ -85,8 +91,9 @@ function makeService(transaction: TransactionMock) {
     {} as never,
     {} as never,
     {} as never,
+    safetyOrdering as never,
   );
-  return { prisma, service };
+  return { prisma, safetyOrdering, service };
 }
 
 describe("Auth lifecycle outbox persistence", () => {
@@ -97,11 +104,11 @@ describe("Auth lifecycle outbox persistence", () => {
       userId: subject,
     });
     transaction.identitySession.updateMany.mockResolvedValue({ count: 1 });
-    const { prisma, service } = makeService(transaction);
+    const { safetyOrdering, service } = makeService(transaction);
 
     await service.logout("opaque-refresh-token");
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(safetyOrdering.runAccountMutation).toHaveBeenCalledTimes(1);
     const eventCall = transaction.capturedOutbox[0];
     expect(eventCall).toBeDefined();
     expect(eventCall).toMatchObject({
@@ -177,6 +184,7 @@ describe("Auth lifecycle outbox persistence", () => {
     const { service } = makeService(transaction);
 
     await service.changeAccountStatus({
+      operationId: "00000000-0000-4000-8000-000000000105",
       targetId: subject,
       actorId: "00000000-0000-4000-8000-000000000104",
       accountStatus: UserAccountStatus.DISABLED,

@@ -4,6 +4,7 @@ import {
   Controller,
   HttpCode,
   HttpStatus,
+  Headers,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -25,9 +26,18 @@ export class AccountStatusAdminController {
   @HttpCode(HttpStatus.OK)
   changeStatus(
     @Param("userId", new ParseUUIDPipe()) userId: string,
+    @Headers("idempotency-key") operationId: string | undefined,
     @Body() body: { status?: unknown },
     @Req() request: RequestWithPrincipal,
   ) {
+    if (
+      typeof operationId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        operationId,
+      )
+    ) {
+      throw new BadRequestException("A UUID v4 Idempotency-Key is required");
+    }
     if (
       !body ||
       typeof body !== "object" ||
@@ -45,6 +55,7 @@ export class AccountStatusAdminController {
     }
 
     return this.auth.changeAccountStatus({
+      operationId,
       targetId: userId,
       actorId: request.user.subject,
       accountStatus: body.status as UserAccountStatus,

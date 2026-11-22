@@ -1,5 +1,5 @@
 import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
-import { createHmac } from "crypto";
+import { createHash, createHmac } from "crypto";
 import { ConfigService } from "../config/config.service";
 import { CanonicalAuthService } from "./canonical-auth.service";
 import { InternalServiceCredentialVerifier } from "./internal-service-credential-verifier";
@@ -51,7 +51,7 @@ function invoke(
 describe("InternalTokenValidationController", () => {
   let controller: InternalTokenValidationController;
   let auth: jest.Mocked<
-    Pick<CanonicalAuthService, "authenticateAccessTokenContext">
+    Pick<CanonicalAuthService, "authenticateAccessTokenContext" | "authenticateChatAccessTokenContext">
   >;
 
   beforeEach(() => {
@@ -67,8 +67,14 @@ describe("InternalTokenValidationController", () => {
         sessionId: "871bb1fc-3fc5-4aec-8a61-9d57c93c591c",
         accessTokenExpiresAt: 1_900_000_000,
       }),
+      authenticateChatAccessTokenContext: jest.fn().mockResolvedValue({
+        principal: { subject: "9b2c5d6e-1a5f-4cc4-9be3-5d8c5268b114", accountStatus: "ACTIVE", email: "private@example.test", username: "private-name", emailVerified: true },
+        sessionId: "871bb1fc-3fc5-4aec-8a61-9d57c93c591c",
+        tokenId: "d94b40c7-33e6-41e7-89ad-22b3a1c81629",
+        accessTokenExpiresAt: 1_900_000_000,
+      }),
     } as jest.Mocked<
-      Pick<CanonicalAuthService, "authenticateAccessTokenContext">
+      Pick<CanonicalAuthService, "authenticateAccessTokenContext" | "authenticateChatAccessTokenContext">
     >;
     const config = {
       get: jest.fn((key: string) =>
@@ -84,9 +90,10 @@ describe("InternalTokenValidationController", () => {
           : undefined,
       ),
     } as unknown as ConfigService;
+    const redis = { getClient: () => ({ set: jest.fn().mockResolvedValue("OK") }) };
     controller = new InternalTokenValidationController(
       auth as unknown as CanonicalAuthService,
-      new InternalServiceCredentialVerifier(config, {} as any),
+      new InternalServiceCredentialVerifier(config, redis as any),
     );
   });
 
@@ -160,5 +167,34 @@ describe("InternalTokenValidationController", () => {
     await expect(
       invoke(controller, body, signRequest()),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("routes Chat audience v2 validation to Auth-owned Chat token verification", async () => {
+    const chatBody = { token: "auth-issued-chat-jwt", audience: "chat-backend", scope: "auth:token:validate" };
+    const chatKeyId = "chat-key-v1";
+    const chatSecret = "chat-service-secret-for-v2-tests-32-bytes";
+    const chatServiceId = "chat-backend-service";
+    const now = Math.floor(Date.now() / 1000);
+    const nonce = "A".repeat(43);
+    const canonicalBody = JSON.stringify(chatBody);
+    const bodyDigest = createHash("sha256").update(canonicalBody).digest("hex");
+    const canonical = JSON.stringify([2, now, chatServiceId, "POST", "/internal/v2/auth/token/validate", "", nonce, bodyDigest, chatBody.audience, chatBody.scope]);
+    const headers = {
+      serviceId: chatServiceId, keyId: chatKeyId, timestamp: String(now), nonce,
+      signature: createHmac("sha256", chatSecret).update(canonical).digest("hex"),
+    };
+    const config = {
+      get: jest.fn((key: string) => key === "AUTH_INTROSPECTION_CLIENTS" ? {
+        [chatServiceId]: { protocolVersions: ["v2"], keys: { [chatKeyId]: chatSecret }, audiences: ["chat-backend"], scopes: ["auth:token:validate"] },
+      } : undefined),
+    } as unknown as ConfigService;
+    const chatController = new InternalTokenValidationController(
+      auth as unknown as CanonicalAuthService,
+      new InternalServiceCredentialVerifier(config, { getClient: () => ({ set: jest.fn().mockResolvedValue("OK") }) } as any),
+    );
+    const result = await chatController.validateV2(chatBody, headers.serviceId, headers.keyId, headers.timestamp, headers.nonce, headers.signature);
+    expect(auth.authenticateChatAccessTokenContext).toHaveBeenCalledWith(chatBody.token);
+    expect(auth.authenticateAccessTokenContext).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ contractVersion: 2, tokenId: "d94b40c7-33e6-41e7-89ad-22b3a1c81629", service: { id: chatServiceId, audience: "chat-backend" } });
   });
 });

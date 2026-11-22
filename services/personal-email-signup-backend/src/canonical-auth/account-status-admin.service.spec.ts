@@ -1,9 +1,11 @@
 import { UserAccountStatus } from "@prisma/client";
 import { CanonicalAuthService } from "./canonical-auth.service";
+import { SafetyOrderingService } from "../safety-ordering/safety-ordering.service";
 
 describe("CanonicalAuthService account status administration", () => {
   const targetId = "00000000-0000-4000-8000-000000000101";
   const adminId = "00000000-0000-4000-8000-000000000102";
+  const operationId = "00000000-0000-4000-8000-000000000103";
 
   it("records a status change, named actor, and versioned Chat event in one transaction", async () => {
     const outboxRows: Array<{
@@ -34,6 +36,10 @@ describe("CanonicalAuthService account status administration", () => {
         callback(tx),
       ),
     };
+    const runAccountMutation = jest.fn(
+      async (input: { commit: (client: typeof tx) => Promise<unknown> }) =>
+        input.commit(tx),
+    );
     const service = new CanonicalAuthService(
       prisma as never,
       {} as never,
@@ -41,15 +47,20 @@ describe("CanonicalAuthService account status administration", () => {
       {} as never,
       {} as never,
       {} as never,
+      { runAccountMutation } as unknown as SafetyOrderingService,
     );
 
     const result = await service.changeAccountStatus({
+      operationId,
       targetId,
       actorId: adminId,
       accountStatus: UserAccountStatus.SUSPENDED,
     });
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(runAccountMutation).toHaveBeenCalledWith(
+      expect.objectContaining({ operationId, subjectId: targetId }),
+    );
+    expect(prisma.$transaction).not.toHaveBeenCalled();
     expect(tx.user.updateMany).toHaveBeenCalledWith({
       where: { id: targetId, accountStatusVersion: 0 },
       data: {

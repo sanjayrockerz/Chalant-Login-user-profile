@@ -194,6 +194,15 @@ describe("UserService", () => {
     });
   });
 
+  describe("deleteUser", () => {
+    it("fails closed until canonical deletion semantics are approved", async () => {
+      await expect(
+        service.deleteUser("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+      ).rejects.toThrow(/disabled|unavailable/i);
+      expect(mockPrismaClient.user.delete).not.toHaveBeenCalled();
+    });
+  });
+
   describe("findByVerificationToken", () => {
     it("should return user when found", async () => {
       const mockUser = createMockUser();

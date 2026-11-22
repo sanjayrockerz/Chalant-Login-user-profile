@@ -1,6 +1,7 @@
 import {
   Injectable,
   Logger,
+  Optional,
   ServiceUnavailableException,
   UnauthorizedException,
 } from "@nestjs/common";
@@ -12,6 +13,7 @@ import { EmailService } from "../email/email.service";
 import { PasswordPolicyService } from "../security/password-policy/password-policy.service";
 import { RedisService } from "../redis/redis.service";
 import { persistSessionRevokedEvent } from "./auth-lifecycle-event";
+import { SafetyOrderingService } from "../safety-ordering/safety-ordering.service";
 
 function isPrismaUniqueConstraintError(
   error: unknown,
@@ -43,6 +45,7 @@ export class CanonicalRecoveryService {
     private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly passwordPolicy: PasswordPolicyService,
+    @Optional() private readonly safetyOrdering?: SafetyOrderingService,
   ) {}
 
   async requestReset(emailAddress: string): Promise<{ message: string }> {
@@ -173,73 +176,99 @@ export class CanonicalRecoveryService {
       }
 
       try {
-        await this.prisma.$transaction(async (transaction) => {
-          await transaction.$queryRaw(
-            Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${user.id}::uuid FOR UPDATE`,
+        if (!this.safetyOrdering) {
+          throw new ServiceUnavailableException(
+            "Auth account safety ordering is unavailable",
           );
-          const currentUser = await transaction.user.findUnique({
-            where: { id: user.id },
-            select: { isVerified: true, accountStatus: true },
-          });
-          if (
-            !currentUser ||
-            !currentUser.isVerified ||
-            currentUser.accountStatus !== UserAccountStatus.ACTIVE
-          ) {
-            throw new UnauthorizedException(
-              "Account is not eligible for recovery",
+        }
+        const operationDigest = createHash("sha256")
+          .update(
+            `auth-password-recovery-operation-v1:${user.id}:${tokenHash(token)}`,
+          )
+          .digest("hex");
+        const operationId = `${operationDigest.slice(0, 8)}-${operationDigest.slice(8, 12)}-5${operationDigest.slice(13, 16)}-a${operationDigest.slice(17, 20)}-${operationDigest.slice(20, 32)}`;
+        const commandHash = createHash("sha256")
+          .update(
+            JSON.stringify([
+              "auth-password-recovery-v1",
+              user.id,
+              tokenHash(token),
+            ]),
+          )
+          .digest("hex");
+        await this.safetyOrdering.runAccountMutation({
+          operationId,
+          subjectId: user.id,
+          commandHash,
+          commit: async (transaction) => {
+            await transaction.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${user.id}::uuid FOR UPDATE`,
             );
-          }
+            const currentUser = await transaction.user.findUnique({
+              where: { id: user.id },
+              select: { isVerified: true, accountStatus: true },
+            });
+            if (
+              !currentUser ||
+              !currentUser.isVerified ||
+              currentUser.accountStatus !== UserAccountStatus.ACTIVE
+            ) {
+              throw new UnauthorizedException(
+                "Account is not eligible for recovery",
+              );
+            }
 
-          // The unique digest is the durable source of truth. Redis claims reduce
-          // contention, while this row prevents replay after a process crash
-          // between database commit and Redis cleanup.
-          await transaction.passwordRecoveryConsumption.create({
-            data: { tokenHash: tokenHash(token) },
-          });
-          await transaction.user.update({
-            where: { id: user.id },
-            data: {
-              password: policy.hash,
-              passwordCredential: {
-                upsert: {
-                  create: { passwordHash: policy.hash },
-                  update: { passwordHash: policy.hash },
+            // The unique digest is the durable source of truth. Redis claims reduce
+            // contention, while this row prevents replay after a process crash
+            // between database commit and Redis cleanup.
+            await transaction.passwordRecoveryConsumption.create({
+              data: { tokenHash: tokenHash(token) },
+            });
+            await transaction.user.update({
+              where: { id: user.id },
+              data: {
+                password: policy.hash,
+                passwordCredential: {
+                  upsert: {
+                    create: { passwordHash: policy.hash },
+                    update: { passwordHash: policy.hash },
+                  },
                 },
               },
-            },
-          });
-          await transaction.$queryRaw(
-            Prisma.sql`SELECT "id" FROM "identity_sessions" WHERE "user_id" = ${user.id}::uuid AND "revoked_at" IS NULL FOR UPDATE`,
-          );
-          const sessions = await transaction.identitySession.findMany({
-            where: { userId: user.id, revokedAt: null },
-            select: { id: true },
-          });
-          if (sessions.length > 0) {
-            const revokedAt = new Date();
-            const revoked = await transaction.identitySession.updateMany({
-              where: {
-                userId: user.id,
-                revokedAt: null,
-                id: { in: sessions.map((session) => session.id) },
-              },
-              data: { revokedAt },
             });
-            if (revoked.count !== sessions.length) {
-              throw new ServiceUnavailableException(
-                "Session state changed during password recovery",
-              );
+            await transaction.$queryRaw(
+              Prisma.sql`SELECT "id" FROM "identity_sessions" WHERE "user_id" = ${user.id}::uuid AND "revoked_at" IS NULL FOR UPDATE`,
+            );
+            const sessions = await transaction.identitySession.findMany({
+              where: { userId: user.id, revokedAt: null },
+              select: { id: true },
+            });
+            if (sessions.length > 0) {
+              const revokedAt = new Date();
+              const revoked = await transaction.identitySession.updateMany({
+                where: {
+                  userId: user.id,
+                  revokedAt: null,
+                  id: { in: sessions.map((session) => session.id) },
+                },
+                data: { revokedAt },
+              });
+              if (revoked.count !== sessions.length) {
+                throw new ServiceUnavailableException(
+                  "Session state changed during password recovery",
+                );
+              }
+              for (const session of sessions) {
+                await persistSessionRevokedEvent(
+                  transaction,
+                  user.id,
+                  session.id,
+                  revokedAt,
+                );
+              }
             }
-            for (const session of sessions) {
-              await persistSessionRevokedEvent(
-                transaction,
-                user.id,
-                session.id,
-                revokedAt,
-              );
-            }
-          }
+            return undefined;
+          },
         });
       } catch (error) {
         if (isPrismaUniqueConstraintError(error)) {

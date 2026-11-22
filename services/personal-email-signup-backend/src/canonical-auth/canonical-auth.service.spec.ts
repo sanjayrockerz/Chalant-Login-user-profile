@@ -44,6 +44,8 @@ describe("CanonicalAuthService email verification", () => {
     };
     const redis = {
       set: jest.fn().mockResolvedValue(undefined),
+      get: jest.fn().mockResolvedValue(user.id),
+      del: jest.fn().mockResolvedValue(1),
       getAndDelete: jest.fn().mockResolvedValue(user.id),
     };
     const passwordPolicy = {
@@ -63,6 +65,17 @@ describe("CanonicalAuthService email verification", () => {
         passwordPolicy as any,
         email as any,
         redis as any,
+        {
+          runAccountMutation: jest.fn(({ commit }: { commit: (tx: any) => unknown }) =>
+            commit({
+              user: {
+                findUnique: jest.fn().mockResolvedValue({ id: user.id, isVerified: false }),
+                update: prisma.user.update,
+                findUniqueOrThrow: jest.fn().mockResolvedValue({ ...user, isVerified: true }),
+              },
+            }),
+          ),
+        } as any,
       ),
       config,
       prisma,
@@ -114,7 +127,10 @@ describe("CanonicalAuthService email verification", () => {
 
     const result = await service.verifyEmail("opaque-verification-token");
 
-    expect(redis.getAndDelete).toHaveBeenCalledWith(
+    expect(redis.get).toHaveBeenCalledWith(
+      expect.stringMatching(/^canonical:email-verification:[a-f0-9]{64}$/),
+    );
+    expect(redis.del).toHaveBeenCalledWith(
       expect.stringMatching(/^canonical:email-verification:[a-f0-9]{64}$/),
     );
     expect(prisma.user.update).toHaveBeenCalledWith(
@@ -238,6 +254,87 @@ describe("CanonicalAuthService canonical access token validation", () => {
   });
 });
 
+describe("CanonicalAuthService Chat-scoped access tokens", () => {
+  const subject = "00000000-0000-4000-8000-000000000031";
+  const sessionId = "00000000-0000-4000-8000-000000000032";
+  const expiry = Math.floor(Date.now() / 1000) + 240;
+
+  function createChatTokenService(verify = jest.fn().mockReturnValue({
+    sub: subject,
+    sid: sessionId,
+    jti: "d3b9c5d0-e835-4721-a34a-1b4e4e744836",
+    typ: "chat-access",
+    exp: expiry,
+  })) {
+    const jwt = { verify, sign: jest.fn().mockReturnValue("chat-scoped.jwt") };
+    const prisma = {
+      identitySession: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: subject,
+          expiresAt: new Date((expiry + 100) * 1000),
+          revokedAt: null,
+        }),
+      },
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: subject,
+          username: "canonical_user",
+          email: "canonical@example.test",
+          isVerified: true,
+          accountStatus: UserAccountStatus.ACTIVE,
+        }),
+      },
+    };
+    const config = { get: jest.fn(() => "test-signing-secret") };
+    const service = new CanonicalAuthService(
+      prisma as any,
+      jwt as any,
+      config as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, jwt, prisma };
+  }
+
+  it("issues a short-lived token with a distinct Chat audience and unique jti", async () => {
+    const { service, jwt, prisma } = createChatTokenService();
+    const issued = await service.issueChatAccessToken(subject, sessionId);
+
+    expect(prisma.identitySession.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: sessionId } }),
+    );
+    expect(jwt.sign).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: subject, sid: sessionId, typ: "chat-access", jti: expect.any(String) }),
+      expect.objectContaining({ issuer: "r3-canonical-identity", audience: "chat-backend", algorithm: "HS256" }),
+    );
+    expect(issued).toEqual({ access_token: "chat-scoped.jwt", expires_in: 300 });
+  });
+
+  it("validates only Chat audience tokens against the canonical live session", async () => {
+    const { service, jwt } = createChatTokenService();
+    await expect(service.authenticateChatAccessTokenContext("chat.jwt")).resolves.toMatchObject({
+      principal: { subject }, sessionId, tokenId: "d3b9c5d0-e835-4721-a34a-1b4e4e744836", accessTokenExpiresAt: expiry,
+    });
+    expect(jwt.verify).toHaveBeenCalledWith("chat.jwt", {
+      issuer: "r3-canonical-identity", audience: "chat-backend", algorithms: ["HS256"],
+    });
+  });
+
+  it("rejects a revoked session and malformed Chat token identity", async () => {
+    const revoked = createChatTokenService();
+    revoked.prisma.identitySession.findUnique.mockResolvedValue({
+      userId: subject, expiresAt: new Date((expiry + 100) * 1000), revokedAt: new Date(),
+    });
+    await expect(revoked.service.authenticateChatAccessTokenContext("revoked.jwt")).rejects.toBeInstanceOf(UnauthorizedException);
+
+    const malformed = createChatTokenService(jest.fn().mockReturnValue({
+      sub: subject, sid: sessionId, typ: "canonical-access", exp: expiry,
+    }));
+    await expect(malformed.service.authenticateChatAccessTokenContext("wrong-type.jwt")).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
 describe("CanonicalAuthService refresh rotation", () => {
   it("persists the successor session inside the transaction that consumes the old one", async () => {
     const user = {
@@ -247,15 +344,12 @@ describe("CanonicalAuthService refresh rotation", () => {
       isVerified: true,
       accountStatus: UserAccountStatus.ACTIVE,
     };
-    const successorCreate = jest
-      .fn()
-      .mockRejectedValue(new Error("database unavailable"));
+    const sessionUpdate = jest.fn().mockRejectedValue(new Error("database unavailable"));
     const rootSessionCreate = jest.fn().mockResolvedValue({ id: "unexpected" });
     const transaction = {
       $queryRaw: jest.fn().mockResolvedValue([{ id: user.id }]),
       identitySession: {
-        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
-        create: successorCreate,
+        updateMany: sessionUpdate,
       },
       user: { findUnique: jest.fn().mockResolvedValue(user) },
     };
@@ -282,13 +376,18 @@ describe("CanonicalAuthService refresh rotation", () => {
       {} as any,
       {} as any,
       {} as any,
+      {
+        runAccountMutation: jest.fn(({ commit }: { commit: (tx: any) => unknown }) =>
+          commit(transaction),
+        ),
+      } as any,
     );
 
     await expect(service.refresh("old-refresh-token")).rejects.toThrow(
       "database unavailable",
     );
 
-    expect(successorCreate).toHaveBeenCalledTimes(1);
+    expect(sessionUpdate).toHaveBeenCalledTimes(1);
     expect(rootSessionCreate).not.toHaveBeenCalled();
   });
 });

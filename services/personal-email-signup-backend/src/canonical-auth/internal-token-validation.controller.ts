@@ -92,7 +92,10 @@ export class InternalTokenValidationController {
       nonce,
       signature,
     });
-    const verified = await this.auth.authenticateAccessTokenContext(body.token);
+    const verified =
+      body.audience === "chat-backend"
+        ? await this.auth.authenticateChatAccessTokenContext(body.token)
+        : await this.auth.authenticateAccessTokenContext(body.token);
 
     return {
       contractVersion: 2 as const,
@@ -101,6 +104,7 @@ export class InternalTokenValidationController {
       accountStatus: verified.principal.accountStatus,
       emailVerified: verified.principal.emailVerified,
       accessTokenExpiresAt: verified.accessTokenExpiresAt,
+      ...("tokenId" in verified ? { tokenId: verified.tokenId } : {}),
       service,
     };
   }

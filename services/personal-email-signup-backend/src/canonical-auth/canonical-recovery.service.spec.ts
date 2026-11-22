@@ -158,6 +158,10 @@ describe("CanonicalRecoveryService", () => {
       deps.email as never,
       deps.config as never,
       deps.policy as never,
+      {
+        runAccountMutation: ({ commit }: { commit: (tx: any) => unknown }) =>
+          prisma.$transaction((transaction: unknown) => commit(transaction)),
+      } as never,
     );
 
     await expect(
@@ -228,6 +232,10 @@ describe("CanonicalRecoveryService", () => {
       deps.email as never,
       deps.config as never,
       deps.policy as never,
+      {
+        runAccountMutation: ({ commit }: { commit: (tx: any) => unknown }) =>
+          prisma.$transaction((transaction: unknown) => commit(transaction)),
+      } as never,
     );
 
     await expect(
@@ -306,6 +314,10 @@ describe("CanonicalRecoveryService", () => {
       deps.email as never,
       deps.config as never,
       deps.policy as never,
+      {
+        runAccountMutation: ({ commit }: { commit: (tx: any) => unknown }) =>
+          prisma.$transaction((transaction: unknown) => commit(transaction)),
+      } as never,
     );
 
     await expect(
