@@ -24,6 +24,7 @@ import { ContactsModule } from "./contacts/contacts.module";
 import { CanonicalPolicyModule } from "./policies/canonical-policy.module";
 import { CanonicalAuthModule } from "./canonical-auth/canonical-auth.module";
 import { CanonicalProfileService } from "./user/canonical-profile.service";
+import { SafetyOrderingModule } from "./safety-ordering/safety-ordering.module";
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { CanonicalProfileService } from "./user/canonical-profile.service";
     CanonicalAuthModule,
     ContactsModule,
     CanonicalPolicyModule,
+    SafetyOrderingModule,
   ],
   controllers: [UsernameController, ProfileController],
   providers: [

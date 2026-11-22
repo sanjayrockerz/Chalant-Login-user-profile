@@ -47,6 +47,27 @@ enum LegacyIdentitySource {
   R3
 }
 
+enum SafetyOperationType {
+  ACCOUNT_MUTATION
+  BLOCK
+  UNBLOCK
+  MATCH
+  DISCLOSURE
+}
+
+enum SafetyOperationState {
+  REQUESTED
+  HELD
+  CHECKED
+  DENIED
+  CHAT_COMMITTED
+  CHAT_ABORTED
+  SOURCE_COMMITTED
+  CHAT_PAIR_TERMINATED
+  RECOVERY_REQUIRED
+  FINALIZED
+}
+
 model User {
   id                  String                @id @default(uuid()) @db.Uuid
   username            String                @unique
@@ -92,6 +113,79 @@ model User {
 
   @@index([hashedPhone], map: "idx_users_hashed_phone")
   @@unique([phone], map: "users_phone_key")
+}
+
+/// Durable ordering ledger for source-owner coordination. It contains operation
+/// metadata and receipts only; account and Profile/Connections facts remain in
+/// their owning repositories.
+model SafetyOperation {
+  id               String                  @id @db.Uuid
+  requestHash      String                  @map("request_hash") @db.Char(64)
+  operationType    SafetyOperationType     @map("operation_type")
+  callerServiceId  String                  @map("caller_service_id") @db.VarChar(128)
+  subjects         String[]                @default([]) @db.Uuid
+  resourceKeys     String[]                @default([]) @map("resource_keys")
+  waiterTickets    Json?                   @map("waiter_tickets")
+  requestMetadata  Json?                   @map("request_metadata")
+  state            SafetyOperationState    @default(REQUESTED)
+  sourceRevisions  Json?                   @map("source_revisions")
+  fenceEpochs      Json?                   @map("fence_epochs")
+  sourceReceipt    Json?                   @map("source_receipt")
+  chatReceipt      Json?                   @map("chat_receipt")
+  failureCode      String?                 @map("failure_code") @db.VarChar(96)
+  recoveryMetadata Json?                   @map("recovery_metadata")
+  createdAt        DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  waiters          SafetyOperationWaiter[]
+  ownedResources   SafetyResource[]        @relation("SafetyResourceOwner")
+
+  @@index([state, updatedAt], map: "idx_safety_operations_recovery")
+  @@map("safety_operations")
+}
+
+/// One row per canonical resource. Row locks serialize ticket allocation and
+/// all-or-none grant decisions across independent Auth instances.
+model SafetyResource {
+  resourceKey      String                  @id @map("resource_key") @db.VarChar(512)
+  nextTicket       BigInt                  @default(0) @map("next_ticket")
+  fenceEpoch       BigInt                  @default(0) @map("fence_epoch")
+  ownerOperationId String?                 @map("owner_operation_id") @db.Uuid
+  updatedAt        DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+  owner            SafetyOperation?        @relation("SafetyResourceOwner", fields: [ownerOperationId], references: [id], onDelete: Restrict)
+  waiters          SafetyOperationWaiter[]
+
+  @@index([ownerOperationId], map: "idx_safety_resource_owner")
+  @@map("safety_resources")
+}
+
+/// Durable FIFO queue entry. A waiter's ticket is allocated while holding the
+/// same resource row lock used by grant, so enqueue cannot race past a grant.
+model SafetyOperationWaiter {
+  operationId String          @map("operation_id") @db.Uuid
+  resourceKey String          @map("resource_key") @db.VarChar(512)
+  ticket      BigInt
+  createdAt   DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  operation   SafetyOperation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+  resource    SafetyResource  @relation(fields: [resourceKey], references: [resourceKey], onDelete: Restrict)
+
+  @@id([operationId, resourceKey])
+  @@unique([resourceKey, ticket], map: "uq_safety_waiter_resource_ticket")
+  @@index([resourceKey, ticket], map: "idx_safety_waiter_fifo")
+  @@map("safety_operation_waiters")
+}
+
+/// Replay-protection nonce store for signed SOC requests. Nonces are durable
+/// so Redis availability or process restarts cannot reopen the replay window.
+model SafetyServiceNonce {
+  serviceId String   @map("service_id") @db.VarChar(128)
+  keyId     String   @map("key_id") @db.VarChar(128)
+  nonceHash String   @map("nonce_hash") @db.Char(64)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@id([serviceId, keyId, nonceHash])
+  @@index([expiresAt], map: "idx_safety_service_nonces_expiry")
+  @@map("safety_service_nonces")
 }
 
 /// Durable cross-service intent to provision a Chat-owned profile after signup.

@@ -131,4 +131,41 @@ describe("AppModule", () => {
 
     await app.close();
   });
+
+  it("does not expose the dormant legacy account deletion route", async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(ConfigService)
+      .useValue({
+        get: (key: string) =>
+          ({
+            DATABASE_URL: process.env.DATABASE_URL,
+            REDIS_URL: process.env.REDIS_URL,
+            JWT_SECRET: process.env.JWT_SECRET,
+            COOKIE_SECRET: process.env.COOKIE_SECRET,
+            CONTACT_HASH_MODE: "sha256-v1",
+            ACTIVE_POLICY_VERSION: "test-policy",
+          })[key],
+        getAll: () => ({}),
+      })
+      .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .overrideProvider(RedisService)
+      .useValue({})
+      .compile();
+
+    const app = moduleRef.createNestApplication();
+    await app.init();
+
+    await request(app.getHttpServer())
+      .delete("/users/00000000-0000-4000-8000-000000000101")
+      .expect(404);
+    await request(app.getHttpServer())
+      .delete("/users/00000000-0000-4000-8000-000000000101")
+      .set("authorization", "Bearer not-a-valid-token")
+      .expect(404);
+
+    await app.close();
+  });
 });

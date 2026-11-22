@@ -27,6 +27,7 @@ import { AuthAdminGuard } from "./auth-admin.guard";
 import { ChatAccountStatusController } from "./chat-account-status.controller";
 import { InternalTokenValidationController } from "./internal-token-validation.controller";
 import { InternalServiceCredentialVerifier } from "./internal-service-credential-verifier";
+import { SafetyOrderingModule } from "../safety-ordering/safety-ordering.module";
 
 @Module({
   imports: [
@@ -35,6 +36,7 @@ import { InternalServiceCredentialVerifier } from "./internal-service-credential
     IdentityModule,
     RedisModule,
     EmailModule,
+    SafetyOrderingModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
