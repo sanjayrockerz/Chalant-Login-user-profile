@@ -71,6 +71,7 @@ describe("InternalTokenValidationController", () => {
         principal: { subject: "9b2c5d6e-1a5f-4cc4-9be3-5d8c5268b114", accountStatus: "ACTIVE", email: "private@example.test", username: "private-name", emailVerified: true },
         sessionId: "871bb1fc-3fc5-4aec-8a61-9d57c93c591c",
         tokenId: "d94b40c7-33e6-41e7-89ad-22b3a1c81629",
+        accessTokenIssuedAt: 1_800_000_000,
         accessTokenExpiresAt: 1_900_000_000,
       }),
     } as jest.Mocked<
@@ -195,6 +196,6 @@ describe("InternalTokenValidationController", () => {
     const result = await chatController.validateV2(chatBody, headers.serviceId, headers.keyId, headers.timestamp, headers.nonce, headers.signature);
     expect(auth.authenticateChatAccessTokenContext).toHaveBeenCalledWith(chatBody.token);
     expect(auth.authenticateAccessTokenContext).not.toHaveBeenCalled();
-    expect(result).toMatchObject({ contractVersion: 2, tokenId: "d94b40c7-33e6-41e7-89ad-22b3a1c81629", service: { id: chatServiceId, audience: "chat-backend" } });
+    expect(result).toMatchObject({ contractVersion: 2, tokenId: "d94b40c7-33e6-41e7-89ad-22b3a1c81629", accessTokenIssuedAt: expect.any(Number), service: { id: chatServiceId, audience: "chat-backend" } });
   });
 });

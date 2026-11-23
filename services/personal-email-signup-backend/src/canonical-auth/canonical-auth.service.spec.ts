@@ -264,6 +264,7 @@ describe("CanonicalAuthService Chat-scoped access tokens", () => {
     sid: sessionId,
     jti: "d3b9c5d0-e835-4721-a34a-1b4e4e744836",
     typ: "chat-access",
+    iat: Math.floor(Date.now() / 1000) - 10,
     exp: expiry,
   })) {
     const jwt = { verify, sign: jest.fn().mockReturnValue("chat-scoped.jwt") };
@@ -314,7 +315,7 @@ describe("CanonicalAuthService Chat-scoped access tokens", () => {
   it("validates only Chat audience tokens against the canonical live session", async () => {
     const { service, jwt } = createChatTokenService();
     await expect(service.authenticateChatAccessTokenContext("chat.jwt")).resolves.toMatchObject({
-      principal: { subject }, sessionId, tokenId: "d3b9c5d0-e835-4721-a34a-1b4e4e744836", accessTokenExpiresAt: expiry,
+      principal: { subject }, sessionId, tokenId: "d3b9c5d0-e835-4721-a34a-1b4e4e744836", accessTokenIssuedAt: expect.any(Number), accessTokenExpiresAt: expiry,
     });
     expect(jwt.verify).toHaveBeenCalledWith("chat.jwt", {
       issuer: "r3-canonical-identity", audience: "chat-backend", algorithms: ["HS256"],

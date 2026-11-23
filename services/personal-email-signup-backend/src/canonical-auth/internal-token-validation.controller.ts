@@ -105,6 +105,9 @@ export class InternalTokenValidationController {
       emailVerified: verified.principal.emailVerified,
       accessTokenExpiresAt: verified.accessTokenExpiresAt,
       ...("tokenId" in verified ? { tokenId: verified.tokenId } : {}),
+      ...("accessTokenIssuedAt" in verified
+        ? { accessTokenIssuedAt: verified.accessTokenIssuedAt }
+        : {}),
       service,
     };
   }

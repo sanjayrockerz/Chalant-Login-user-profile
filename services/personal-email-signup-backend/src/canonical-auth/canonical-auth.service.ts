@@ -543,12 +543,13 @@ export class CanonicalAuthService {
   /** Auth-only verification for Chat-scoped tokens received through v2 introspection. */
   async authenticateChatAccessTokenContext(
     token: string,
-  ): Promise<AuthenticatedSessionContext & { tokenId: string }> {
+  ): Promise<AuthenticatedSessionContext & { tokenId: string; accessTokenIssuedAt: number }> {
     let payload: {
       sub?: string;
       sid?: string;
       typ?: string;
       jti?: string;
+      iat?: number;
       exp?: number;
     };
     try {
@@ -566,6 +567,9 @@ export class CanonicalAuthService {
       !payload.sid ||
       typeof payload.jti !== "string" ||
       !payload.jti ||
+      typeof payload.iat !== "number" ||
+      !Number.isSafeInteger(payload.iat) ||
+      payload.iat > Math.floor(Date.now() / 1000) ||
       typeof payload.exp !== "number" ||
       !Number.isSafeInteger(payload.exp) ||
       payload.exp <= Math.floor(Date.now() / 1000)
@@ -596,6 +600,7 @@ export class CanonicalAuthService {
         principal,
         sessionId: payload.sid,
         tokenId: payload.jti,
+        accessTokenIssuedAt: payload.iat,
         accessTokenExpiresAt: payload.exp,
       };
     } catch (error: unknown) {
