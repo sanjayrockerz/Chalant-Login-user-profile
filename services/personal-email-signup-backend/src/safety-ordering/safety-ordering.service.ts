@@ -2,6 +2,7 @@ import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  OnModuleInit,
   NotFoundException,
   Optional,
   ServiceUnavailableException,
@@ -12,7 +13,7 @@ import {
   SafetyOperationState,
   SafetyOperationType,
 } from "@prisma/client";
-import { createHash } from "crypto";
+import { createHash, createPrivateKey } from "crypto";
 import * as jwt from "jsonwebtoken";
 import { PrismaService } from "../../prisma/prisma.module";
 import {
@@ -66,12 +67,32 @@ interface WaiterSnapshot {
 }
 
 @Injectable()
-export class SafetyOrderingService {
+export class SafetyOrderingService implements OnModuleInit {
   constructor(
     private readonly prisma: PrismaService,
     @Optional() private readonly profilePairState?: ProfilePairStateClient,
     @Optional() private readonly chatMatchJournal?: ChatMatchJournalClient,
   ) {}
+
+  onModuleInit(): void {
+    if (!this.disclosureEnabled()) return;
+    const privateKey = process.env.AUTH_DISCLOSURE_PERMIT_PRIVATE_KEY?.replace(
+      /\\n/g,
+      "\n",
+    );
+    if (!privateKey) {
+      throw new ServiceUnavailableException(
+        "AUTH_DISCLOSURE_PERMIT_PRIVATE_KEY is required when DISCLOSURE is enabled",
+      );
+    }
+    try {
+      createPrivateKey(privateKey);
+    } catch {
+      throw new ServiceUnavailableException(
+        "AUTH_DISCLOSURE_PERMIT_PRIVATE_KEY is invalid",
+      );
+    }
+  }
 
   async runAccountMutation<T>(input: AuthAccountMutation): Promise<T> {
     if (!/^[a-f0-9]{64}$/i.test(input.commandHash)) {
@@ -213,19 +234,16 @@ export class SafetyOrderingService {
 
   async reserveMatch(caller: SafetyCaller, input: MatchReservationDto) {
     const commitmentTestEnabled = this.matchCommitmentTestEnabled();
+    const productionMatchEnabled = this.matchProductionEnabled();
     if (
       caller.id !== "chat-backend-service" ||
       caller.scope !== "safety:operations:match:reserve"
     ) {
       throw new ForbiddenException("Chat MATCH reservation scope is required");
     }
-    if (
-      process.env.NODE_ENV !== "test" ||
-      process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED !== "true" ||
-      process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE !== "true"
-    ) {
+    if (!this.matchTestSourceCheckEnabled() && !productionMatchEnabled) {
       throw new ServiceUnavailableException(
-        "MATCH source checking is test-only until Chat atomic commitment is enabled",
+        "MATCH source checking is disabled or incompletely configured",
       );
     }
     if (!this.profilePairState) {
@@ -286,7 +304,9 @@ export class SafetyOrderingService {
       proposalId: input.proposalId.toLowerCase(),
       chatOperationId: input.chatOperationId.toLowerCase(),
       participants,
-      policyState: "OWNER_APPROVED_SOURCE_CHECK_TEST_ONLY",
+      policyState: commitmentTestEnabled
+        ? "OWNER_APPROVED_SOURCE_CHECK_TEST_ONLY"
+        : "OWNER_APPROVED_SOURCE_CHECK_AND_MATCH_COMMITMENT_V1",
       eligibilityPolicy: "VERIFIED_ACTIVE_ACCOUNT_AND_ORIGINATING_SESSION_V1",
     };
     const commandHash = createHash("sha256")
@@ -307,7 +327,7 @@ export class SafetyOrderingService {
       return this.matchSourceCheckResult(
         operation,
         true,
-        commitmentTestEnabled,
+        commitmentTestEnabled || productionMatchEnabled,
       );
     }
     if (operation.state !== "HELD" && operation.state !== "RECOVERY_REQUIRED") {
@@ -460,10 +480,12 @@ export class SafetyOrderingService {
         readConsistency: pairState.readConsistency,
       },
       eligibility: {
-        sourceCheckOnly: !commitmentTestEnabled,
+        sourceCheckOnly: !(commitmentTestEnabled || productionMatchEnabled),
         ...(commitmentTestEnabled
           ? { permitPolicy: "C17_DISPOSABLE_MATCH_V1" }
-          : {}),
+          : productionMatchEnabled
+            ? { permitPolicy: "MATCH_V1" }
+            : {}),
         emailVerificationPolicy: "OWNER_APPROVED_BOTH_VERIFIED",
         originatingSessionPolicy: "OWNER_APPROVED_EXACT_ACTIVE_AUTH_SESSION",
         sessions: Object.fromEntries(
@@ -529,7 +551,7 @@ export class SafetyOrderingService {
     return this.matchSourceCheckResult(
       checked,
       checked.state === "CHECKED",
-      commitmentTestEnabled,
+      commitmentTestEnabled || productionMatchEnabled,
     );
   }
 
@@ -545,11 +567,7 @@ export class SafetyOrderingService {
         "Chat DISCLOSURE reservation scope is required",
       );
     }
-    const enabled =
-      process.env.NODE_ENV === "test" &&
-      process.env.AUTH_DISCLOSURE_ENABLED === "true" &&
-      process.env.AUTH_DISCLOSURE_TEST_MODE === "true";
-    if (!enabled) {
+    if (!this.disclosureEnabled()) {
       throw new ServiceUnavailableException(
         "DISCLOSURE authorization is disabled",
       );
@@ -557,6 +575,11 @@ export class SafetyOrderingService {
     if (!this.profilePairState || !this.chatMatchJournal) {
       throw new ServiceUnavailableException(
         "DISCLOSURE source authorities are unavailable",
+      );
+    }
+    if (!process.env.AUTH_DISCLOSURE_PERMIT_PRIVATE_KEY?.trim()) {
+      throw new ServiceUnavailableException(
+        "DISCLOSURE permit signing is not configured",
       );
     }
 
@@ -577,7 +600,7 @@ export class SafetyOrderingService {
       roomId,
       requesterSubject,
       participantSubjects,
-      policy: "DISCLOSURE_TEST_ONLY_V1",
+      policy: "DISCLOSURE_V1",
     };
     const commandHash = createHash("sha256")
       .update(this.stableJson(metadata))
@@ -598,7 +621,6 @@ export class SafetyOrderingService {
         operationId: operation.operationId,
         state: operation.state,
         permitIssued: false,
-        testOnly: true,
       };
     }
     if (!["HELD", "RECOVERY_REQUIRED", "CHECKED"].includes(operation.state)) {
@@ -606,7 +628,6 @@ export class SafetyOrderingService {
         operationId: operation.operationId,
         state: operation.state,
         permitIssued: false,
-        testOnly: true,
       };
     }
 
@@ -688,7 +709,7 @@ export class SafetyOrderingService {
           fenceEpochs: this.jsonRecord(persistedOperation.fenceEpochs),
           sourceRevisions,
           requestHash: persistedOperation.requestHash,
-          testOnly: true,
+          policy: "DISCLOSURE_V1",
         };
         const disclosureToken = jwt.sign(permitClaims, privateKey, {
           algorithm: "RS256",
@@ -709,7 +730,6 @@ export class SafetyOrderingService {
             permitId,
             token: disclosureToken,
           },
-          testOnly: true,
         };
       }
     }
@@ -781,7 +801,7 @@ export class SafetyOrderingService {
         operation,
         failureCode,
       );
-      return { ...denied, permitIssued: false, testOnly: true };
+      return { ...denied, permitIssued: false };
     }
 
     const sourceRevisions = {
@@ -865,7 +885,7 @@ export class SafetyOrderingService {
       fenceEpochs: this.jsonRecord(operation.fenceEpochs),
       sourceRevisions,
       requestHash: persistedOperation.requestHash,
-      testOnly: true,
+      policy: "DISCLOSURE_V1",
     };
     const disclosureToken = jwt.sign(permitClaims, privateKey, {
       algorithm: "RS256",
@@ -882,7 +902,6 @@ export class SafetyOrderingService {
       state: "CHECKED",
       permitIssued: true,
       disclosurePermit: { ...permitClaims, permitId, token: disclosureToken },
-      testOnly: true,
     };
   }
 
@@ -895,11 +914,7 @@ export class SafetyOrderingService {
         "Chat DISCLOSURE finalization scope is required",
       );
     }
-    if (
-      process.env.NODE_ENV !== "test" ||
-      process.env.AUTH_DISCLOSURE_ENABLED !== "true" ||
-      process.env.AUTH_DISCLOSURE_TEST_MODE !== "true"
-    ) {
+    if (!this.disclosureEnabled()) {
       throw new ServiceUnavailableException(
         "DISCLOSURE finalization is disabled",
       );
@@ -2123,7 +2138,8 @@ export class SafetyOrderingService {
   private matchSourceCheckResult(
     operation: any,
     reused: boolean,
-    commitmentTestEnabled = this.matchCommitmentTestEnabled(),
+    commitmentTestEnabled = this.matchCommitmentTestEnabled() ||
+      this.matchProductionEnabled(),
   ) {
     const matchPermit = commitmentTestEnabled
       ? this.matchPermitForOperation(operation)
@@ -2136,7 +2152,7 @@ export class SafetyOrderingService {
       sourceCheckReused: reused,
       permitIssued: matchPermit !== null,
       matchPermit,
-      testOnly: true,
+      ...(this.matchCommitmentTestEnabled() ? { testOnly: true } : {}),
       ...(matchPermit
         ? {}
         : {
@@ -2148,11 +2164,52 @@ export class SafetyOrderingService {
     };
   }
 
+  private disclosureEnabled(): boolean {
+    const value = process.env.AUTH_DISCLOSURE_ENABLED;
+    if (value !== undefined && value !== "true" && value !== "false") {
+      throw new ServiceUnavailableException(
+        "AUTH_DISCLOSURE_ENABLED must be true or false",
+      );
+    }
+    return value === "true";
+  }
+
   private matchCommitmentTestEnabled(): boolean {
     return (
       process.env.NODE_ENV === "test" &&
       process.env.AUTH_MATCH_COMMITMENT_ENABLED === "true" &&
       process.env.AUTH_MATCH_COMMITMENT_TEST_MODE === "true"
+    );
+  }
+
+  private matchTestSourceCheckEnabled(): boolean {
+    return (
+      process.env.NODE_ENV === "test" &&
+      process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED === "true" &&
+      process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE === "true"
+    );
+  }
+
+  private matchProductionEnabled(): boolean {
+    const source = process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED;
+    const commitment = process.env.AUTH_MATCH_COMMITMENT_ENABLED;
+    const testMode = process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE;
+    const commitmentTestMode = process.env.AUTH_MATCH_COMMITMENT_TEST_MODE;
+    if (
+      [source, commitment, testMode, commitmentTestMode].some(
+        (value) => value !== undefined && value !== "true" && value !== "false",
+      )
+    ) {
+      throw new ServiceUnavailableException(
+        "Auth MATCH flags must be exactly true or false",
+      );
+    }
+    return (
+      process.env.NODE_ENV === "production" &&
+      source === "true" &&
+      commitment === "true" &&
+      testMode !== "true" &&
+      commitmentTestMode !== "true"
     );
   }
 
@@ -2163,7 +2220,7 @@ export class SafetyOrderingService {
     const metadata = operation.requestMetadata;
     const sourceRevisions = operation.sourceRevisions;
     if (
-      !this.matchCommitmentTestEnabled() ||
+      !(this.matchCommitmentTestEnabled() || this.matchProductionEnabled()) ||
       (operation.operationType !== "MATCH" && operation.type !== "MATCH") ||
       operation.state !== "CHECKED" ||
       !metadata ||
@@ -2173,8 +2230,10 @@ export class SafetyOrderingService {
       typeof sourceRevisions !== "object" ||
       Array.isArray(sourceRevisions) ||
       (sourceRevisions as any).eligibility?.sourceCheckOnly !== false ||
-      (sourceRevisions as any).eligibility?.permitPolicy !==
-        "C17_DISPOSABLE_MATCH_V1"
+      (this.matchCommitmentTestEnabled()
+        ? (sourceRevisions as any).eligibility?.permitPolicy !==
+          "C17_DISPOSABLE_MATCH_V1"
+        : (sourceRevisions as any).eligibility?.permitPolicy !== "MATCH_V1")
     ) {
       return null;
     }
@@ -2198,7 +2257,9 @@ export class SafetyOrderingService {
       permitId: createHash("sha256")
         .update(this.stableJson(binding))
         .digest("hex"),
-      testOnly: true,
+      ...(this.matchCommitmentTestEnabled()
+        ? { testOnly: true }
+        : { policy: "MATCH_V1" }),
     };
   }
 

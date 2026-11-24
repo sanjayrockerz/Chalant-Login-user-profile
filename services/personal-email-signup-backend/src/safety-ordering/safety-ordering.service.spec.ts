@@ -36,6 +36,31 @@ describe("SafetyOrderingService Chat verification", () => {
     scope: "safety:operations:chat:inspect",
   };
 
+  it("enables DISCLOSURE only with its explicit flag, independent of NODE_ENV", () => {
+    const previous = {
+      nodeEnv: process.env.NODE_ENV,
+      enabled: process.env.AUTH_DISCLOSURE_ENABLED,
+    };
+    const instance = serviceFor(operation) as any;
+    try {
+      process.env.NODE_ENV = "production";
+      delete process.env.AUTH_DISCLOSURE_ENABLED;
+      expect(instance.disclosureEnabled()).toBe(false);
+      process.env.AUTH_DISCLOSURE_ENABLED = "true";
+      expect(instance.disclosureEnabled()).toBe(true);
+      process.env.AUTH_DISCLOSURE_ENABLED = "enabled";
+      expect(() => instance.disclosureEnabled()).toThrow(
+        "AUTH_DISCLOSURE_ENABLED must be true or false",
+      );
+    } finally {
+      if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previous.nodeEnv;
+      if (previous.enabled === undefined)
+        delete process.env.AUTH_DISCLOSURE_ENABLED;
+      else process.env.AUTH_DISCLOSURE_ENABLED = previous.enabled;
+    }
+  });
+
   it("allows Chat to inspect exact pair subjects and the held resource epoch", async () => {
     const result = await serviceFor(operation).getOperationForChat(
       operationId,
@@ -91,6 +116,8 @@ describe("SafetyOrderingService Chat verification", () => {
       nodeEnv: process.env.NODE_ENV,
       enabled: process.env.AUTH_MATCH_COMMITMENT_ENABLED,
       testMode: process.env.AUTH_MATCH_COMMITMENT_TEST_MODE,
+      sourceEnabled: process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED,
+      sourceTestMode: process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE,
     };
     process.env.NODE_ENV = "test";
     process.env.AUTH_MATCH_COMMITMENT_ENABLED = "true";
@@ -152,6 +179,28 @@ describe("SafetyOrderingService Chat verification", () => {
       expect(
         (serviceFor(null) as any).matchPermitForOperation(match),
       ).toBeNull();
+      process.env.NODE_ENV = "production";
+      process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED = "true";
+      process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE = "false";
+      process.env.AUTH_MATCH_COMMITMENT_TEST_MODE = "false";
+      process.env.AUTH_MATCH_COMMITMENT_ENABLED = "true";
+      const productionMatch = {
+        ...match,
+        sourceRevisions: {
+          ...match.sourceRevisions,
+          eligibility: { sourceCheckOnly: false, permitPolicy: "MATCH_V1" },
+        },
+      };
+      const productionPermit = (
+        serviceFor(null) as any
+      ).matchPermitForOperation(productionMatch);
+      expect(productionPermit).toMatchObject({
+        policy: "MATCH_V1",
+        operationId,
+        proposalId: match.requestMetadata.proposalId,
+      });
+      expect(productionPermit).not.toHaveProperty("testOnly");
+      expect(productionPermit.permitId).toMatch(/^[a-f0-9]{64}$/);
     } finally {
       if (previous.nodeEnv === undefined) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previous.nodeEnv;
@@ -161,6 +210,13 @@ describe("SafetyOrderingService Chat verification", () => {
       if (previous.testMode === undefined)
         delete process.env.AUTH_MATCH_COMMITMENT_TEST_MODE;
       else process.env.AUTH_MATCH_COMMITMENT_TEST_MODE = previous.testMode;
+      if (previous.sourceEnabled === undefined)
+        delete process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED;
+      else process.env.AUTH_MATCH_SOURCE_CHECK_ENABLED = previous.sourceEnabled;
+      if (previous.sourceTestMode === undefined)
+        delete process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE;
+      else
+        process.env.AUTH_MATCH_SOURCE_CHECK_TEST_MODE = previous.sourceTestMode;
     }
   });
 
