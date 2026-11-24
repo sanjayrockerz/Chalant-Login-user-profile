@@ -1,7 +1,7 @@
 {
   "baselineId": "20261009160000_canonical_schema",
   "schemaPath": "prisma/auth.schema.prisma",
-  "schemaSha256": "eba756715923e112e14e46bf65ffa05d048d5dad917064a83271d2e0c2788aa6",
+  "schemaSha256": "e9b24591d7e4ebd9ddf17b4c65f9352ed6a91eb446c6ef5945c9f1b0632c9956",
   "authority": "canonical-prisma-schema",
   "freshInstallCommand": "npm run migration:fresh:init",
   "historicalPolicy": "immutable-legacy-migrations",
@@ -27,6 +27,9 @@
     "20261023120000_chat_profile_provisioning_outbox": "85a4730979596a56ece449d02a9297cec34ca27b3154800c42f735574f4c5222",
     "20250517120000_repair_contact_and_performance_indexes": "f0e702a6afa33c11a65c63d6a81fc373dfae87be1f08e9a3a015f2a67ebfd1eb",
     "20261024120000_auth_account_status_admin": "a39f1254764c3dffd6450cf8bfacaad947e421952a88ca711201dee0d7d16429",
-    "20261116120000_password_recovery_consumption": "4b9b010136c079b616ef40f1f4ed7e311bfd96a490699a3a628e517c1a3265e3"
+    "20261116120000_password_recovery_consumption": "4b9b010136c079b616ef40f1f4ed7e311bfd96a490699a3a628e517c1a3265e3",
+    "20261121170000_safety_ordering_coordinator_foundation": "35c4d2ea10a30684ed1261a94ad9c3f815253794128f049d0e19bd7b98c6d4b6",
+    "20261121190000_auth_account_status_safety_fence": "9e7f17ea600125cc1b12e4d2675c193560d1a795c82cf49a19bfd0f603f0ddd0",
+    "20261122130000_soc_match_request_binding": "9bb6ca96c42e9961368e31e50b89108c875a412d943289acc53ade8f646bb165"
   }
 }

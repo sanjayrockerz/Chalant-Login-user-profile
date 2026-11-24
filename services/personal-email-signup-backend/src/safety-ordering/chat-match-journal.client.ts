@@ -29,6 +29,13 @@ export interface ChatMatchProposalParticipantBinding {
   originatingSessionId: string;
 }
 
+export interface ChatDisclosureBinding {
+  operationId: string;
+  roomId: string;
+  requesterSubject: string;
+  participantSubjects: string[];
+}
+
 @Injectable()
 export class ChatMatchJournalClient {
   constructor(
@@ -103,11 +110,59 @@ export class ChatMatchJournalClient {
     );
     if (
       result.operationId !== operationId ||
-      !["COMMITTED", "ABORTED"].includes(String(result.state))
+      typeof result.state !== "string" ||
+      !["COMMITTED", "ABORTED"].includes(result.state)
     ) {
       throw new ConflictException(
         "Chat returned an invalid MATCH journal state",
       );
+    }
+    return result;
+  }
+
+  async inspectDisclosure(
+    binding: ChatDisclosureBinding,
+  ): Promise<Record<string, unknown>> {
+    const path =
+      "/api/v1/internal/v1/anon-chat/safety/disclosure-operations/inspect";
+    const result = await this.request(path, binding, "chat:disclosure:inspect");
+    const participants = [...binding.participantSubjects]
+      .map((value) => value.toLowerCase())
+      .sort();
+    if (
+      result.operationId !== binding.operationId ||
+      result.roomId !== binding.roomId ||
+      result.requesterSubject !== binding.requesterSubject ||
+      !Array.isArray(result.participantSubjects) ||
+      this.canonicalJson(result.participantSubjects) !==
+        this.canonicalJson(participants) ||
+      result.source === "REDIS" ||
+      typeof result.state !== "string" ||
+      !["ELIGIBLE", "DENIED"].includes(result.state)
+    ) {
+      throw new ConflictException(
+        "Chat returned invalid durable DISCLOSURE state",
+      );
+    }
+    return result;
+  }
+
+  async verifyDisclosure(
+    operationId: string,
+  ): Promise<Record<string, unknown>> {
+    const path =
+      "/api/v1/internal/v1/anon-chat/safety/disclosure-operations/verify";
+    const result = await this.request(
+      path,
+      { operationId },
+      "chat:disclosure:receipt:verify",
+    );
+    if (
+      result.operationId !== operationId ||
+      typeof result.state !== "string" ||
+      !["COMMITTED", "ABORTED"].includes(result.state)
+    ) {
+      throw new ConflictException("Chat returned invalid DISCLOSURE receipt");
     }
     return result;
   }

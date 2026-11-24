@@ -79,6 +79,23 @@ export class MatchReservationDto {
   participants!: MatchParticipantBindingDto[];
 }
 
+export class DisclosureReservationDto {
+  @IsUUID()
+  operationId!: string;
+
+  @IsUUID()
+  roomId!: string;
+
+  @IsUUID()
+  requesterSubject!: string;
+
+  @IsArray()
+  @ArrayMinSize(2)
+  @ArrayMaxSize(2)
+  @IsUUID(undefined, { each: true })
+  participantSubjects!: string[];
+}
+
 export class SafetyReceiptDto {
   @IsString()
   @Length(1, 128)

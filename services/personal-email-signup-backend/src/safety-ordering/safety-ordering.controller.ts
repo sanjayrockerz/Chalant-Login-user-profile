@@ -14,6 +14,7 @@ import {
 } from "@nestjs/common";
 import {
   CreateSafetyOperationDto,
+  DisclosureReservationDto,
   MatchReservationDto,
   SafetyDenyDto,
   SafetyRecoveryRequiredDto,
@@ -69,6 +70,23 @@ export class SafetyOrderingController {
       "safety:operations:match:reserve",
     );
     return this.safety.reserveMatch(caller, body);
+  }
+
+  @Post("disclosure-reservations")
+  @HttpCode(HttpStatus.OK)
+  async reserveDisclosure(
+    @Body() body: DisclosureReservationDto,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    const path = `${BASE_PATH}/disclosure-reservations`;
+    const caller = await this.authorize(
+      "POST",
+      path,
+      body,
+      headers,
+      "safety:operations:disclosure:reserve",
+    );
+    return this.safety.reserveDisclosure(caller, body);
   }
 
   @Get("recovery/work")
@@ -193,6 +211,23 @@ export class SafetyOrderingController {
       "safety:operations:finalize",
     );
     return this.safety.finalizeMatch(caller, operationId);
+  }
+
+  @Post(":operationId/finalize-disclosure")
+  @HttpCode(HttpStatus.OK)
+  async finalizeDisclosure(
+    @Param("operationId", new ParseUUIDPipe()) operationId: string,
+    @Headers() headers: Record<string, string | string[] | undefined>,
+  ) {
+    const path = `${BASE_PATH}/${operationId}/finalize-disclosure`;
+    const caller = await this.authorize(
+      "POST",
+      path,
+      null,
+      headers,
+      "safety:operations:disclosure:finalize",
+    );
+    return this.safety.finalizeDisclosure(caller, operationId);
   }
 
   @Post(":operationId/abort-match")
