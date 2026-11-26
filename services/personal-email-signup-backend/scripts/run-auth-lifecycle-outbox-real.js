@@ -77,6 +77,7 @@ try {
       path.join(packageRoot, "node_modules", "jest", "bin", "jest.js"),
       "--runTestsByPath",
       "src/canonical-auth/chat-profile-outbox.worker.integration.spec.ts",
+      "src/canonical-auth/chat-profile-outbox.failure-isolation.integration.spec.ts",
       "--runInBand",
       "--detectOpenHandles",
     ],

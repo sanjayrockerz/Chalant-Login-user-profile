@@ -57,8 +57,8 @@ function safeDatabaseTarget(rawUrl) {
     throw new Error("Auth lifecycle evidence requires loopback PostgreSQL");
   }
   const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
-  if (!/^phase1_[a-z0-9_]+$/i.test(database)) {
-    throw new Error("database name must use the phase1_ disposable prefix");
+  if (!/^(?:phase1|b2c8)_[a-z0-9_]+$/i.test(database)) {
+    throw new Error("database name must use an approved disposable prefix");
   }
   return rawUrl;
 }
@@ -167,6 +167,50 @@ async function main(argv = process.argv.slice(2)) {
   });
   await client.connect();
   try {
+    const target = new URL(connectionString);
+    const database = decodeURIComponent(target.pathname.replace(/^\//, ""));
+    if (database.startsWith("b2c8_")) {
+      const maintenanceUrl = process.env.AUTH_LIFECYCLE_OUTBOX_MAINTENANCE_URL;
+      const runId = process.env.AUTH_LIFECYCLE_OUTBOX_RUN_ID;
+      if (!maintenanceUrl || !runId)
+        throw new Error(
+          "run-bound maintenance URL and run ID are required for b2c8 evidence",
+        );
+      const maintenanceTarget = new URL(maintenanceUrl);
+      if (
+        maintenanceTarget.hostname !== target.hostname ||
+        maintenanceTarget.port !== target.port ||
+        decodeURIComponent(maintenanceTarget.pathname.replace(/^\//, "")) !==
+          database
+      ) {
+        throw new Error(
+          "outbox evidence maintenance target does not match its disposable database",
+        );
+      }
+      const maintenance = new Client({
+        connectionString: maintenanceUrl,
+        connectionTimeoutMillis: 3000,
+      });
+      await maintenance.connect();
+      try {
+        const marker = await maintenance.query(
+          `SELECT marker.run_id::text AS run_id, role.rolsuper AS is_superuser
+             FROM public.__codex_acceptance_run marker
+             JOIN pg_roles role ON role.rolname = current_user`,
+        );
+        if (
+          marker.rowCount !== 1 ||
+          marker.rows[0]?.run_id !== runId ||
+          marker.rows[0]?.is_superuser !== true
+        ) {
+          throw new Error(
+            "outbox evidence requires the active run-bound database owner",
+          );
+        }
+      } finally {
+        await maintenance.end();
+      }
+    }
     const timeoutMs = boundedInteger(
       options["timeout-ms"],
       30000,

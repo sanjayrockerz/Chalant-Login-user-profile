@@ -11,6 +11,7 @@ import { AddressInfo } from "net";
 import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 import { join, resolve } from "path";
+import { Client } from "pg";
 import { ChatProfileOutboxWorker } from "./chat-profile-outbox.worker";
 import { PrismaService } from "../../prisma/prisma.module";
 
@@ -41,6 +42,7 @@ const enabled =
     let connected = false;
     let server: ReturnType<typeof createServer>;
     let worker: ChatProfileOutboxWorker;
+    let maintenance: Client;
     let acknowledgementTrigger: string | undefined;
     let acknowledgementFunction: string | undefined;
     const requests: Array<{
@@ -74,6 +76,27 @@ const enabled =
       prisma = new PrismaService();
       await prisma.$connect();
       connected = true;
+      const maintenanceUrl = process.env.AUTH_LIFECYCLE_OUTBOX_MAINTENANCE_URL;
+      const runId = process.env.AUTH_LIFECYCLE_OUTBOX_RUN_ID;
+      if (!maintenanceUrl || !runId)
+        throw new Error(
+          "Run-bound maintenance URL and acceptance run ID are required",
+        );
+      maintenance = new Client({ connectionString: maintenanceUrl });
+      await maintenance.connect();
+      const marker = await maintenance.query(
+        `SELECT marker.run_id::text AS run_id, role.rolsuper AS is_superuser
+           FROM public.__codex_acceptance_run marker
+           JOIN pg_roles role ON role.rolname = current_user`,
+      );
+      if (
+        marker.rowCount !== 1 ||
+        marker.rows[0]?.run_id !== runId ||
+        marker.rows[0]?.is_superuser !== true
+      )
+        throw new Error(
+          "Outbox test maintenance connection is not the guarded run owner",
+        );
       server = createServer(
         {
           key: readFileSync(keyPath),
@@ -123,24 +146,29 @@ const enabled =
           return undefined;
         },
       };
-      worker = new ChatProfileOutboxWorker(prisma, prisma as never, config as never);
+      worker = new ChatProfileOutboxWorker(
+        prisma,
+        prisma as never,
+        config as never,
+      );
     });
 
     afterAll(async () => {
       if (connected) {
         if (acknowledgementTrigger) {
-          await prisma.$executeRawUnsafe(
+          await maintenance.query(
             `DROP TRIGGER IF EXISTS "${acknowledgementTrigger}" ON "chat_profile_provisioning_outbox"`,
           );
         }
         if (acknowledgementFunction) {
-          await prisma.$executeRawUnsafe(
+          await maintenance.query(
             `DROP FUNCTION IF EXISTS "${acknowledgementFunction}"()`,
           );
         }
         await prisma.outboxEvent.deleteMany({ where: { id: eventId } });
         await prisma.$disconnect();
       }
+      if (maintenance) await maintenance.end();
       if (server?.listening) {
         await new Promise<void>((resolve, reject) =>
           server.close((error) => (error ? reject(error) : resolve())),
@@ -169,13 +197,13 @@ const enabled =
       expect(failedRow.deliveredAt).toBeNull();
       expect(failedRow.attempts).toBe(1);
       expect(failedRow.claimToken).toBeNull();
-      expect(failedRow.lastError).toBe("Chat returned HTTP 503");
+      expect(failedRow.lastError).toBe("Realtime returned HTTP 503");
       expect(requests).toHaveLength(1);
 
       const suffix = eventId.split("-").join("");
       acknowledgementFunction = `codex_outbox_ack_fail_${suffix}`;
       acknowledgementTrigger = `codex_outbox_ack_fail_trigger_${suffix}`;
-      await prisma.$executeRawUnsafe(`
+      await maintenance.query(`
         CREATE FUNCTION "${acknowledgementFunction}"() RETURNS trigger
         LANGUAGE plpgsql AS $$
         BEGIN
@@ -186,7 +214,7 @@ const enabled =
         END;
         $$
       `);
-      await prisma.$executeRawUnsafe(`
+      await maintenance.query(`
         CREATE TRIGGER "${acknowledgementTrigger}"
         BEFORE UPDATE ON "chat_profile_provisioning_outbox"
         FOR EACH ROW EXECUTE FUNCTION "${acknowledgementFunction}"()
@@ -214,13 +242,11 @@ const enabled =
       expect(unacknowledgedRow.lastError).toBeTruthy();
       expect(requests).toHaveLength(2);
 
-      await prisma.$executeRawUnsafe(
+      await maintenance.query(
         `DROP TRIGGER "${acknowledgementTrigger}" ON "chat_profile_provisioning_outbox"`,
       );
       acknowledgementTrigger = undefined;
-      await prisma.$executeRawUnsafe(
-        `DROP FUNCTION "${acknowledgementFunction}"()`,
-      );
+      await maintenance.query(`DROP FUNCTION "${acknowledgementFunction}"()`);
       acknowledgementFunction = undefined;
       await prisma.outboxEvent.update({
         where: { id: eventId },
