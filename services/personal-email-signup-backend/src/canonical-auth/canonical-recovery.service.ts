@@ -79,6 +79,9 @@ export class CanonicalRecoveryService {
     ) {
       return { message: GENERIC_RESPONSE };
     }
+    if (!(await this.isDeletionUnrestricted(user.id))) {
+      return { message: GENERIC_RESPONSE };
+    }
 
     const rawToken = randomBytes(32).toString("base64url");
     const key = this.keyFor(rawToken);
@@ -162,6 +165,9 @@ export class CanonicalRecoveryService {
         !user.isVerified ||
         user.accountStatus !== UserAccountStatus.ACTIVE
       ) {
+        throw new UnauthorizedException("Account is not eligible for recovery");
+      }
+      if (!(await this.isDeletionUnrestricted(user.id))) {
         throw new UnauthorizedException("Account is not eligible for recovery");
       }
 
@@ -304,6 +310,24 @@ export class CanonicalRecoveryService {
         );
       }
     }
+  }
+
+  private async isDeletionUnrestricted(subject: string): Promise<boolean> {
+    const [tombstone, pending] = await Promise.all([
+      this.prisma.accountDeletionTombstone.findUnique({
+        where: { authSubject: subject },
+        select: { authSubject: true },
+      }),
+      this.prisma.$queryRaw<Array<{ restricted: boolean }>>`
+        SELECT EXISTS (
+          SELECT 1 FROM safety_operations
+           WHERE subjects @> ARRAY[${subject}::uuid]
+             AND request_metadata->>'purpose' = 'ACCOUNT_DELETION_V1'
+             AND state IN ('REQUESTED', 'HELD', 'RECOVERY_REQUIRED')
+        ) AS restricted
+      `,
+    ]);
+    return !tombstone && pending[0]?.restricted !== true;
   }
 
   private requireEnabled(): void {

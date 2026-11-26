@@ -17,9 +17,7 @@ export class ConfigService {
         MIN_DECLARED_AGE: parseInt(process.env.MIN_DECLARED_AGE || "13", 10),
         REQUIRE_TERMS_ENFORCE_MODE:
           (process.env.REQUIRE_TERMS_ENFORCE_MODE as
-            | "off"
-            | "warn"
-            | "enforce") || "off",
+            "off" | "warn" | "enforce") || "off",
         ACTIVE_POLICY_VERSION:
           process.env.ACTIVE_POLICY_VERSION || "v2025-10-07-1",
         REQUIRE_USERNAME_NORMALIZATION:
@@ -56,6 +54,22 @@ export class ConfigService {
         AUTH_LIFECYCLE_URL: process.env.AUTH_LIFECYCLE_URL || undefined,
         AUTH_LIFECYCLE_HMAC_SECRET:
           process.env.AUTH_LIFECYCLE_HMAC_SECRET || undefined,
+        AUTH_ACCOUNT_DELETION_ENABLED:
+          process.env.AUTH_ACCOUNT_DELETION_ENABLED === "true",
+        PROFILE_ACCOUNT_DELETION_URL:
+          process.env.PROFILE_ACCOUNT_DELETION_URL || undefined,
+        PROFILE_ACCOUNT_DELETION_CLEANUP_URL:
+          process.env.PROFILE_ACCOUNT_DELETION_CLEANUP_URL || undefined,
+        PROFILE_ACCOUNT_DELETION_HMAC_SECRET:
+          process.env.PROFILE_ACCOUNT_DELETION_HMAC_SECRET || undefined,
+        CHAT_ACCOUNT_DELETION_URL:
+          process.env.CHAT_ACCOUNT_DELETION_URL || undefined,
+        CHAT_ACCOUNT_DELETION_HMAC_SECRET:
+          process.env.CHAT_ACCOUNT_DELETION_HMAC_SECRET || undefined,
+        REALTIME_ACCOUNT_DELETION_URL:
+          process.env.REALTIME_ACCOUNT_DELETION_URL || undefined,
+        REALTIME_ACCOUNT_DELETION_HMAC_SECRET:
+          process.env.REALTIME_ACCOUNT_DELETION_HMAC_SECRET || undefined,
         AUTH_INTROSPECTION_CLIENTS: this.parseIntrospectionClients(),
         AUTH_ADMIN_USER_IDS: process.env.AUTH_ADMIN_USER_IDS,
         REDIS_URL: process.env.REDIS_URL,

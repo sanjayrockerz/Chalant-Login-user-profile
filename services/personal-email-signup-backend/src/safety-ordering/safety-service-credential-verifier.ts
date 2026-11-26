@@ -5,7 +5,7 @@ import {
   UnauthorizedException,
 } from "@nestjs/common";
 import { createHash, createHmac, timingSafeEqual } from "crypto";
-import { PrismaService } from "../../prisma/prisma.module";
+import { AuthSafetyPrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
 import { SafetyCaller } from "./safety-ordering.service";
 
@@ -26,7 +26,7 @@ export interface SafetyRequestHeaders {
 export class SafetyServiceCredentialVerifier {
   constructor(
     private readonly config: ConfigService,
-    private readonly prisma: PrismaService,
+    private readonly prisma: AuthSafetyPrismaService,
   ) {}
 
   async verify(

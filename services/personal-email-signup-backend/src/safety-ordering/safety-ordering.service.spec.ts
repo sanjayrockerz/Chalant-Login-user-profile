@@ -1,6 +1,6 @@
 import { ForbiddenException } from "@nestjs/common";
 import { SafetyCaller, SafetyOrderingService } from "./safety-ordering.service";
-import { PrismaService } from "../../prisma/prisma.module";
+import { AuthSafetyPrismaService } from "../../prisma/prisma.module";
 
 describe("SafetyOrderingService Chat verification", () => {
   const operationId = "00000000-0000-4000-8000-000000000001";
@@ -27,7 +27,7 @@ describe("SafetyOrderingService Chat verification", () => {
   function serviceFor(row: typeof operation | null) {
     return new SafetyOrderingService({
       safetyOperation: { findUnique: jest.fn().mockResolvedValue(row) },
-    } as unknown as PrismaService);
+    } as unknown as AuthSafetyPrismaService);
   }
 
   const chat: SafetyCaller = {
@@ -59,6 +59,26 @@ describe("SafetyOrderingService Chat verification", () => {
         delete process.env.AUTH_DISCLOSURE_ENABLED;
       else process.env.AUTH_DISCLOSURE_ENABLED = previous.enabled;
     }
+  });
+
+  it("replays a finalized void account mutation from its explicit null receipt", async () => {
+    const instance = serviceFor(null) as any;
+    jest.spyOn(instance, "createOrGet").mockResolvedValue({
+      operationId,
+      type: "ACCOUNT_MUTATION",
+      state: "FINALIZED",
+      sourceReceipt: { result: null },
+    });
+    jest.spyOn(instance, "advanceWaiters").mockResolvedValue(undefined);
+
+    await expect(
+      instance.runAccountMutation({
+        operationId,
+        subjectId: a,
+        commandHash: "a".repeat(64),
+        commit: jest.fn(),
+      }),
+    ).resolves.toBeNull();
   });
 
   it("allows Chat to inspect exact pair subjects and the held resource epoch", async () => {

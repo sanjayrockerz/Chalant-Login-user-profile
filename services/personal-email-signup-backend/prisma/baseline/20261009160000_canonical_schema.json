@@ -1,7 +1,7 @@
 {
   "baselineId": "20261009160000_canonical_schema",
   "schemaPath": "prisma/auth.schema.prisma",
-  "schemaSha256": "e9b24591d7e4ebd9ddf17b4c65f9352ed6a91eb446c6ef5945c9f1b0632c9956",
+  "schemaSha256": "334ae459086b41ad65e332fdc45716730855662f38bcc1c63634d6389e880609",
   "authority": "canonical-prisma-schema",
   "freshInstallCommand": "npm run migration:fresh:init",
   "historicalPolicy": "immutable-legacy-migrations",
@@ -30,6 +30,11 @@
     "20261116120000_password_recovery_consumption": "4b9b010136c079b616ef40f1f4ed7e311bfd96a490699a3a628e517c1a3265e3",
     "20261121170000_safety_ordering_coordinator_foundation": "35c4d2ea10a30684ed1261a94ad9c3f815253794128f049d0e19bd7b98c6d4b6",
     "20261121190000_auth_account_status_safety_fence": "9e7f17ea600125cc1b12e4d2675c193560d1a795c82cf49a19bfd0f603f0ddd0",
-    "20261122130000_soc_match_request_binding": "9bb6ca96c42e9961368e31e50b89108c875a412d943289acc53ade8f646bb165"
+    "20261122130000_soc_match_request_binding": "9bb6ca96c42e9961368e31e50b89108c875a412d943289acc53ade8f646bb165",
+    "20261125130000_auth_account_deletion_tombstone": "ad480a16fd6bc7c6203822767434f937a7bb56678dcacb2654f9fc9667a5bcd4",
+    "20261125190000_auth_session_reauthentication_evidence": "7c4e43d78573785a3df50f4a9448c58d032b567e5a18e1c0249d58c3ad1f520e",
+    "20261126160000_auth_user_delete_requires_safety_fence": "0932e01ffd7ab3507387c54dd57b28ef61ab21c4a68b5877e81ae2c7a5d1af47",
+    "20261126170000_auth_account_credential_safety_fence": "5aabc22a89f785aa368eb5a7d753c883385b2822830ac3754bde8550b067056f",
+    "20261126180000_auth_tombstone_reinstatement_guard": "59aa926aff203d225ad2dbd5ae7d6ad3359a16233d21f3faed113467def0e384"
   }
 }

@@ -13,7 +13,7 @@ import { Prisma, UserAccountStatus } from "@prisma/client";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { verify as verifyArgon2 } from "@node-rs/argon2";
 import { compare as compareBcrypt } from "bcryptjs";
-import { PrismaService } from "../../prisma/prisma.module";
+import { AuthSafetyPrismaService, PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
 import { EmailService } from "../email/email.service";
 import { RedisService } from "../redis/redis.service";
@@ -73,6 +73,7 @@ export class CanonicalAuthService {
     private readonly email: EmailService,
     private readonly redis: RedisService,
     @Optional() private readonly safetyOrdering?: SafetyOrderingService,
+    @Optional() private readonly safetyPrisma?: AuthSafetyPrismaService,
   ) {}
 
   async getAccountStatusForChat(authUserId: string): Promise<{
@@ -80,6 +81,7 @@ export class CanonicalAuthService {
     accountStatus: UserAccountStatus;
     version: number;
   }> {
+    await this.assertSubjectNotDeletionRestricted(authUserId);
     const user = await this.prisma.user.findUnique({
       where: { id: authUserId },
       select: { id: true, accountStatus: true, accountStatusVersion: true },
@@ -215,14 +217,14 @@ export class CanonicalAuthService {
     const passwordHash = policy.hash;
 
     try {
-      const user = await this.prisma.$transaction(async (transaction) => {
+      const writer = this.safetyPrisma;
+      if (!writer) throw new ServiceUnavailableException("Auth safety database writer is unavailable");
+      const user = await writer.$transaction(async (transaction) => {
         const created = await transaction.user.create({
           data: {
             email,
             username,
             password: passwordHash,
-            isVerified: false,
-            accountStatus: UserAccountStatus.ACTIVE,
             passwordCredential: { create: { passwordHash } },
           },
           select: this.userSelect,
@@ -277,6 +279,7 @@ export class CanonicalAuthService {
     ) {
       throw new UnauthorizedException("Invalid credentials");
     }
+    await this.assertSubjectNotDeletionRestricted(user.id);
     if (user.accountStatus !== UserAccountStatus.ACTIVE) {
       throw new UnauthorizedException("Invalid credentials");
     }
@@ -541,9 +544,12 @@ export class CanonicalAuthService {
   }
 
   /** Auth-only verification for Chat-scoped tokens received through v2 introspection. */
-  async authenticateChatAccessTokenContext(
-    token: string,
-  ): Promise<AuthenticatedSessionContext & { tokenId: string; accessTokenIssuedAt: number }> {
+  async authenticateChatAccessTokenContext(token: string): Promise<
+    AuthenticatedSessionContext & {
+      tokenId: string;
+      accessTokenIssuedAt: number;
+    }
+  > {
     let payload: {
       sub?: string;
       sid?: string;
@@ -621,7 +627,7 @@ export class CanonicalAuthService {
       where: { id: sessionId },
       select: {
         userId: true,
-        createdAt: true,
+        reauthenticatedAt: true,
         expiresAt: true,
         revokedAt: true,
         user: { select: { accountStatus: true } },
@@ -634,7 +640,8 @@ export class CanonicalAuthService {
       session.user.accountStatus !== UserAccountStatus.ACTIVE ||
       session.revokedAt ||
       session.expiresAt <= new Date() ||
-      Date.now() - session.createdAt.getTime() > recentWindowMs
+      !session.reauthenticatedAt ||
+      Date.now() - session.reauthenticatedAt.getTime() > recentWindowMs
     ) {
       throw new UnauthorizedException("Recent authentication is required");
     }
@@ -746,28 +753,43 @@ export class CanonicalAuthService {
     provider: "GOOGLE" | "APPLE",
   ): Promise<void> {
     const id = toCanonicalUserId(userId);
-    await this.prisma.$transaction(async (transaction) => {
-      const user = await transaction.user.findUnique({
-        where: { id },
-        select: {
-          passwordCredential: { select: { userId: true } },
-          identityLinks: { select: { id: true, provider: true } },
-        },
-      });
-      if (!user) throw new UnauthorizedException("Account is not active");
-      const usableMethods =
-        Number(Boolean(user.passwordCredential)) + user.identityLinks.length;
-      if (usableMethods <= 1) {
-        throw new ConflictException(
-          "At least one usable sign-in method is required",
-        );
-      }
-      const removed = await transaction.userIdentity.deleteMany({
-        where: { userId: id, provider },
-      });
-      if (removed.count !== 1)
-        throw new BadRequestException("Provider is not linked");
+    const identity = await this.prisma.userIdentity.findFirst({
+      where: { userId: id, provider },
+      select: { id: true },
     });
+    if (!identity) throw new BadRequestException("Provider is not linked");
+
+    await this.runAccountSafetyMutation(
+      id,
+      "unlink-provider-credential",
+      `${provider}:${identity.id}`,
+      async (transaction) => {
+        const user = await transaction.user.findUnique({
+          where: { id },
+          select: {
+            passwordCredential: { select: { userId: true } },
+            identityLinks: { select: { id: true, provider: true } },
+          },
+        });
+        if (!user) throw new UnauthorizedException("Account is not active");
+        const usableMethods =
+          Number(Boolean(user.passwordCredential)) + user.identityLinks.length;
+        if (usableMethods <= 1) {
+          throw new ConflictException(
+            "At least one usable sign-in method is required",
+          );
+        }
+        const removed = await transaction.userIdentity.deleteMany({
+          where: { id: identity.id, userId: id, provider },
+        });
+        if (removed.count !== 1) {
+          throw new ConflictException(
+            "Provider credential changed concurrently",
+          );
+        }
+        return { removed: true, provider, identityId: identity.id };
+      },
+    );
   }
 
   async setPasswordForAuthenticatedUser(
@@ -799,7 +821,11 @@ export class CanonicalAuthService {
         violations: policy.violations,
       });
     }
-    await this.prisma.$transaction(async (transaction) => {
+    await this.runAccountSafetyMutation(
+      id,
+      "password-credential-addition",
+      createHash("sha256").update(policy.hash).digest("hex"),
+      async (transaction) => {
       const current = await transaction.user.findUnique({
         where: { id },
         select: { passwordCredential: { select: { userId: true } } },
@@ -813,10 +839,12 @@ export class CanonicalAuthService {
       await transaction.passwordCredential.create({
         data: { userId: id, passwordHash: policy.hash },
       });
-    });
+      },
+    );
   }
 
   async getPrincipal(userId: string): Promise<CanonicalPrincipal> {
+    await this.assertSubjectNotDeletionRestricted(userId);
     const user = await this.prisma.user.findUnique({
       where: { id: toCanonicalUserId(userId) },
       select: this.userSelect,
@@ -828,7 +856,9 @@ export class CanonicalAuthService {
 
   async issueSession(principal: CanonicalPrincipal): Promise<SessionTokens> {
     const prepared = this.prepareSession(principal.subject);
-    await this.prisma.$transaction(async (transaction) => {
+    const writer = this.safetyPrisma;
+    if (!writer) throw new ServiceUnavailableException("Auth safety database writer is unavailable");
+    await writer.$transaction(async (transaction) => {
       await transaction.$queryRaw(
         Prisma.sql`SELECT "id" FROM "User" WHERE "id" = ${principal.subject}::uuid FOR UPDATE`,
       );
@@ -843,6 +873,25 @@ export class CanonicalAuthService {
       ) {
         throw new UnauthorizedException(
           "Account is not eligible for authentication",
+        );
+      }
+      const deletionPending = await transaction.$queryRaw<
+        Array<{ restricted: boolean }>
+      >`
+        SELECT EXISTS (
+          SELECT 1 FROM safety_operations
+           WHERE subjects @> ARRAY[${principal.subject}::uuid]
+             AND request_metadata->>'purpose' = 'ACCOUNT_DELETION_V1'
+             AND state IN ('REQUESTED', 'HELD', 'RECOVERY_REQUIRED')
+        ) AS restricted
+      `;
+      const tombstone = await transaction.accountDeletionTombstone.findUnique({
+        where: { authSubject: principal.subject },
+        select: { authSubject: true },
+      });
+      if (deletionPending[0]?.restricted || tombstone) {
+        throw new UnauthorizedException(
+          "Account is restricted by irreversible deletion",
         );
       }
       await transaction.identitySession.create({
@@ -861,6 +910,7 @@ export class CanonicalAuthService {
       id: string;
       userId: string;
       sessionHash: string;
+      reauthenticatedAt: Date;
       expiresAt: Date;
     };
     tokens: SessionTokens;
@@ -895,6 +945,7 @@ export class CanonicalAuthService {
         id: sessionId,
         userId: subject,
         sessionHash: hashRefreshToken(refreshToken),
+        reauthenticatedAt: new Date(),
         expiresAt: new Date(Date.now() + REFRESH_TTL_MS),
       },
       tokens: {
@@ -987,6 +1038,29 @@ export class CanonicalAuthService {
       commandHash,
       commit,
     });
+  }
+
+  private async assertSubjectNotDeletionRestricted(
+    subjectId: string,
+  ): Promise<void> {
+    const subject = toCanonicalUserId(subjectId);
+    const tombstone = await this.prisma.accountDeletionTombstone.findUnique({
+      where: { authSubject: subject },
+      select: { authSubject: true },
+    });
+    if (tombstone) throw new UnauthorizedException("Invalid credentials");
+    const pending = await this.prisma.$queryRaw<Array<{ restricted: boolean }>>`
+      SELECT EXISTS (
+        SELECT 1
+          FROM safety_operations
+         WHERE subjects @> ARRAY[${subject}::uuid]
+           AND request_metadata->>'purpose' = 'ACCOUNT_DELETION_V1'
+           AND state IN ('REQUESTED', 'HELD', 'RECOVERY_REQUIRED')
+      ) AS restricted
+    `;
+    if (pending[0]?.restricted) {
+      throw new UnauthorizedException("Invalid credentials");
+    }
   }
 
   private requireText(value: string, field: string): string {

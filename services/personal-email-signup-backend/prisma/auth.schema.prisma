@@ -93,7 +93,7 @@ model User {
   phone               String?               @db.VarChar(20)
   phoneVerifiedAt     DateTime?             @map("phone_verified_at")
   hashedPhone         String?               @map("hashed_phone") @db.VarChar(64)
-  allowContactDiscovery Boolean              @map("allow_contact_discovery") @default(false)
+  allowContactDiscovery Boolean                 @default(false) @map("allow_contact_discovery")
   createdAt           DateTime              @default(now())
   updatedAt           DateTime              @updatedAt
   // verificationToken removed: migrated to Redis-backed OTP flow
@@ -111,8 +111,19 @@ model User {
   legacyMappings      LegacyIdentityMapping[]
   policyAcceptances   PolicyAcceptance[]
 
-  @@index([hashedPhone], map: "idx_users_hashed_phone")
   @@unique([phone], map: "users_phone_key")
+  @@index([hashedPhone], map: "idx_users_hashed_phone")
+}
+
+/// Minimal permanent marker that prevents an accepted Auth subject from being
+/// recreated by stale credentials, lifecycle events, recovery or registration.
+/// No direct user relation is intentional so deleting the User row cannot erase it.
+model AccountDeletionTombstone {
+  authSubject       String   @id @map("auth_subject") @db.Uuid
+  lifecycleRevision BigInt   @map("lifecycle_revision")
+  deletedAt         DateTime @default(now()) @map("deleted_at") @db.Timestamptz(6)
+
+  @@map("account_deletion_tombstones")
 }
 
 /// Durable ordering ledger for source-owner coordination. It contains operation
@@ -231,8 +242,8 @@ model UserIdentity {
   provider  IdentityProvider
   issuer    String           @db.VarChar(255)
   subject   String           @db.VarChar(255)
-  createdAt DateTime         @map("created_at") @default(now())
-  updatedAt DateTime         @map("updated_at") @updatedAt
+  createdAt  DateTime         @default(now()) @map("created_at")
+  updatedAt  DateTime         @updatedAt @map("updated_at")
   lastUsedAt DateTime?       @map("last_used_at")
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -246,8 +257,8 @@ model PasswordCredential {
   id           String   @id @default(uuid()) @db.Uuid
   userId       String   @unique @map("user_id") @db.Uuid
   passwordHash String   @map("password_hash")
-  createdAt    DateTime @map("created_at") @default(now())
-  updatedAt    DateTime @map("updated_at") @updatedAt
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("password_credentials")
@@ -258,7 +269,7 @@ model PasswordCredential {
 /// password update and session revocation.
 model PasswordRecoveryConsumption {
   tokenHash  String   @id @map("token_hash") @db.Char(64)
-  consumedAt DateTime @map("consumed_at") @default(now()) @db.Timestamptz
+  consumedAt DateTime @default(now()) @map("consumed_at") @db.Timestamptz
 
   @@map("password_recovery_consumptions")
 }
@@ -268,7 +279,9 @@ model IdentitySession {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @map("user_id") @db.Uuid
   sessionHash String   @unique @map("session_hash") @db.VarChar(128)
-  createdAt  DateTime  @map("created_at") @default(now())
+  createdAt         DateTime  @default(now()) @map("created_at")
+  /// Set only when primary credentials or an external identity provider are verified. Refresh rotation never changes it.
+  reauthenticatedAt DateTime? @map("reauthenticated_at") @db.Timestamptz(6)
   expiresAt  DateTime  @map("expires_at")
   revokedAt  DateTime? @map("revoked_at")
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -284,7 +297,7 @@ model LegacyIdentityMapping {
   userId     String               @map("user_id") @db.Uuid
   source     LegacyIdentitySource
   originalId String               @map("original_id") @db.VarChar(255)
-  createdAt  DateTime             @map("created_at") @default(now())
+  createdAt  DateTime             @default(now()) @map("created_at")
   user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([source, originalId], map: "uniq_legacy_identity_source_original")
@@ -296,7 +309,7 @@ model PolicyAcceptance {
   id            String   @id @default(uuid()) @db.Uuid
   userId        String   @map("user_id") @db.Uuid
   policyVersion String   @map("policy_version") @db.VarChar(64)
-  acceptedAt    DateTime @map("accepted_at") @default(now())
+  acceptedAt    DateTime @default(now()) @map("accepted_at")
   source        String   @default("api") @db.VarChar(32)
   user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -317,15 +330,15 @@ model HashedContact {
   id          Int       @id @default(autoincrement())
   userId      String    @map("user_id") @db.Uuid
   hashedPhone String    @map("hashed_phone") @db.VarChar(64)
-  uploadedAt  DateTime  @map("uploaded_at") @default(now())
+  uploadedAt  DateTime @default(now()) @map("uploaded_at")
   expiresAt   DateTime  @map("expires_at")
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@map("hashed_contacts")
   @@unique([userId, hashedPhone], map: "uniq_hashed_contacts_user_phone")
   @@index([hashedPhone], map: "idx_hashed_contacts_hashed_phone")
   @@index([userId], map: "idx_hashed_contacts_user_id")
   @@index([expiresAt], map: "idx_hashed_contacts_expires_at")
+  @@map("hashed_contacts")
 }
 
 model ContactSuggestion {
@@ -334,32 +347,32 @@ model ContactSuggestion {
   suggestedUserId String     @map("suggested_user_id") @db.Uuid
   matchType       MatchType  @map("match_type")
   matchStrength   Decimal    @map("match_strength") @db.Decimal(4, 3)
-  createdAt       DateTime   @map("created_at") @default(now())
+  createdAt       DateTime  @default(now()) @map("created_at")
   viewedAt        DateTime?  @map("viewed_at")
   acceptedAt      DateTime?  @map("accepted_at")
   stale           Boolean    @default(false)
   user            User       @relation("SuggestionOwner", fields: [userId], references: [id], onDelete: Cascade)
   suggestedUser   User       @relation("SuggestionTarget", fields: [suggestedUserId], references: [id], onDelete: Cascade)
 
-  @@map("contact_suggestions")
   @@unique([userId, suggestedUserId], map: "uniq_contact_suggestions_pair")
   @@index([userId], map: "idx_contact_suggestions_user")
   @@index([userId, matchType], map: "idx_contact_suggestions_user_match_type")
   @@index([suggestedUserId], map: "idx_contact_suggestions_suggested_user")
+  @@map("contact_suggestions")
 }
 
 model Block {
   blockerId String   @map("blocker_id") @db.Uuid
   blockedId String   @map("blocked_id") @db.Uuid
-  createdAt DateTime @map("created_at") @default(now())
+  createdAt DateTime @default(now()) @map("created_at")
 
   blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
   blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
 
   @@id([blockerId, blockedId])
-  @@map("blocks")
   @@index([blockerId], map: "idx_blocks_blocker")
   @@index([blockedId], map: "idx_blocks_blocked")
+  @@map("blocks")
 }
 
 model PushToken {
@@ -371,16 +384,16 @@ model PushToken {
   deviceMetadata  Json?              @map("device_metadata")
   active          Boolean            @default(true)
   lastValidatedAt DateTime?          @map("last_validated_at")
-  createdAt       DateTime           @map("created_at") @default(now())
-  updatedAt       DateTime           @map("updated_at") @updatedAt
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
   user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, token, platform], map: "uniq_push_token_user_token_platform")
-  @@map("push_tokens")
   @@index([userId], map: "idx_push_tokens_user")
   @@index([active, platform], map: "idx_push_tokens_active_platform")
   @@index([lastValidatedAt], map: "idx_push_tokens_last_validated")
+  @@map("push_tokens")
 }
 
 // EmailVerificationToken model removed. Tokens are now stored in Redis and

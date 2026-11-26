@@ -18,7 +18,7 @@ describeDatabase("identity persistence contract", () => {
   beforeAll(() => {
     process.env.DATABASE_URL_AUTH = databaseUrl;
     prisma = new PrismaService();
-    repository = new PrismaIdentityRepository(prisma);
+    repository = new PrismaIdentityRepository(prisma, prisma as never);
     service = new IdentityService(repository);
   });
 

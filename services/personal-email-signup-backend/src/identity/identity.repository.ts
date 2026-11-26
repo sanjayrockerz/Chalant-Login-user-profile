@@ -4,7 +4,7 @@ import {
   Prisma,
   UserAccountStatus,
 } from "@prisma/client";
-import { PrismaService } from "../../prisma/prisma.module";
+import { AuthSafetyPrismaService, PrismaService } from "../../prisma/prisma.module";
 import { IdentityConflictError } from "./identity.errors";
 import { CanonicalUserId, ProviderIdentityKey } from "./identity.types";
 
@@ -76,7 +76,10 @@ function toRecord(user: {
 
 @Injectable()
 export class PrismaIdentityRepository implements IdentityRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly safetyPrisma: AuthSafetyPrismaService,
+  ) {}
 
   async createUser(
     username: string,
@@ -84,13 +87,12 @@ export class PrismaIdentityRepository implements IdentityRepositoryPort {
     passwordHash: string,
   ): Promise<IdentityUserRecord> {
     try {
-      const user = await this.prisma.$transaction(async (transaction) => {
+      const user = await this.safetyPrisma.$transaction(async (transaction) => {
         const created = await transaction.user.create({
           data: {
             username,
             email,
             password: passwordHash,
-            accountStatus: UserAccountStatus.ACTIVE,
             passwordCredential: { create: { passwordHash } },
           },
         });
@@ -121,7 +123,7 @@ export class PrismaIdentityRepository implements IdentityRepositoryPort {
     displayName?: string,
   ): Promise<IdentityUserRecord> {
     try {
-      const user = await this.prisma.$transaction(async (transaction) => {
+      const user = await this.safetyPrisma.$transaction(async (transaction) => {
         const created = await transaction.user.create({
           data: {
             username,
@@ -212,7 +214,7 @@ export class PrismaIdentityRepository implements IdentityRepositoryPort {
     identity: ProviderIdentityKey,
   ): Promise<void> {
     try {
-      await this.prisma.userIdentity.create({
+      await this.safetyPrisma.userIdentity.create({
         data: {
           userId,
           provider: identity.provider,

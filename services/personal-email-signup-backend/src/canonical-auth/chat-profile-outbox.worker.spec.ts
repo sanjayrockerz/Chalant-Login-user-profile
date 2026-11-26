@@ -37,6 +37,7 @@ describe("ChatProfileOutboxWorker", () => {
   };
   let worker: ChatProfileOutboxWorker;
   let nextStatus: number | undefined;
+  let nextBody = "";
   let pendingResponses: Array<(statusCode: number) => void>;
   let requests: Array<{
     url: URL;
@@ -47,12 +48,15 @@ describe("ChatProfileOutboxWorker", () => {
   beforeEach(() => {
     jest.restoreAllMocks();
     nextStatus = 202;
+    nextBody = "";
     pendingResponses = [];
     requests = [];
     (https.request as jest.Mock).mockReset().mockImplementation(((
       url: URL,
       options: https.RequestOptions,
-      callback: (response: NodeJS.ReadableStream & { statusCode?: number }) => void,
+      callback: (
+        response: NodeJS.ReadableStream & { statusCode?: number },
+      ) => void,
     ) => {
       const request = new EventEmitter() as EventEmitter & {
         end: (body: string) => void;
@@ -66,7 +70,7 @@ describe("ChatProfileOutboxWorker", () => {
           };
           response.statusCode = statusCode;
           callback(response);
-          response.end();
+          response.end(nextBody);
         };
         if (nextStatus === undefined) pendingResponses.push(respond);
         else respond(nextStatus);
@@ -103,6 +107,7 @@ describe("ChatProfileOutboxWorker", () => {
     };
     worker = new ChatProfileOutboxWorker(
       prisma as unknown as PrismaService,
+      prisma as never,
       config as never,
     );
   });
@@ -268,5 +273,73 @@ describe("ChatProfileOutboxWorker", () => {
     expect(
       prisma.outboxEvent.updateMany.mock.calls.at(-1)?.[0].data?.deliveredAt,
     ).toBeInstanceOf(Date);
+  });
+
+  it("persists only an authenticated exact-revision Profile cleanup receipt", async () => {
+    const secret = "profile-deletion-secret-with-at-least-32-characters";
+    const payload = {
+      eventType: "auth.account.deletion.cleanup.v1",
+      operationId: "00000000-0000-4000-8000-000000000004",
+      subject: "00000000-0000-4000-8000-000000000005",
+      requestHash: "b".repeat(64),
+      lifecycleRevision: "23",
+    };
+    const receipt = {
+      ...payload,
+      state: "CLEANUP_COMPLETED",
+      receiptHash: createHmac("sha256", secret)
+        .update(
+          `receipt.cleanup.${payload.operationId}.${payload.subject}.23.${payload.requestHash}.CLEANUP_COMPLETED`,
+        )
+        .digest("hex"),
+      resultMetadata: {},
+    };
+    nextBody = JSON.stringify(receipt);
+    config.get.mockImplementation((key: string) => {
+      if (key === "PROFILE_ACCOUNT_DELETION_CLEANUP_URL")
+        return "https://profile.example.test/api/v1/internal/v1/account-deletion/cleanup";
+      if (key === "PROFILE_ACCOUNT_DELETION_HMAC_SECRET") return secret;
+      return undefined;
+    });
+    const cleanupEvent = {
+      ...event,
+      eventType: "auth.account.deletion.cleanup.v1",
+      payload,
+    };
+    prisma.outboxEvent.findFirst.mockResolvedValue(cleanupEvent as never);
+    const operationUpdate = jest.fn();
+    const transaction = jest.fn(async (fn: (tx: any) => Promise<any>) =>
+      fn({
+        safetyOperation: {
+          findUnique: jest.fn().mockResolvedValue({
+            requestMetadata: {
+              purpose: "ACCOUNT_DELETION_V1",
+              phase: "CLEANUP_IN_PROGRESS",
+              lifecycleRevision: "23",
+            },
+          }),
+          update: operationUpdate,
+        },
+        outboxEvent: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      }),
+    );
+    (prisma as any).$transaction = transaction;
+    await worker.deliverOne();
+    expect(requests[0]?.url.href).toBe(
+      "https://profile.example.test/api/v1/internal/v1/account-deletion/cleanup",
+    );
+    expect(operationUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: payload.operationId },
+        data: {
+          requestMetadata: expect.objectContaining({
+            phase: "CLEANUP_IN_PROGRESS",
+            profileCleanupState: "CLEANUP_COMPLETED",
+            profileCleanupReceipt: receipt,
+          }),
+        },
+      }),
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
   });
 });

@@ -123,7 +123,7 @@ const enabled =
           return undefined;
         },
       };
-      worker = new ChatProfileOutboxWorker(prisma, config as never);
+      worker = new ChatProfileOutboxWorker(prisma, prisma as never, config as never);
     });
 
     afterAll(async () => {
@@ -197,6 +197,7 @@ const enabled =
       });
       const replacementWorker = new ChatProfileOutboxWorker(
         prisma,
+        prisma as never,
         config as never,
       );
       await replacementWorker.deliverOne();
@@ -228,6 +229,7 @@ const enabled =
       lostAcknowledgementsRemaining = 1;
       const lostAckWorker = new ChatProfileOutboxWorker(
         prisma,
+        prisma as never,
         config as never,
       );
       await lostAckWorker.deliverOne();
@@ -248,6 +250,7 @@ const enabled =
       });
       const recoveredWorker = new ChatProfileOutboxWorker(
         prisma,
+        prisma as never,
         config as never,
       );
       await recoveredWorker.deliverOne();

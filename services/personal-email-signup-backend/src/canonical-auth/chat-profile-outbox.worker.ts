@@ -5,13 +5,14 @@ import {
   OnModuleInit,
 } from "@nestjs/common";
 import { request as httpsRequest } from "node:https";
-import { randomUUID, createHmac } from "crypto";
-import { PrismaService } from "../../prisma/prisma.module";
+import { randomUUID, createHmac, timingSafeEqual } from "crypto";
+import { AuthSafetyPrismaService, PrismaService } from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
 import { AUTH_LIFECYCLE_EVENT_TYPE } from "./auth-lifecycle-event";
 
 const EVENT_TYPE = "chat.profile.provision.v1";
 const LIFECYCLE_EVENT_TYPE = "chat.account.lifecycle.v1";
+const ACCOUNT_DELETION_CLEANUP_EVENT = "auth.account.deletion.cleanup.v1";
 const POLL_INTERVAL_MS = 5_000;
 const LEASE_MS = 60_000;
 const MAX_BACKOFF_MS = 60 * 60 * 1000;
@@ -25,13 +26,17 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly safetyPrisma: AuthSafetyPrismaService,
     private readonly config: ConfigService,
   ) {}
 
   onModuleInit(): void {
     const chatSecret = this.config.get("CHAT_PROFILE_PROVISIONING_HMAC_SECRET");
     const authSecret = this.config.get("AUTH_LIFECYCLE_HMAC_SECRET");
-    if (!chatSecret && !authSecret) {
+    const profileDeletionSecret = this.config.get(
+      "PROFILE_ACCOUNT_DELETION_HMAC_SECRET",
+    );
+    if (!chatSecret && !authSecret && !profileDeletionSecret) {
       this.logger.warn("Signed lifecycle event delivery is not configured");
       return;
     }
@@ -69,6 +74,13 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         headerPrefix: "x-auth-lifecycle",
         format: "auth-lifecycle" as const,
       },
+      {
+        eventType: ACCOUNT_DELETION_CLEANUP_EVENT,
+        endpointKey: "PROFILE_ACCOUNT_DELETION_CLEANUP_URL",
+        secretKey: "PROFILE_ACCOUNT_DELETION_HMAC_SECRET",
+        headerPrefix: "x-account-deletion",
+        format: "account-deletion-cleanup" as const,
+      },
     ] as const;
     const routeByType = new Map<
       string,
@@ -76,7 +88,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         endpoint: URL;
         secret: string;
         headerPrefix: string;
-        format: "chat-envelope" | "auth-lifecycle";
+        format: "chat-envelope" | "auth-lifecycle" | "account-deletion-cleanup";
       }
     >();
     for (const route of routeDefinitions) {
@@ -122,7 +134,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         endpoint: URL;
         secret: string;
         headerPrefix: string;
-        format: "auth-lifecycle" | "chat-envelope";
+        format: "auth-lifecycle" | "chat-envelope" | "account-deletion-cleanup";
       }
     >,
   ): Promise<void> {
@@ -161,7 +173,8 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       if (claimed.count !== 1) return;
 
       const body =
-        route.format === "auth-lifecycle"
+        route.format === "auth-lifecycle" ||
+        route.format === "account-deletion-cleanup"
           ? JSON.stringify(row.payload)
           : JSON.stringify({
               eventId: row.id,
@@ -194,22 +207,79 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         if (authEventId) {
           headers["x-auth-lifecycle-event-id"] = authEventId;
         }
-        const statusCode = await this.postLifecycleEvent(
+        const response = await this.postLifecycleEvent(
           route.endpoint,
           headers,
           body,
         );
-        if (statusCode < 200 || statusCode >= 300)
-          throw new Error(`Chat returned HTTP ${statusCode}`);
-        const deliveryUpdate = await this.prisma.outboxEvent.updateMany({
-          where: { id: row.id, claimToken, deliveredAt: null },
-          data: {
-            deliveredAt: new Date(),
-            claimedAt: null,
-            claimToken: null,
-            lastError: null,
-          },
-        });
+        if (response.statusCode < 200 || response.statusCode >= 300)
+          throw new Error(
+            `${route.format === "account-deletion-cleanup" ? "Profile" : "Chat"} returned HTTP ${response.statusCode}`,
+          );
+        let deliveryUpdate: { count: number };
+        if (route.format === "account-deletion-cleanup") {
+          const receipt = this.validateCleanupReceipt(
+            response.body,
+            row.payload,
+            route.secret,
+          );
+          deliveryUpdate = await this.safetyPrisma.$transaction(async (tx) => {
+            const operation = await tx.safetyOperation.findUnique({
+              where: { id: receipt.operationId },
+              select: { requestMetadata: true },
+            });
+            const metadata = operation?.requestMetadata;
+            if (
+              !metadata ||
+              typeof metadata !== "object" ||
+              Array.isArray(metadata)
+            )
+              throw new Error(
+                "Deletion SOC metadata missing for cleanup receipt",
+              );
+            const current = metadata as Record<string, unknown>;
+            if (
+              current.purpose !== "ACCOUNT_DELETION_V1" ||
+              current.lifecycleRevision !== receipt.lifecycleRevision
+            )
+              throw new Error(
+                "Cleanup receipt does not match committed deletion revision",
+              );
+            await tx.safetyOperation.update({
+              where: { id: receipt.operationId },
+              data: {
+                requestMetadata: {
+                  ...current,
+                  phase:
+                    receipt.state === "CLEANUP_COMPLETED"
+                      ? "CLEANUP_IN_PROGRESS"
+                      : "CLEANUP_HELD_RETENTION_REVIEW",
+                  profileCleanupState: receipt.state,
+                  profileCleanupReceipt: receipt,
+                },
+              },
+            });
+            return tx.outboxEvent.updateMany({
+              where: { id: row.id, claimToken, deliveredAt: null },
+              data: {
+                deliveredAt: new Date(),
+                claimedAt: null,
+                claimToken: null,
+                lastError: null,
+              },
+            });
+          });
+        } else {
+          deliveryUpdate = await this.prisma.outboxEvent.updateMany({
+            where: { id: row.id, claimToken, deliveredAt: null },
+            data: {
+              deliveredAt: new Date(),
+              claimedAt: null,
+              claimToken: null,
+              lastError: null,
+            },
+          });
+        }
         if (deliveryUpdate.count !== 1) {
           throw new Error("Outbox delivery claim was no longer current");
         }
@@ -237,7 +307,9 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         });
         const httpStatus =
           error instanceof Error
-            ? /^Chat returned HTTP (\d{3})$/.exec(error.message)?.[1]
+            ? /^(?:Chat|Profile) returned HTTP (\d{3})$/.exec(
+                error.message,
+              )?.[1]
             : undefined;
         const errorClass = httpStatus
           ? `http_${httpStatus}`
@@ -260,15 +332,18 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     endpoint: URL,
     headers: Record<string, string>,
     body: string,
-  ): Promise<number> {
+  ): Promise<{ statusCode: number; body: string }> {
     return new Promise((resolve, reject) => {
       let settled = false;
-      const finish = (error?: Error, statusCode?: number) => {
+      const finish = (
+        error?: Error,
+        result?: { statusCode: number; body: string },
+      ) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
         if (error) reject(error);
-        else resolve(statusCode ?? 502);
+        else resolve(result ?? { statusCode: 502, body: "" });
       };
       const request = httpsRequest(
         endpoint,
@@ -281,9 +356,19 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
           agent: false,
         },
         (response) => {
-          response.resume();
+          let responseBody = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk: string) => {
+            responseBody += chunk.slice(
+              0,
+              Math.max(0, 16_384 - responseBody.length),
+            );
+          });
           response.once("end", () =>
-            finish(undefined, response.statusCode ?? 502),
+            finish(undefined, {
+              statusCode: response.statusCode ?? 502,
+              body: responseBody,
+            }),
           );
           response.once("error", (error) => finish(error));
           response.once("aborted", () =>
@@ -298,6 +383,58 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       request.once("error", (error) => finish(error));
       request.end(body);
     });
+  }
+
+  private validateCleanupReceipt(
+    raw: string,
+    payload: unknown,
+    secret: string,
+  ) {
+    const request = payload as Record<string, unknown>;
+    let receipt: Record<string, unknown>;
+    try {
+      receipt = JSON.parse(raw) as Record<string, unknown>;
+    } catch {
+      throw new Error("Profile cleanup receipt is invalid JSON");
+    }
+    for (const field of [
+      "operationId",
+      "subject",
+      "requestHash",
+      "lifecycleRevision",
+    ] as const) {
+      if (
+        typeof request[field] !== "string" ||
+        receipt[field] !== request[field]
+      )
+        throw new Error(`Profile cleanup receipt ${field} mismatch`);
+    }
+    if (
+      receipt.state !== "CLEANUP_COMPLETED" &&
+      receipt.state !== "CLEANUP_HELD_RETENTION_REVIEW"
+    )
+      throw new Error("Profile cleanup receipt state invalid");
+    const expected = createHmac("sha256", secret)
+      .update(
+        `receipt.cleanup.${receipt.operationId}.${receipt.subject}.${receipt.lifecycleRevision}.${receipt.requestHash}.${receipt.state}`,
+      )
+      .digest();
+    let actual: Buffer;
+    try {
+      actual = Buffer.from(String(receipt.receiptHash), "hex");
+    } catch {
+      throw new Error("Profile cleanup receipt signature invalid");
+    }
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
+      throw new Error("Profile cleanup receipt signature invalid");
+    return receipt as {
+      operationId: string;
+      subject: string;
+      requestHash: string;
+      lifecycleRevision: string;
+      state: "CLEANUP_COMPLETED" | "CLEANUP_HELD_RETENTION_REVIEW";
+      receiptHash: string;
+    };
   }
 
   private async scheduleInvalidAuthLifecycleEvent(

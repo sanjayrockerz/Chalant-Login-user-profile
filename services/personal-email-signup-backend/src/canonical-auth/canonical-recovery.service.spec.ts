@@ -52,6 +52,10 @@ describe("CanonicalRecoveryService", () => {
   it("does not enumerate provider-only accounts", async () => {
     const deps = dependencies();
     const prisma = {
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: "user-1",
@@ -78,9 +82,46 @@ describe("CanonicalRecoveryService", () => {
     expect(deps.redis.set).not.toHaveBeenCalled();
   });
 
+  it("does not issue reset credentials for a permanently deleted subject", async () => {
+    const deps = dependencies();
+    const prisma = {
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue({ authSubject: "user-1" }),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: "user-1",
+          email: "person@example.com",
+          isVerified: true,
+          accountStatus: "ACTIVE",
+          passwordCredential: { userId: "user-1" },
+        }),
+      },
+    };
+    const service = new CanonicalRecoveryService(
+      prisma as never,
+      deps.redis as never,
+      deps.email as never,
+      deps.config as never,
+      deps.policy as never,
+    );
+
+    await expect(service.requestReset("person@example.com")).resolves.toEqual({
+      message:
+        "If the account is eligible, recovery instructions will be sent.",
+    });
+    expect(deps.redis.set).not.toHaveBeenCalled();
+    expect(deps.email.sendPasswordReset).not.toHaveBeenCalled();
+  });
+
   it("issues a reset credential only for an eligible password account", async () => {
     const deps = dependencies();
     const prisma = {
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: "user-1",
@@ -139,6 +180,10 @@ describe("CanonicalRecoveryService", () => {
       outboxEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: "user-1",
@@ -210,6 +255,10 @@ describe("CanonicalRecoveryService", () => {
       outboxEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: "user-1",
@@ -292,6 +341,10 @@ describe("CanonicalRecoveryService", () => {
       outboxEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma = {
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
       user: {
         findUnique: jest.fn().mockResolvedValue({
           id: "user-1",

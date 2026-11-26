@@ -15,7 +15,7 @@ import {
 } from "@prisma/client";
 import { createHash, createPrivateKey } from "crypto";
 import * as jwt from "jsonwebtoken";
-import { PrismaService } from "../../prisma/prisma.module";
+import { AuthSafetyPrismaService } from "../../prisma/prisma.module";
 import {
   CreateSafetyOperationDto,
   DisclosureReservationDto,
@@ -69,7 +69,7 @@ interface WaiterSnapshot {
 @Injectable()
 export class SafetyOrderingService implements OnModuleInit {
   constructor(
-    private readonly prisma: PrismaService,
+    private readonly prisma: AuthSafetyPrismaService,
     @Optional() private readonly profilePairState?: ProfilePairStateClient,
     @Optional() private readonly chatMatchJournal?: ChatMatchJournalClient,
   ) {}
@@ -195,7 +195,11 @@ export class SafetyOrderingService implements OnModuleInit {
         payloadHash: stored.requestHash,
         fenceEpochs: { [resourceKey]: fenceEpoch },
         committedAt: transactionRows[0].committed_at.toISOString(),
-        result: mutationResult,
+        // JSON persistence omits `undefined`, which made successful void
+        // mutations impossible to replay from their finalized SOC receipt.
+        // Persist an explicit null sentinel so duplicate/recovery calls can
+        // return the original terminal result without re-running the writer.
+        result: mutationResult === undefined ? null : mutationResult,
       };
       await tx.safetyOperation.update({
         where: { id: input.operationId },
@@ -230,6 +234,33 @@ export class SafetyOrderingService implements OnModuleInit {
       );
     }
     return this.createOperation(caller, input);
+  }
+
+  /**
+   * Enqueues irreversible deletion on the same account resource used by
+   * MATCH, DISCLOSURE and account mutations. The durable request metadata lets
+   * Auth deny new credentials while the operation waits or recovers.
+   */
+  async beginAccountDeletion(input: {
+    operationId: string;
+    subjectId: string;
+    commandHash: string;
+  }) {
+    const caller: SafetyCaller = {
+      id: "auth-account-lifecycle",
+      audience: "auth-safety-ordering",
+      scope: "safety:operations:request",
+    };
+    return this.createOperation(
+      caller,
+      {
+        operationId: input.operationId,
+        type: "ACCOUNT_MUTATION",
+        subjects: [input.subjectId],
+        commandHash: input.commandHash,
+      },
+      { purpose: "ACCOUNT_DELETION_V1", phase: "PREPARING" },
+    );
   }
 
   async reserveMatch(caller: SafetyCaller, input: MatchReservationDto) {

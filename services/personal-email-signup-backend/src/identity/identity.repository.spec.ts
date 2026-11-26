@@ -21,9 +21,18 @@ describe("PrismaIdentityRepository Chat provisioning outbox", () => {
         Promise.resolve(callback(transaction)),
       ),
     };
+    const safetyPrisma = {
+      $transaction: jest.fn((callback: (tx: typeof transaction) => unknown) =>
+        Promise.resolve(callback(transaction)),
+      ),
+    };
     return {
-      repository: new PrismaIdentityRepository(prisma as never),
+      repository: new PrismaIdentityRepository(
+        prisma as never,
+        safetyPrisma as never,
+      ),
       prisma,
+      safetyPrisma,
       userCreate,
       outboxCreate,
     };
@@ -32,7 +41,8 @@ describe("PrismaIdentityRepository Chat provisioning outbox", () => {
   it.each(["password", "provider"])(
     "stores %s signup provisioning intent in the account transaction",
     async (kind) => {
-      const { repository, prisma, userCreate, outboxCreate } = setup();
+      const { repository, prisma, safetyPrisma, userCreate, outboxCreate } =
+        setup();
 
       if (kind === "password") {
         await repository.createUser("new-user", "new@example.test", "hash");
@@ -44,7 +54,8 @@ describe("PrismaIdentityRepository Chat provisioning outbox", () => {
         });
       }
 
-      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(safetyPrisma.$transaction).toHaveBeenCalledTimes(1);
       expect(userCreate).toHaveBeenCalledTimes(1);
       expect(outboxCreate).toHaveBeenCalledWith({
         data: {

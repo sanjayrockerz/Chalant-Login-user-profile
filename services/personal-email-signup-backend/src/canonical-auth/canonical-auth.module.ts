@@ -28,6 +28,11 @@ import { ChatAccountStatusController } from "./chat-account-status.controller";
 import { InternalTokenValidationController } from "./internal-token-validation.controller";
 import { InternalServiceCredentialVerifier } from "./internal-service-credential-verifier";
 import { SafetyOrderingModule } from "../safety-ordering/safety-ordering.module";
+import { AccountDeletionController } from "./account-deletion.controller";
+import { AccountDeletionService } from "./account-deletion.service";
+import { AuthAccountDeletionFenceClient } from "./account-deletion-fence.client";
+import { AccountDeletionGuard } from "./account-deletion.guard";
+import { AccountDeletionRecoveryWorker } from "./account-deletion-recovery.worker";
 
 @Module({
   imports: [
@@ -57,6 +62,7 @@ import { SafetyOrderingModule } from "../safety-ordering/safety-ordering.module"
     AccountStatusAdminController,
     ChatAccountStatusController,
     InternalTokenValidationController,
+    AccountDeletionController,
   ],
   providers: [
     PasswordBreachService,
@@ -92,6 +98,15 @@ import { SafetyOrderingModule } from "../safety-ordering/safety-ordering.module"
     ChatProfileOutboxWorker,
     AuthAdminGuard,
     InternalServiceCredentialVerifier,
+    AccountDeletionService,
+    AccountDeletionGuard,
+    AccountDeletionRecoveryWorker,
+    {
+      provide: AuthAccountDeletionFenceClient,
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) =>
+        new AuthAccountDeletionFenceClient(config),
+    },
   ],
   exports: [
     CanonicalAuthService,

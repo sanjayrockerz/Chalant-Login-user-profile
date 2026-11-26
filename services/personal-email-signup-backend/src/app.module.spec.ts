@@ -1,5 +1,7 @@
 process.env.DATABASE_URL = "postgresql://test:test@127.0.0.1:5432/test";
 process.env.DATABASE_URL_AUTH = process.env.DATABASE_URL;
+process.env.AUTH_SAFETY_DATABASE_URL =
+  "postgresql://safety-test:safety-test@127.0.0.1:5432/test";
 process.env.REDIS_URL = "redis://127.0.0.1:6379";
 process.env.JWT_SECRET = "test-jwt-secret";
 process.env.COOKIE_SECRET = "test-cookie-secret";
@@ -7,7 +9,10 @@ process.env.COOKIE_SECRET = "test-cookie-secret";
 import request from "supertest";
 import { register } from "prom-client";
 import { Test } from "@nestjs/testing";
-import { PrismaService } from "../prisma/prisma.module";
+import {
+  AuthSafetyPrismaService,
+  PrismaService,
+} from "../prisma/prisma.module";
 import { RedisService } from "./redis/redis.service";
 import { AppModule } from "./app.module";
 import { ConfigService } from "./config/config.service";
@@ -37,6 +42,10 @@ describe("AppModule", () => {
     const moduleRef = await Test.createTestingModule({
       imports: [AppModule],
     })
+      .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .overrideProvider(AuthSafetyPrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(ConfigService)
       .useValue(config)
       .compile();
@@ -66,6 +75,8 @@ describe("AppModule", () => {
         getAll: () => ({}),
       })
       .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .overrideProvider(AuthSafetyPrismaService)
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(RedisService)
       .useValue({})
@@ -100,6 +111,8 @@ describe("AppModule", () => {
         getAll: () => ({}),
       })
       .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .overrideProvider(AuthSafetyPrismaService)
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(RedisService)
       .useValue({})
@@ -150,6 +163,8 @@ describe("AppModule", () => {
         getAll: () => ({}),
       })
       .overrideProvider(PrismaService)
+      .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
+      .overrideProvider(AuthSafetyPrismaService)
       .useValue({ $connect: jest.fn(), $disconnect: jest.fn() })
       .overrideProvider(RedisService)
       .useValue({})

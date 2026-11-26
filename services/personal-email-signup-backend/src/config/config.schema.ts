@@ -45,6 +45,14 @@ const configBaseSchema = z.object({
   CHAT_PROFILE_PROVISIONING_HMAC_SECRET: z.string().min(32).optional(),
   AUTH_LIFECYCLE_URL: z.string().url().optional(),
   AUTH_LIFECYCLE_HMAC_SECRET: z.string().min(32).optional(),
+  AUTH_ACCOUNT_DELETION_ENABLED: z.boolean().default(false),
+  PROFILE_ACCOUNT_DELETION_URL: z.string().url().optional(),
+  PROFILE_ACCOUNT_DELETION_CLEANUP_URL: z.string().url().optional(),
+  PROFILE_ACCOUNT_DELETION_HMAC_SECRET: z.string().min(32).optional(),
+  CHAT_ACCOUNT_DELETION_URL: z.string().url().optional(),
+  CHAT_ACCOUNT_DELETION_HMAC_SECRET: z.string().min(32).optional(),
+  REALTIME_ACCOUNT_DELETION_URL: z.string().url().optional(),
+  REALTIME_ACCOUNT_DELETION_HMAC_SECRET: z.string().min(32).optional(),
   AUTH_INTROSPECTION_CLIENTS: z
     .record(z.string(), authIntrospectionClientSchema)
     .default({}),
@@ -171,6 +179,24 @@ const configBaseSchema = z.object({
 });
 
 export const configSchema = configBaseSchema.superRefine((config, context) => {
+  if (config.AUTH_ACCOUNT_DELETION_ENABLED) {
+    for (const key of [
+      "PROFILE_ACCOUNT_DELETION_URL",
+      "PROFILE_ACCOUNT_DELETION_HMAC_SECRET",
+      "CHAT_ACCOUNT_DELETION_URL",
+      "CHAT_ACCOUNT_DELETION_HMAC_SECRET",
+      "REALTIME_ACCOUNT_DELETION_URL",
+      "REALTIME_ACCOUNT_DELETION_HMAC_SECRET",
+    ] as const) {
+      if (!config[key]) {
+        context.addIssue({
+          code: "custom",
+          path: [key],
+          message: "Required when AUTH_ACCOUNT_DELETION_ENABLED is true",
+        });
+      }
+    }
+  }
   if (
     config.NODE_ENV === "production" &&
     !config.REDIS_URL.startsWith("rediss://")

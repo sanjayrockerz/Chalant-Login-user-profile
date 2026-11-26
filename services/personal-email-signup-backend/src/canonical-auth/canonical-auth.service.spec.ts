@@ -42,6 +42,14 @@ describe("CanonicalAuthService email verification", () => {
         }),
       },
     };
+    const safetyPrisma = {
+      $transaction: jest.fn((callback: (tx: any) => unknown) =>
+        callback({
+          user: { create: jest.fn().mockResolvedValue(user) },
+          outboxEvent: { create: createProvisioningEvent },
+        }),
+      ),
+    };
     const redis = {
       set: jest.fn().mockResolvedValue(undefined),
       get: jest.fn().mockResolvedValue(user.id),
@@ -76,9 +84,11 @@ describe("CanonicalAuthService email verification", () => {
             }),
           ),
         } as any,
+        safetyPrisma as any,
       ),
       config,
       prisma,
+      safetyPrisma,
       redis,
       email,
       createProvisioningEvent,
@@ -104,7 +114,7 @@ describe("CanonicalAuthService email verification", () => {
   });
 
   it("stores Chat profile provisioning intent in the user creation transaction", async () => {
-    const { service, prisma, createProvisioningEvent } = createService();
+    const { service, safetyPrisma, createProvisioningEvent } = createService();
 
     await service.register({
       email: user.email,
@@ -112,7 +122,7 @@ describe("CanonicalAuthService email verification", () => {
       password: "A sufficiently strong password 2026!",
     });
 
-    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(safetyPrisma.$transaction).toHaveBeenCalledTimes(1);
     expect(createProvisioningEvent).toHaveBeenCalledWith({
       data: {
         eventType: "chat.profile.provision.v1",
@@ -143,6 +153,52 @@ describe("CanonicalAuthService email verification", () => {
   });
 });
 
+describe("CanonicalAuthService provider credential revocation", () => {
+  it("holds the account SOC resource through provider unlink", async () => {
+    const userId = "00000000-0000-4000-8000-000000000031";
+    const identityId = "00000000-0000-4000-8000-000000000032";
+    const deleteMany = jest.fn().mockResolvedValue({ count: 1 });
+    const runAccountMutation = jest.fn(
+      async ({ commit }: { commit: (tx: any) => Promise<unknown> }) =>
+        commit({
+          user: {
+            findUnique: jest.fn().mockResolvedValue({
+              passwordCredential: { userId },
+              identityLinks: [{ id: identityId, provider: "GOOGLE" }],
+            }),
+          },
+          userIdentity: { deleteMany },
+        }),
+    );
+    const prisma = {
+      userIdentity: {
+        findFirst: jest.fn().mockResolvedValue({ id: identityId }),
+      },
+    };
+    const service = new CanonicalAuthService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      { runAccountMutation } as any,
+    );
+
+    await service.unlinkProvider(userId, "GOOGLE");
+
+    expect(runAccountMutation).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: userId,
+        commandHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+      }),
+    );
+    expect(deleteMany).toHaveBeenCalledWith({
+      where: { id: identityId, userId, provider: "GOOGLE" },
+    });
+  });
+});
+
 describe("CanonicalAuthService canonical access token validation", () => {
   const subject = "00000000-0000-4000-8000-000000000011";
   const sessionId = "00000000-0000-4000-8000-000000000012";
@@ -166,6 +222,10 @@ describe("CanonicalAuthService canonical access token validation", () => {
         }),
     };
     const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       identitySession: {
         findUnique:
           overrides.findSession ??
@@ -269,6 +329,10 @@ describe("CanonicalAuthService Chat-scoped access tokens", () => {
   })) {
     const jwt = { verify, sign: jest.fn().mockReturnValue("chat-scoped.jwt") };
     const prisma = {
+      $queryRaw: jest.fn().mockResolvedValue([{ restricted: false }]),
+      accountDeletionTombstone: {
+        findUnique: jest.fn().mockResolvedValue(null),
+      },
       identitySession: {
         findUnique: jest.fn().mockResolvedValue({
           userId: subject,
@@ -334,6 +398,61 @@ describe("CanonicalAuthService Chat-scoped access tokens", () => {
     }));
     await expect(malformed.service.authenticateChatAccessTokenContext("wrong-type.jwt")).rejects.toBeInstanceOf(UnauthorizedException);
   });
+});
+
+describe("CanonicalAuthService recent authentication evidence", () => {
+  const subject = "00000000-0000-4000-8000-000000000061";
+  const sessionId = "00000000-0000-4000-8000-000000000062";
+
+  function createRecentAuthService(
+    reauthenticatedAt: Date | null,
+    createdAt: Date,
+  ) {
+    const prisma = {
+      identitySession: {
+        findUnique: jest.fn().mockResolvedValue({
+          userId: subject,
+          createdAt,
+          reauthenticatedAt,
+          expiresAt: new Date(Date.now() + 60_000),
+          revokedAt: null,
+          user: { accountStatus: UserAccountStatus.ACTIVE },
+        }),
+      },
+    };
+    const service = new CanonicalAuthService(
+      prisma as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+    return { service, prisma };
+  }
+
+  it(
+    "requires recent verified-authentication evidence, not a recently refreshed session",
+    async () => {
+      const { service } = createRecentAuthService(null, new Date());
+      await expect(
+        service.requireRecentSession(subject, sessionId),
+      ).rejects.toThrow("Recent authentication is required");
+    },
+  );
+
+  it(
+    "accepts a recent primary-authentication timestamp even when the session itself is older",
+    async () => {
+      const { service } = createRecentAuthService(
+        new Date(Date.now() - 60_000),
+        new Date(Date.now() - 24 * 60 * 60 * 1000),
+      );
+      await expect(
+        service.requireRecentSession(subject, sessionId),
+      ).resolves.toBeUndefined();
+    },
+  );
 });
 
 describe("CanonicalAuthService refresh rotation", () => {

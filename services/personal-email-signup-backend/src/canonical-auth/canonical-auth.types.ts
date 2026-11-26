@@ -24,6 +24,7 @@ export interface AuthenticatedResponse extends SessionTokens {
 export interface RequestWithPrincipal {
   user?: CanonicalPrincipal;
   sessionId?: string;
+  deletionRetrySubject?: string;
   headers: Record<string, string | string[] | undefined>;
 }
 
