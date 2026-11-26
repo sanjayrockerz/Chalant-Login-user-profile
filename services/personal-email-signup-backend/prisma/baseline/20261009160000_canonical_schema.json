@@ -1,7 +1,7 @@
 {
   "baselineId": "20261009160000_canonical_schema",
   "schemaPath": "prisma/auth.schema.prisma",
-  "schemaSha256": "334ae459086b41ad65e332fdc45716730855662f38bcc1c63634d6389e880609",
+  "schemaSha256": "351413bb48935b336abf7a61a51e6a1ba45618fbb6a9d4a90e4f0403b0f9bcf5",
   "authority": "canonical-prisma-schema",
   "freshInstallCommand": "npm run migration:fresh:init",
   "historicalPolicy": "immutable-legacy-migrations",
@@ -35,6 +35,7 @@
     "20261125190000_auth_session_reauthentication_evidence": "7c4e43d78573785a3df50f4a9448c58d032b567e5a18e1c0249d58c3ad1f520e",
     "20261126160000_auth_user_delete_requires_safety_fence": "0932e01ffd7ab3507387c54dd57b28ef61ab21c4a68b5877e81ae2c7a5d1af47",
     "20261126170000_auth_account_credential_safety_fence": "5aabc22a89f785aa368eb5a7d753c883385b2822830ac3754bde8550b067056f",
-    "20261126180000_auth_tombstone_reinstatement_guard": "59aa926aff203d225ad2dbd5ae7d6ad3359a16233d21f3faed113467def0e384"
+    "20261126180000_auth_tombstone_reinstatement_guard": "59aa926aff203d225ad2dbd5ae7d6ad3359a16233d21f3faed113467def0e384",
+    "20261126190000_auth_outbox_delivery_outcomes": "c3b66ffa670931b26e3cdab0be80ecea531ec96c2776cb57a6fce6cc888dbdca"
   }
 }

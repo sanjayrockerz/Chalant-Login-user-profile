@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { register, Counter, Histogram, Registry } from "prom-client";
+import { register, Counter, Gauge, Histogram, Registry } from "prom-client";
 
 @Injectable()
 export class MetricsService {
@@ -58,6 +58,10 @@ export class MetricsService {
 
   // Deliverability metrics
   public readonly emailDeliveryStatus: Counter<string>;
+  public readonly authOutboxDeliveriesTotal: Counter<string>;
+  public readonly authOutboxDeliveryDurationSeconds: Histogram<string>;
+  public readonly authOutboxPendingEvents: Gauge<string>;
+  public readonly authOutboxOldestPendingAgeSeconds: Gauge<string>;
 
   constructor() {
     this.registry = new Registry();
@@ -287,6 +291,32 @@ export class MetricsService {
       name: "email_delivery_status_total",
       help: "Total email delivery attempts by status",
       labelNames: ["provider", "status"],
+      registers: [this.registry],
+    });
+
+    this.authOutboxDeliveriesTotal = new Counter({
+      name: "auth_outbox_delivery_attempts_total",
+      help: "Auth outbox delivery attempts by event type and outcome",
+      labelNames: ["event_type", "outcome"],
+      registers: [this.registry],
+    });
+    this.authOutboxDeliveryDurationSeconds = new Histogram({
+      name: "auth_outbox_delivery_duration_seconds",
+      help: "Auth outbox delivery duration by event type",
+      labelNames: ["event_type"],
+      buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10],
+      registers: [this.registry],
+    });
+    this.authOutboxPendingEvents = new Gauge({
+      name: "auth_outbox_pending_events",
+      help: "Pending Auth outbox events by event type",
+      labelNames: ["event_type"],
+      registers: [this.registry],
+    });
+    this.authOutboxOldestPendingAgeSeconds = new Gauge({
+      name: "auth_outbox_oldest_pending_age_seconds",
+      help: "Age of the oldest pending Auth outbox event by event type",
+      labelNames: ["event_type"],
       registers: [this.registry],
     });
 

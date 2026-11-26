@@ -3,12 +3,17 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
+  Optional,
 } from "@nestjs/common";
 import { request as httpsRequest } from "node:https";
 import { randomUUID, createHmac, timingSafeEqual } from "crypto";
-import { AuthSafetyPrismaService, PrismaService } from "../../prisma/prisma.module";
+import {
+  AuthSafetyPrismaService,
+  PrismaService,
+} from "../../prisma/prisma.module";
 import { ConfigService } from "../config/config.service";
 import { AUTH_LIFECYCLE_EVENT_TYPE } from "./auth-lifecycle-event";
+import { MetricsService } from "../metrics/metrics.service";
 
 const EVENT_TYPE = "chat.profile.provision.v1";
 const LIFECYCLE_EVENT_TYPE = "chat.account.lifecycle.v1";
@@ -21,13 +26,14 @@ const MAX_BACKOFF_MS = 60 * 60 * 1000;
 export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(ChatProfileOutboxWorker.name);
   private timer?: NodeJS.Timeout;
-  private running = false;
-  private activeDelivery?: Promise<void>;
+  private readonly runningEventTypes = new Set<string>();
+  private readonly activeDeliveries = new Set<Promise<void>>();
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly safetyPrisma: AuthSafetyPrismaService,
     private readonly config: ConfigService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   onModuleInit(): void {
@@ -47,14 +53,14 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
 
   async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
-    await this.activeDelivery;
+    await Promise.allSettled([...this.activeDeliveries]);
   }
 
   async deliverOne(): Promise<void> {
-    if (this.running) return;
     const routeDefinitions = [
       {
         eventType: EVENT_TYPE,
+        destination: "Chat",
         endpointKey: "CHAT_PROFILE_PROVISIONING_URL",
         secretKey: "CHAT_PROFILE_PROVISIONING_HMAC_SECRET",
         headerPrefix: "x-chat-event",
@@ -62,6 +68,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       },
       {
         eventType: LIFECYCLE_EVENT_TYPE,
+        destination: "Chat",
         endpointKey: "CHAT_ACCOUNT_LIFECYCLE_URL",
         secretKey: "CHAT_PROFILE_PROVISIONING_HMAC_SECRET",
         headerPrefix: "x-chat-event",
@@ -69,6 +76,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       },
       {
         eventType: AUTH_LIFECYCLE_EVENT_TYPE,
+        destination: "Realtime",
         endpointKey: "AUTH_LIFECYCLE_URL",
         secretKey: "AUTH_LIFECYCLE_HMAC_SECRET",
         headerPrefix: "x-auth-lifecycle",
@@ -76,6 +84,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       },
       {
         eventType: ACCOUNT_DELETION_CLEANUP_EVENT,
+        destination: "Profile",
         endpointKey: "PROFILE_ACCOUNT_DELETION_CLEANUP_URL",
         secretKey: "PROFILE_ACCOUNT_DELETION_HMAC_SECRET",
         headerPrefix: "x-account-deletion",
@@ -87,6 +96,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       {
         endpoint: URL;
         secret: string;
+        destination: string;
         headerPrefix: string;
         format: "chat-envelope" | "auth-lifecycle" | "account-deletion-cleanup";
       }
@@ -107,6 +117,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         routeByType.set(route.eventType, {
           endpoint,
           secret: secretValue,
+          destination: route.destination,
           headerPrefix: route.headerPrefix,
           format: route.format,
         });
@@ -116,15 +127,22 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     }
     if (routeByType.size === 0) return;
 
-    this.running = true;
-    const delivery = this.deliverClaimedEvent(routeByType);
-    this.activeDelivery = delivery;
-    try {
-      await delivery;
-    } finally {
-      if (this.activeDelivery === delivery) this.activeDelivery = undefined;
-      this.running = false;
-    }
+    const deliveries = [...routeByType.keys()]
+      .filter((eventType) => !this.runningEventTypes.has(eventType))
+      .map((eventType) => {
+        this.runningEventTypes.add(eventType);
+        const delivery = this.deliverClaimedEvent(
+          routeByType,
+          eventType,
+        ).finally(() => {
+          this.runningEventTypes.delete(eventType);
+          this.activeDeliveries.delete(delivery);
+        });
+        this.activeDeliveries.add(delivery);
+        return delivery;
+      });
+    await Promise.allSettled(deliveries);
+    await this.refreshBacklogMetrics();
   }
 
   private async deliverClaimedEvent(
@@ -133,26 +151,31 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
       {
         endpoint: URL;
         secret: string;
+        destination: string;
         headerPrefix: string;
         format: "auth-lifecycle" | "chat-envelope" | "account-deletion-cleanup";
       }
     >,
+    eventType: string,
   ): Promise<void> {
     try {
       const now = new Date();
       const row = await this.prisma.outboxEvent.findFirst({
         where: {
-          eventType: { in: [...routeByType.keys()] },
+          eventType,
           deliveredAt: null,
+          terminalAt: null,
           nextAttemptAt: { lte: now },
           OR: [
             { claimedAt: null },
             { claimedAt: { lt: new Date(now.getTime() - LEASE_MS) } },
           ],
         },
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       });
       if (!row) return;
+
+      if (await this.hasOlderPendingCausalEvent(row)) return;
 
       const route = routeByType.get(row.eventType);
       if (!route) return;
@@ -162,6 +185,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         where: {
           id: row.id,
           deliveredAt: null,
+          terminalAt: null,
           nextAttemptAt: { lte: now },
           OR: [
             { claimedAt: null },
@@ -194,6 +218,8 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         }
         authEventId = payload.eventId;
       }
+      let requestStartedAt: number | undefined;
+      let requestLatencyRecorded = false;
       try {
         const headers: Record<string, string> = {
           "content-type": "application/json",
@@ -207,17 +233,80 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         if (authEventId) {
           headers["x-auth-lifecycle-event-id"] = authEventId;
         }
+        requestStartedAt = Date.now();
         const response = await this.postLifecycleEvent(
           route.endpoint,
           headers,
           body,
         );
-        if (response.statusCode < 200 || response.statusCode >= 300)
+        const durationSeconds = (Date.now() - requestStartedAt) / 1_000;
+        this.metrics?.authOutboxDeliveryDurationSeconds.observe(
+          { event_type: row.eventType },
+          durationSeconds,
+        );
+        requestLatencyRecorded = true;
+        if (response.statusCode < 200 || response.statusCode >= 300) {
+          const status = response.statusCode;
+          if (status === 400 || status === 422) {
+            const terminalAt = new Date();
+            const quarantined = await this.prisma.outboxEvent.updateMany({
+              where: {
+                id: row.id,
+                claimToken,
+                deliveredAt: null,
+                terminalAt: null,
+              },
+              data: {
+                terminalAt,
+                deliveryOutcome: "QUARANTINED_INVALID",
+                claimedAt: null,
+                claimToken: null,
+                lastError: `${route.destination} returned HTTP ${status}`,
+              },
+            });
+            if (quarantined.count !== 1)
+              throw new Error("Outbox quarantine claim was no longer current");
+            this.metrics?.authOutboxDeliveriesTotal.inc({
+              event_type: row.eventType,
+              outcome: "quarantined_invalid",
+            });
+            this.logger.error(
+              `${row.eventType} event quarantined eventId=${row.id} status=${status}`,
+            );
+            return;
+          }
           throw new Error(
-            `${route.format === "account-deletion-cleanup" ? "Profile" : "Chat"} returned HTTP ${response.statusCode}`,
+            `${route.destination} returned HTTP ${response.statusCode}`,
           );
+        }
+        const supersededReceipt =
+          route.format === "chat-envelope"
+            ? this.validateChatAcknowledgement(
+                response.body,
+                row.id,
+                row.eventType,
+                row.payload,
+                route.secret,
+              )
+            : undefined;
         let deliveryUpdate: { count: number };
-        if (route.format === "account-deletion-cleanup") {
+        if (supersededReceipt) {
+          deliveryUpdate = await this.prisma.outboxEvent.updateMany({
+            where: {
+              id: row.id,
+              claimToken,
+              deliveredAt: null,
+              terminalAt: null,
+            },
+            data: {
+              terminalAt: new Date(),
+              deliveryOutcome: "SUPERSEDED_BY_DELETION",
+              claimedAt: null,
+              claimToken: null,
+              lastError: null,
+            },
+          });
+        } else if (route.format === "account-deletion-cleanup") {
           const receipt = this.validateCleanupReceipt(
             response.body,
             row.payload,
@@ -263,6 +352,8 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
               where: { id: row.id, claimToken, deliveredAt: null },
               data: {
                 deliveredAt: new Date(),
+                terminalAt: new Date(),
+                deliveryOutcome: "APPLIED",
                 claimedAt: null,
                 claimToken: null,
                 lastError: null,
@@ -270,10 +361,31 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
             });
           });
         } else {
+          const responseEnvelope = this.parseResponseEnvelope(response.body);
+          const isValidAuthLifecycleAcknowledgement =
+            route.format !== "auth-lifecycle" ||
+            (responseEnvelope !== undefined &&
+              Object.keys(responseEnvelope).length === 1 &&
+              Object.keys(responseEnvelope)[0] === "accepted");
+          if (
+            responseEnvelope?.accepted !== true ||
+            !isValidAuthLifecycleAcknowledgement
+          ) {
+            throw new Error(`${route.destination} acknowledgement is invalid`);
+          }
+          const deliveryOutcome =
+            responseEnvelope?.stale === true ? "ALREADY_APPLIED" : "APPLIED";
           deliveryUpdate = await this.prisma.outboxEvent.updateMany({
-            where: { id: row.id, claimToken, deliveredAt: null },
+            where: {
+              id: row.id,
+              claimToken,
+              deliveredAt: null,
+              terminalAt: null,
+            },
             data: {
               deliveredAt: new Date(),
+              terminalAt: new Date(),
+              deliveryOutcome,
               claimedAt: null,
               claimToken: null,
               lastError: null,
@@ -283,14 +395,28 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         if (deliveryUpdate.count !== 1) {
           throw new Error("Outbox delivery claim was no longer current");
         }
+        this.metrics?.authOutboxDeliveriesTotal.inc({
+          event_type: row.eventType,
+          outcome: supersededReceipt ? "superseded_by_deletion" : "delivered",
+        });
         this.logger.log(
-          `${row.eventType} delivery acknowledged eventId=${row.id} attempt=${row.attempts + 1}`,
+          `${row.eventType} delivery terminal=${supersededReceipt ? "superseded_by_deletion" : "delivered"} eventId=${row.id} attempt=${row.attempts + 1}`,
         );
       } catch (error) {
+        if (requestStartedAt !== undefined && !requestLatencyRecorded) {
+          this.metrics?.authOutboxDeliveryDurationSeconds.observe(
+            { event_type: row.eventType },
+            (Date.now() - requestStartedAt) / 1_000,
+          );
+        }
         const attempts = row.attempts + 1;
-        const delay = Math.min(
+        const cappedDelay = Math.min(
           MAX_BACKOFF_MS,
           1_000 * 2 ** Math.min(attempts, 12),
+        );
+        const delay = Math.max(
+          500,
+          Math.floor(cappedDelay * (0.5 + Math.random() * 0.5)),
         );
         const message =
           error instanceof Error
@@ -307,7 +433,7 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         });
         const httpStatus =
           error instanceof Error
-            ? /^(?:Chat|Profile) returned HTTP (\d{3})$/.exec(
+            ? /^(?:Chat|Profile|Realtime) returned HTTP (\d{3})$/.exec(
                 error.message,
               )?.[1]
             : undefined;
@@ -319,11 +445,183 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(
           `${row.eventType} delivery retry scheduled eventId=${row.id} attempt=${attempts} errorClass=${errorClass}`,
         );
+        this.metrics?.authOutboxDeliveriesTotal.inc({
+          event_type: row.eventType,
+          outcome: errorClass,
+        });
       }
     } catch (error) {
       this.logger.error(
-        "Chat provisioning outbox poll failed",
+        "Auth outbox delivery poll failed",
         error instanceof Error ? error.stack : undefined,
+      );
+    }
+  }
+
+  private async hasOlderPendingCausalEvent(row: {
+    id: string;
+    eventType: string;
+    aggregateId: string;
+    createdAt: Date;
+  }): Promise<boolean> {
+    const chatIdentityEvent =
+      row.eventType === EVENT_TYPE || row.eventType === LIFECYCLE_EVENT_TYPE;
+    const results = await this.prisma.$queryRawUnsafe<
+      Array<{ blocked: boolean }>
+    >(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM chat_profile_provisioning_outbox prior
+          WHERE prior.aggregate_id = $1::uuid
+            AND prior.delivered_at IS NULL
+            AND prior.terminal_at IS NULL
+            AND (prior.event_type = $2 OR (
+              $3::boolean AND prior.event_type = ANY($4::text[])
+            ))
+            AND (prior.created_at, prior.id) < ($5::timestamptz, $6::uuid)
+       ) AS blocked`,
+      row.aggregateId,
+      row.eventType,
+      chatIdentityEvent,
+      [EVENT_TYPE, LIFECYCLE_EVENT_TYPE],
+      row.createdAt,
+      row.id,
+    );
+    return results[0]?.blocked === true;
+  }
+
+  private parseResponseEnvelope(
+    body: string,
+  ): Record<string, unknown> | undefined {
+    try {
+      const parsed = JSON.parse(body) as unknown;
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private validateSupersededReceipt(
+    raw: string,
+    eventId: string,
+    eventType: string,
+    payload: unknown,
+    secret: string,
+  ): boolean {
+    const envelope = this.parseResponseEnvelope(raw);
+    if (!envelope || !("terminalReceipt" in envelope)) {
+      throw new Error("Chat superseded-event receipt binding is invalid");
+    }
+    const receipt = envelope.terminalReceipt as Record<string, unknown> | null;
+    const payloadRecord = payload as Record<string, unknown>;
+    const subject = payloadRecord.authUserId;
+    if (
+      envelope.accepted !== false ||
+      !receipt ||
+      receipt.eventId !== eventId ||
+      receipt.eventType !== eventType ||
+      receipt.subject !== subject ||
+      receipt.outcome !== "SUPERSEDED_BY_DELETION" ||
+      typeof receipt.operationId !== "string" ||
+      typeof receipt.lifecycleRevision !== "string" ||
+      !/^\d+$/.test(receipt.lifecycleRevision) ||
+      typeof receipt.fenceRequestHash !== "string" ||
+      typeof receipt.fenceReceiptHash !== "string" ||
+      typeof receipt.signature !== "string"
+    ) {
+      throw new Error("Chat superseded-event receipt binding is invalid");
+    }
+    const expected = createHmac("sha256", secret)
+      .update(
+        `chat-outbox.superseded.v1|${eventId}|${eventType}|${String(subject).toLowerCase()}|${receipt.operationId}|${receipt.lifecycleRevision}|${receipt.fenceRequestHash}|${receipt.fenceReceiptHash}`,
+      )
+      .digest();
+    let actual: Buffer;
+    try {
+      actual = Buffer.from(receipt.signature, "hex");
+    } catch {
+      throw new Error("Chat superseded-event receipt signature is invalid");
+    }
+    if (actual.length !== expected.length || !timingSafeEqual(actual, expected))
+      throw new Error("Chat superseded-event receipt signature is invalid");
+    return true;
+  }
+
+  /**
+   * Chat's 2xx response is an acknowledgement only when it is the explicit
+   * applied result or an exact signed deletion-supersession receipt. A generic
+   * HTTP success must never terminalize a durable Auth outbox event.
+   */
+  private validateChatAcknowledgement(
+    raw: string,
+    eventId: string,
+    eventType: string,
+    payload: unknown,
+    secret: string,
+  ): boolean {
+    const envelope = this.parseResponseEnvelope(raw);
+    if (!envelope) {
+      throw new Error("Chat acknowledgement is invalid");
+    }
+    if (envelope.accepted === false || "terminalReceipt" in envelope) {
+      return this.validateSupersededReceipt(
+        raw,
+        eventId,
+        eventType,
+        payload,
+        secret,
+      );
+    }
+    if (envelope.accepted !== true) {
+      throw new Error("Chat acknowledgement is invalid");
+    }
+    if (
+      Object.keys(envelope).some(
+        (key) => key !== "accepted" && key !== "stale",
+      ) ||
+      ("stale" in envelope && envelope.stale !== true)
+    ) {
+      throw new Error("Chat acknowledgement is invalid");
+    }
+    return false;
+  }
+
+  private async refreshBacklogMetrics(): Promise<void> {
+    if (!this.metrics) return;
+    try {
+      const now = Date.now();
+      const pending = await this.prisma.outboxEvent.groupBy({
+        by: ["eventType"],
+        where: { deliveredAt: null, terminalAt: null },
+        _count: { _all: true },
+        _min: { createdAt: true },
+      });
+      const types = [
+        EVENT_TYPE,
+        LIFECYCLE_EVENT_TYPE,
+        AUTH_LIFECYCLE_EVENT_TYPE,
+        ACCOUNT_DELETION_CLEANUP_EVENT,
+      ];
+      const byType = new Map(pending.map((row) => [row.eventType, row]));
+      for (const eventType of types) {
+        const row = byType.get(eventType);
+        this.metrics.authOutboxPendingEvents.set(
+          { event_type: eventType },
+          row?._count._all ?? 0,
+        );
+        this.metrics.authOutboxOldestPendingAgeSeconds.set(
+          { event_type: eventType },
+          row?._min.createdAt
+            ? Math.max(0, (now - row._min.createdAt.getTime()) / 1_000)
+            : 0,
+        );
+      }
+    } catch (error) {
+      this.logger.warn(
+        "Auth outbox backlog metric refresh failed",
+        error instanceof Error ? error.message : undefined,
       );
     }
   }

@@ -210,11 +210,15 @@ model OutboxEvent {
   claimedAt     DateTime? @map("claimed_at")
   claimToken    String?   @map("claim_token") @db.Uuid
   deliveredAt   DateTime? @map("delivered_at")
+  terminalAt      DateTime? @map("terminal_at") @db.Timestamptz(6)
+  deliveryOutcome String?   @map("delivery_outcome") @db.VarChar(48)
   lastError     String?   @map("last_error")
   createdAt     DateTime  @default(now()) @map("created_at")
 
   @@index([eventType, aggregateId], map: "idx_outbox_event_type_aggregate")
   @@index([deliveredAt, nextAttemptAt, claimedAt], map: "idx_outbox_event_pending")
+  @@index([eventType, nextAttemptAt, createdAt], map: "idx_outbox_event_schedule")
+  @@index([eventType, aggregateId, createdAt, id], map: "idx_outbox_event_aggregate_order")
   @@map("chat_profile_provisioning_outbox")
 }
 
