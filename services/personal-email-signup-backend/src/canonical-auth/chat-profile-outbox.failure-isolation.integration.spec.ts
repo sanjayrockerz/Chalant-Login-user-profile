@@ -16,6 +16,24 @@ const enabled =
   process.env.AUTH_SAFETY_DATABASE_URL &&
   process.env.AUTH_LIFECYCLE_OUTBOX_RUN_ID;
 
+const asRecord = (value: unknown): Record<string, unknown> => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Expected a JSON object in the outbox fixture request");
+  }
+  return value as Record<string, unknown>;
+};
+
+const requiredString = (
+  record: Record<string, unknown>,
+  field: string,
+): string => {
+  const value = record[field];
+  if (typeof value !== "string") {
+    throw new Error(`Expected string field ${field} in the outbox fixture`);
+  }
+  return value;
+};
+
 (enabled ? describe : describe.skip)(
   "Auth outbox failure isolation with restricted disposable roles",
   () => {
@@ -54,22 +72,26 @@ const enabled =
       throw new Error(`Timed out waiting for ${label}`);
     };
 
-    const signedSuperseded = (event: Record<string, any>) => {
+    const signedSuperseded = (event: Record<string, unknown>) => {
+      const payload = asRecord(event.payload);
+      const eventId = requiredString(event, "eventId");
+      const eventType = requiredString(event, "eventType");
+      const subject = requiredString(payload, "authUserId");
       const operationId = randomUUID();
       const requestHash = "a".repeat(64);
       const fenceReceiptHash = "b".repeat(64);
       const lifecycleRevision = "3";
       const signature = createHmac("sha256", secret)
         .update(
-          `chat-outbox.superseded.v1|${event.eventId}|${event.eventType}|${event.payload.authUserId}|${operationId}|${lifecycleRevision}|${requestHash}|${fenceReceiptHash}`,
+          `chat-outbox.superseded.v1|${eventId}|${eventType}|${subject}|${operationId}|${lifecycleRevision}|${requestHash}|${fenceReceiptHash}`,
         )
         .digest("hex");
       return {
         accepted: false,
         terminalReceipt: {
-          eventId: event.eventId,
-          eventType: event.eventType,
-          subject: event.payload.authUserId,
+          eventId,
+          eventType,
+          subject,
           outcome: "SUPERSEDED_BY_DELETION",
           operationId,
           lifecycleRevision,
@@ -249,10 +271,10 @@ const enabled =
         (request: IncomingMessage, response: ServerResponse) => {
           const chunks: Buffer[] = [];
           request.on("data", (chunk: Buffer) => chunks.push(chunk));
-          request.on("end", async () => {
-            const body = JSON.parse(
-              Buffer.concat(chunks).toString("utf8"),
-            ) as Record<string, any>;
+          const handleRequest = async () => {
+            const body = asRecord(
+              JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown,
+            );
             const observation: (typeof received)[number] = {
               path: request.url ?? "",
               body,
@@ -278,7 +300,7 @@ const enabled =
                 state: "CLEANUP_COMPLETED",
                 receiptHash: createHmac("sha256", profileSecret)
                   .update(
-                    `receipt.cleanup.${body.operationId}.${body.subject}.${body.lifecycleRevision}.${body.requestHash}.CLEANUP_COMPLETED`,
+                    `receipt.cleanup.${requiredString(body, "operationId")}.${requiredString(body, "subject")}.${requiredString(body, "lifecycleRevision")}.${requiredString(body, "requestHash")}.CLEANUP_COMPLETED`,
                   )
                   .digest("hex"),
                 resultMetadata: {},
@@ -290,6 +312,12 @@ const enabled =
               response.end(JSON.stringify({ accepted: true }));
             }
             observation.finishedAt = Date.now();
+          };
+          request.on("end", () => {
+            void handleRequest().catch(() => {
+              if (!response.headersSent) response.statusCode = 500;
+              response.end("outbox test fixture request failed");
+            });
           });
         },
       );
@@ -409,7 +437,11 @@ const enabled =
           .filter((event) =>
             ["/realtime-lifecycle", "/profile-cleanup"].includes(event.path),
           )
-          .every((event) => event.finishedAt! - event.startedAt < 1_000),
+          .every(
+            (event) =>
+              event.finishedAt !== undefined &&
+              event.finishedAt - event.startedAt < 1_000,
+          ),
       ).toBe(true);
       const evidencePath = process.env.AUTH_LIFECYCLE_OUTBOX_EVIDENCE_FILE;
       if (!evidencePath)

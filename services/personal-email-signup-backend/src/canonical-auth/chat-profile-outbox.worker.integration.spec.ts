@@ -84,7 +84,10 @@ const enabled =
         );
       maintenance = new Client({ connectionString: maintenanceUrl });
       await maintenance.connect();
-      const marker = await maintenance.query(
+      const marker = await maintenance.query<{
+        run_id: string;
+        is_superuser: boolean;
+      }>(
         `SELECT marker.run_id::text AS run_id, role.rolsuper AS is_superuser
            FROM public.__codex_acceptance_run marker
            JOIN pg_roles role ON role.rolname = current_user`,
@@ -128,7 +131,7 @@ const enabled =
               response.destroy();
               return;
             }
-            response.end();
+            response.end(JSON.stringify({ accepted: true }));
           });
         },
       );

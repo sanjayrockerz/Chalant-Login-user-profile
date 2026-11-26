@@ -517,30 +517,36 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     const receipt = envelope.terminalReceipt as Record<string, unknown> | null;
     const payloadRecord = payload as Record<string, unknown>;
     const subject = payloadRecord.authUserId;
+    const operationId = receipt?.operationId;
+    const lifecycleRevision = receipt?.lifecycleRevision;
+    const fenceRequestHash = receipt?.fenceRequestHash;
+    const fenceReceiptHash = receipt?.fenceReceiptHash;
+    const signature = receipt?.signature;
     if (
       envelope.accepted !== false ||
       !receipt ||
+      typeof subject !== "string" ||
       receipt.eventId !== eventId ||
       receipt.eventType !== eventType ||
       receipt.subject !== subject ||
       receipt.outcome !== "SUPERSEDED_BY_DELETION" ||
-      typeof receipt.operationId !== "string" ||
-      typeof receipt.lifecycleRevision !== "string" ||
-      !/^\d+$/.test(receipt.lifecycleRevision) ||
-      typeof receipt.fenceRequestHash !== "string" ||
-      typeof receipt.fenceReceiptHash !== "string" ||
-      typeof receipt.signature !== "string"
+      typeof operationId !== "string" ||
+      typeof lifecycleRevision !== "string" ||
+      !/^\d+$/.test(lifecycleRevision) ||
+      typeof fenceRequestHash !== "string" ||
+      typeof fenceReceiptHash !== "string" ||
+      typeof signature !== "string"
     ) {
       throw new Error("Chat superseded-event receipt binding is invalid");
     }
     const expected = createHmac("sha256", secret)
       .update(
-        `chat-outbox.superseded.v1|${eventId}|${eventType}|${String(subject).toLowerCase()}|${receipt.operationId}|${receipt.lifecycleRevision}|${receipt.fenceRequestHash}|${receipt.fenceReceiptHash}`,
+        `chat-outbox.superseded.v1|${eventId}|${eventType}|${subject.toLowerCase()}|${operationId}|${lifecycleRevision}|${fenceRequestHash}|${fenceReceiptHash}`,
       )
       .digest();
     let actual: Buffer;
     try {
-      actual = Buffer.from(receipt.signature, "hex");
+      actual = Buffer.from(signature, "hex");
     } catch {
       throw new Error("Chat superseded-event receipt signature is invalid");
     }
@@ -695,31 +701,42 @@ export class ChatProfileOutboxWorker implements OnModuleInit, OnModuleDestroy {
     } catch {
       throw new Error("Profile cleanup receipt is invalid JSON");
     }
-    for (const field of [
-      "operationId",
-      "subject",
-      "requestHash",
-      "lifecycleRevision",
-    ] as const) {
-      if (
-        typeof request[field] !== "string" ||
-        receipt[field] !== request[field]
-      )
-        throw new Error(`Profile cleanup receipt ${field} mismatch`);
+    const operationId = request.operationId;
+    const subject = request.subject;
+    const requestHash = request.requestHash;
+    const lifecycleRevision = request.lifecycleRevision;
+    const receiptOperationId = receipt.operationId;
+    const receiptSubject = receipt.subject;
+    const receiptRequestHash = receipt.requestHash;
+    const receiptLifecycleRevision = receipt.lifecycleRevision;
+    if (
+      typeof operationId !== "string" ||
+      typeof subject !== "string" ||
+      typeof requestHash !== "string" ||
+      typeof lifecycleRevision !== "string" ||
+      receiptOperationId !== operationId ||
+      receiptSubject !== subject ||
+      receiptRequestHash !== requestHash ||
+      receiptLifecycleRevision !== lifecycleRevision
+    ) {
+      throw new Error("Profile cleanup receipt binding mismatch");
     }
     if (
       receipt.state !== "CLEANUP_COMPLETED" &&
       receipt.state !== "CLEANUP_HELD_RETENTION_REVIEW"
     )
       throw new Error("Profile cleanup receipt state invalid");
+    const receiptHash = receipt.receiptHash;
+    if (typeof receiptHash !== "string")
+      throw new Error("Profile cleanup receipt signature invalid");
     const expected = createHmac("sha256", secret)
       .update(
-        `receipt.cleanup.${receipt.operationId}.${receipt.subject}.${receipt.lifecycleRevision}.${receipt.requestHash}.${receipt.state}`,
+        `receipt.cleanup.${operationId}.${subject}.${lifecycleRevision}.${requestHash}.${receipt.state}`,
       )
       .digest();
     let actual: Buffer;
     try {
-      actual = Buffer.from(String(receipt.receiptHash), "hex");
+      actual = Buffer.from(receiptHash, "hex");
     } catch {
       throw new Error("Profile cleanup receipt signature invalid");
     }

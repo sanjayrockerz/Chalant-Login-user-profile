@@ -251,6 +251,47 @@ describe("ChatProfileOutboxWorker", () => {
     );
   });
 
+  it("rejects a signed supersession receipt without a string subject", async () => {
+    const eventWithoutSubject = { ...event, payload: {} };
+    prisma.outboxEvent.findFirst.mockResolvedValue(
+      eventWithoutSubject as never,
+    );
+    const operationId = "00000000-0000-4000-8000-000000000031";
+    const requestHash = "e".repeat(64);
+    const fenceReceiptHash = "f".repeat(64);
+    const signature = createHmac(
+      "sha256",
+      "a-secret-that-is-long-enough-for-testing",
+    )
+      .update(
+        `chat-outbox.superseded.v1|${event.id}|${event.eventType}|undefined|${operationId}|3|${requestHash}|${fenceReceiptHash}`,
+      )
+      .digest("hex");
+    nextBody = JSON.stringify({
+      accepted: false,
+      terminalReceipt: {
+        eventId: event.id,
+        eventType: event.eventType,
+        outcome: "SUPERSEDED_BY_DELETION",
+        operationId,
+        lifecycleRevision: "3",
+        fenceRequestHash: requestHash,
+        fenceReceiptHash,
+        signature,
+      },
+    });
+
+    await worker.deliverOne();
+
+    const retry = prisma.outboxEvent.updateMany.mock.calls.at(-1)?.[0];
+    expect(retry?.data?.deliveryOutcome).toBeUndefined();
+    expect(retry?.data?.terminalAt).toBeUndefined();
+    expect(retry?.data?.nextAttemptAt).toBeInstanceOf(Date);
+    expect(retry?.data?.lastError).toBe(
+      "Chat superseded-event receipt binding is invalid",
+    );
+  });
+
   it("isolates a rejected Chat lane from Chat lifecycle and Realtime delivery", async () => {
     const provision = { ...event, id: "00000000-0000-4000-8000-000000000010" };
     const chatLifecycle = {
@@ -301,9 +342,9 @@ describe("ChatProfileOutboxWorker", () => {
         })[key],
     );
     prisma.outboxEvent.findFirst.mockImplementation(
-      async (args: Record<string, unknown>) => {
+      (args: Record<string, unknown>) => {
         const eventType = (args.where as { eventType?: string })?.eventType;
-        return (byType.get(eventType ?? "") ?? null) as never;
+        return Promise.resolve((byType.get(eventType ?? "") ?? null) as never);
       },
     );
     statusByPath["/profile"] = 401;
@@ -376,11 +417,13 @@ describe("ChatProfileOutboxWorker", () => {
       return undefined;
     });
     prisma.outboxEvent.findFirst.mockImplementation(
-      async (args: Record<string, unknown>) =>
-        (args.where as { eventType?: string })?.eventType ===
-        lifecycleEvent.eventType
-          ? lifecycleEvent
-          : (null as never),
+      (args: Record<string, unknown>) =>
+        Promise.resolve(
+          (args.where as { eventType?: string })?.eventType ===
+            lifecycleEvent.eventType
+            ? lifecycleEvent
+            : (null as never),
+        ),
     );
     await worker.deliverOne();
 
@@ -390,17 +433,10 @@ describe("ChatProfileOutboxWorker", () => {
     expect(requests[0]?.body).toContain(
       '"eventType":"chat.account.lifecycle.v1"',
     );
-    expect(prisma.outboxEvent.findFirst.mock.calls).toEqual(
-      expect.arrayContaining([
-        [
-          expect.objectContaining({
-            where: expect.objectContaining({
-              eventType: "chat.account.lifecycle.v1",
-            }),
-          }),
-        ],
-      ]),
+    const requestedTypes = prisma.outboxEvent.findFirst.mock.calls.map(
+      ([args]) => (args.where as { eventType?: string })?.eventType,
     );
+    expect(requestedTypes).toContain("chat.account.lifecycle.v1");
   });
 
   it("does not let an unconfigured lifecycle endpoint block signup delivery", async () => {
@@ -540,39 +576,41 @@ describe("ChatProfileOutboxWorker", () => {
       payload,
     };
     prisma.outboxEvent.findFirst.mockResolvedValue(cleanupEvent as never);
-    const operationUpdate = jest.fn();
-    const transaction = jest.fn(async (fn: (tx: any) => Promise<any>) =>
-      fn({
-        safetyOperation: {
-          findUnique: jest.fn().mockResolvedValue({
-            requestMetadata: {
-              purpose: "ACCOUNT_DELETION_V1",
-              phase: "CLEANUP_IN_PROGRESS",
-              lifecycleRevision: "23",
-            },
-          }),
-          update: operationUpdate,
-        },
-        outboxEvent: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
-      }),
+    const operationUpdate = jest.fn<
+      Promise<unknown>,
+      [Record<string, unknown>]
+    >();
+    const transactionClient = {
+      safetyOperation: {
+        findUnique: jest.fn().mockResolvedValue({
+          requestMetadata: {
+            purpose: "ACCOUNT_DELETION_V1",
+            phase: "CLEANUP_IN_PROGRESS",
+            lifecycleRevision: "23",
+          },
+        }),
+        update: operationUpdate,
+      },
+      outboxEvent: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const transaction = jest.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+      fn(transactionClient),
     );
-    (prisma as any).$transaction = transaction;
+    Object.assign(prisma, { $transaction: transaction });
     await worker.deliverOne();
     expect(requests[0]?.url.href).toBe(
       "https://profile.example.test/api/v1/internal/v1/account-deletion/cleanup",
     );
-    expect(operationUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: payload.operationId },
-        data: {
-          requestMetadata: expect.objectContaining({
-            phase: "CLEANUP_IN_PROGRESS",
-            profileCleanupState: "CLEANUP_COMPLETED",
-            profileCleanupReceipt: receipt,
-          }),
-        },
-      }),
-    );
+    const updateCall = operationUpdate.mock.calls[0]?.[0];
+    expect(updateCall?.where).toEqual({ id: payload.operationId });
+    const updateData = updateCall?.data as {
+      requestMetadata?: Record<string, unknown>;
+    };
+    expect(updateData.requestMetadata).toMatchObject({
+      phase: "CLEANUP_IN_PROGRESS",
+      profileCleanupState: "CLEANUP_COMPLETED",
+      profileCleanupReceipt: receipt,
+    });
     expect(transaction).toHaveBeenCalledTimes(1);
   });
 });
